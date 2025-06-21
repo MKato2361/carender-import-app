@@ -41,6 +41,7 @@ else:
     service = st.session_state['calendar_service'] # 既にサービスがあればそれを使用
 
 # ファイルアップロードとイベント設定、イベント削除のタブを作成
+# タブの順序は自由に変更できますが、Excelに依存しない削除を独立させるためにタブで区切ります。
 tabs = st.tabs(["1. ファイルのアップロード", "2. イベントの登録", "3. イベントの削除"])
 
 with tabs[0]:
@@ -76,7 +77,7 @@ with tabs[1]:
     # アップロードファイルがセッションステートにない場合、処理を停止
     if not st.session_state.get('uploaded_files'):
         st.info("先に「1. ファイルのアップロード」タブでExcelファイルをアップロードしてください。")
-        st.stop()
+        st.stop() # ここで停止することで、Excelに依存するイベント登録はExcelアップロード後のみ可能
 
     # イベント設定
     st.subheader("📝 イベント設定")
@@ -152,65 +153,65 @@ with tabs[1]:
 with tabs[2]:
     st.header("イベントを削除")
 
-    if not st.session_state['editable_calendar_options']:
-        st.error("削除可能なカレンダーが見つかりませんでした。Googleカレンダーの設定を確認してください。")
-        st.stop()
-
-    selected_calendar_name_del = st.selectbox("削除対象カレンダーを選択", list(st.session_state['editable_calendar_options'].keys()), key="del_calendar_select")
-    calendar_id_del = st.session_state['editable_calendar_options'][selected_calendar_name_del]
-
-    st.subheader("🗓️ 削除期間の選択")
-    today = date.today()
-    # デフォルトで過去30日間のイベントを対象にする
-    default_start_date = today - timedelta(days=30)
-    default_end_date = today
-
-    delete_start_date = st.date_input("削除開始日", value=default_start_date)
-    delete_end_date = st.date_input("削除終了日", value=default_end_date)
-
-    if delete_start_date > delete_end_date:
-        st.error("削除開始日は終了日より前に設定してください。")
+    # カレンダーオプションが利用可能かチェックし、なければエラーメッセージを表示
+    if 'editable_calendar_options' not in st.session_state or not st.session_state['editable_calendar_options']:
+        st.error("削除可能なカレンダーが見つかりませんでした。Google認証を完了しているか、Googleカレンダーの設定を確認してください。")
+        # st.stop() # ここではstopせず、メッセージ表示に留めることで、他のタブには影響しない
     else:
-        st.subheader("🗑️ 削除実行")
+        selected_calendar_name_del = st.selectbox("削除対象カレンダーを選択", list(st.session_state['editable_calendar_options'].keys()), key="del_calendar_select")
+        calendar_id_del = st.session_state['editable_calendar_options'][selected_calendar_name_del]
 
-        # 初期化
-        if 'show_delete_confirmation' not in st.session_state:
-            st.session_state.show_delete_confirmation = False
-        if 'last_deleted_count' not in st.session_state: # 削除件数を保持するstateを追加
-            st.session_state.last_deleted_count = None
+        st.subheader("🗓️ 削除期間の選択")
+        today = date.today()
+        # デフォルトで過去30日間のイベントを対象にする
+        default_start_date = today - timedelta(days=30)
+        default_end_date = today
 
-        # 「選択期間のイベントを削除する」ボタン
-        if st.button("選択期間のイベントを削除する", key="delete_events_button"):
-            st.session_state.show_delete_confirmation = True
-            st.session_state.last_deleted_count = None
-            st.rerun()
+        delete_start_date = st.date_input("削除開始日", value=default_start_date)
+        delete_end_date = st.date_input("削除終了日", value=default_end_date)
 
-        # 確認フラグがTrueの場合にのみ確認メッセージと「はい」/「いいえ」ボタンを表示
-        if st.session_state.show_delete_confirmation:
-            st.warning(f"「{selected_calendar_name_del}」カレンダーから {delete_start_date.strftime('%Y年%m月%d日')}から{delete_end_date.strftime('%Y年%m月%d日')}までの全てのイベントを削除します。この操作は元に戻せません。よろしいですか？")
+        if delete_start_date > delete_end_date:
+            st.error("削除開始日は終了日より前に設定してください。")
+        else:
+            st.subheader("🗑️ 削除実行")
 
-            col1, col2 = st.columns(2)
-            with col1:
-                if st.button("はい、削除を実行します", key="confirm_delete_button_final"):
-                    deleted_count = delete_events_from_calendar(
-                        service, calendar_id_del,
-                        datetime.combine(delete_start_date, datetime.min.time()),
-                        datetime.combine(delete_end_date, datetime.max.time())
-                    )
-                    st.session_state.last_deleted_count = deleted_count
-                    st.session_state.show_delete_confirmation = False
-                    st.rerun()
-            with col2:
-                if st.button("いいえ、キャンセルします", key="cancel_delete_button"):
-                    st.info("削除はキャンセルされました。")
-                    st.session_state.show_delete_confirmation = False
-                    st.session_state.last_deleted_count = None
-                    st.rerun()
+            # 初期化
+            if 'show_delete_confirmation' not in st.session_state:
+                st.session_state.show_delete_confirmation = False
+            if 'last_deleted_count' not in st.session_state:
+                st.session_state.last_deleted_count = None
 
-        # 削除完了メッセージを表示
-        if not st.session_state.show_delete_confirmation and st.session_state.last_deleted_count is not None:
-            if st.session_state.last_deleted_count > 0:
-                st.success(f"✅ {st.session_state.last_deleted_count} 件のイベントが削除されました。")
-            else:
-                st.info("指定された期間内に削除するイベントは見つかりませんでした。")
-            # st.session_state.last_deleted_count = None # 必要に応じてコメントアウトを外す
+            # 「選択期間のイベントを削除する」ボタン
+            if st.button("選択期間のイベントを削除する", key="delete_events_button"):
+                st.session_state.show_delete_confirmation = True
+                st.session_state.last_deleted_count = None
+                st.rerun()
+
+            # 確認フラグがTrueの場合にのみ確認メッセージと「はい」/「いいえ」ボタンを表示
+            if st.session_state.show_delete_confirmation:
+                st.warning(f"「{selected_calendar_name_del}」カレンダーから {delete_start_date.strftime('%Y年%m月%d日')}から{delete_end_date.strftime('%Y年%m%d日')}までの全てのイベントを削除します。この操作は元に戻せません。よろしいですか？")
+
+                col1, col2 = st.columns(2)
+                with col1:
+                    if st.button("はい、削除を実行します", key="confirm_delete_button_final"):
+                        deleted_count = delete_events_from_calendar(
+                            service, calendar_id_del,
+                            datetime.combine(delete_start_date, datetime.min.time()),
+                            datetime.combine(delete_end_date, datetime.max.time())
+                        )
+                        st.session_state.last_deleted_count = deleted_count
+                        st.session_state.show_delete_confirmation = False
+                        st.rerun()
+                with col2:
+                    if st.button("いいえ、キャンセルします", key="cancel_delete_button"):
+                        st.info("削除はキャンセルされました。")
+                        st.session_state.show_delete_confirmation = False
+                        st.session_state.last_deleted_count = None
+                        st.rerun()
+
+            # 削除完了メッセージを表示
+            if not st.session_state.show_delete_confirmation and st.session_state.last_deleted_count is not None:
+                if st.session_state.last_deleted_count > 0:
+                    st.success(f"✅ {st.session_state.last_deleted_count} 件のイベントが削除されました。")
+                else:
+                    st.info("指定された期間内に削除するイベントは見つかりませんでした。")
