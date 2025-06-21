@@ -41,7 +41,6 @@ else:
     service = st.session_state['calendar_service'] # 既にサービスがあればそれを使用
 
 # ファイルアップロードとイベント設定、イベント削除のタブを作成
-# タブの順序は自由に変更できますが、Excelに依存しない削除を独立させるためにタブで区切ります。
 tabs = st.tabs(["1. ファイルのアップロード", "2. イベントの登録", "3. イベントの削除"])
 
 with tabs[0]:
@@ -74,80 +73,76 @@ with tabs[0]:
 
 with tabs[1]:
     st.header("イベントを登録")
-    # アップロードファイルがセッションステートにない場合、処理を停止
+    # ここから変更点: st.stop() を削除し、Excelファイルがない場合の表示を制御
     if not st.session_state.get('uploaded_files'):
-        st.info("先に「1. ファイルのアップロード」タブでExcelファイルをアップロードしてください。")
-        st.stop() # ここで停止することで、Excelに依存するイベント登録はExcelアップロード後のみ可能
+        st.info("先に「1. ファイルのアップロード」タブでExcelファイルをアップロードすると、イベント登録機能が利用可能になります。")
+    else:
+        # イベント設定
+        st.subheader("📝 イベント設定")
+        all_day_event = st.checkbox("終日イベントとして登録", value=False)
+        private_event = st.checkbox("非公開イベントとして登録", value=True)
 
-    # イベント設定
-    st.subheader("📝 イベント設定")
-    all_day_event = st.checkbox("終日イベントとして登録", value=False)
-    private_event = st.checkbox("非公開イベントとして登録", value=True)
+        # セッションステートからdescription_columns_poolを取得
+        description_columns = st.multiselect(
+            "説明欄に含める列（複数選択可）",
+            st.session_state.get('description_columns_pool', [])
+        )
 
-    # セッションステートからdescription_columns_poolを取得
-    description_columns = st.multiselect(
-        "説明欄に含める列（複数選択可）",
-        st.session_state.get('description_columns_pool', [])
-    )
+        if not st.session_state['editable_calendar_options']:
+            st.error("登録可能なカレンダーが見つかりませんでした。Googleカレンダーの設定を確認してください。")
+            # ここではst.stop()を使わず、メッセージ表示に留めることでアプリ全体を停止させない
+        else:
+            selected_calendar_name = st.selectbox("登録先カレンダーを選択", list(st.session_state['editable_calendar_options'].keys()), key="reg_calendar_select")
+            calendar_id = st.session_state['editable_calendar_options'][selected_calendar_name]
 
-    if not st.session_state['editable_calendar_options']:
-        st.error("登録可能なカレンダーが見つかりませんでした。Googleカレンダーの設定を確認してください。")
-        st.stop()
+            # データ処理と登録
+            st.subheader("➡️ イベント登録")
+            if st.button("Googleカレンダーに登録する"):
+                with st.spinner("イベントデータを処理中..."):
+                    df = process_excel_files(st.session_state['uploaded_files'], description_columns, all_day_event, private_event)
+                    if df.empty:
+                        st.warning("有効なイベントデータがありません。")
+                    else:
+                        st.info(f"{len(df)} 件のイベントを登録します。")
+                        progress = st.progress(0)
+                        successful_registrations = 0
+                        for i, row in df.iterrows():
+                            try:
+                                if row['All Day Event'] == "True":
+                                    start_date_str = datetime.strptime(row['Start Date'], "%Y/%m/%d").strftime("%Y-%m-%d")
+                                    end_date_obj = datetime.strptime(row['End Date'], "%Y/%m/%d").date() + timedelta(days=1)
+                                    end_date_str = end_date_obj.strftime("%Y-%m-%d")
 
-    selected_calendar_name = st.selectbox("登録先カレンダーを選択", list(st.session_state['editable_calendar_options'].keys()), key="reg_calendar_select")
-    calendar_id = st.session_state['editable_calendar_options'][selected_calendar_name]
+                                    event_data = {
+                                        'summary': row['Subject'],
+                                        'location': row['Location'] if pd.notna(row['Location']) else '',
+                                        'description': row['Description'] if pd.notna(row['Description']) else '',
+                                        'start': {'date': start_date_str},
+                                        'end': {'date': end_date_str},
+                                        'transparency': 'transparent' if row['Private'] == "True" else 'opaque'
+                                    }
+                                else:
+                                    start_dt_str = f"{row['Start Date']} {row['Start Time']}"
+                                    end_dt_str = f"{row['End Date']} {row['End Time']}"
 
-    # データ処理と登録
-    st.subheader("➡️ イベント登録")
-    if st.button("Googleカレンダーに登録する"):
-        with st.spinner("イベントデータを処理中..."):
-            df = process_excel_files(st.session_state['uploaded_files'], description_columns, all_day_event, private_event)
-            if df.empty:
-                st.warning("有効なイベントデータがありません。")
-            else:
-                st.info(f"{len(df)} 件のイベントを登録します。")
-                progress = st.progress(0)
-                successful_registrations = 0
-                for i, row in df.iterrows():
-                    try:
-                        if row['All Day Event'] == "True":
-                            # 終日イベントの場合、日付のみを使用
-                            start_date_str = datetime.strptime(row['Start Date'], "%Y/%m/%d").strftime("%Y-%m-%d")
-                            # 終日イベントの場合、終了日は開始日の翌日を設定する必要がある (Google Calendar APIの仕様)
-                            end_date_obj = datetime.strptime(row['End Date'], "%Y/%m/%d").date() + timedelta(days=1)
-                            end_date_str = end_date_obj.strftime("%Y-%m-%d")
+                                    start = datetime.strptime(start_dt_str, "%Y/%m/%d %H:%M").isoformat()
+                                    end = datetime.strptime(end_dt_str, "%Y/%m/%d %H:%M").isoformat()
 
-                            event_data = {
-                                'summary': row['Subject'],
-                                'location': row['Location'] if pd.notna(row['Location']) else '',
-                                'description': row['Description'] if pd.notna(row['Description']) else '',
-                                'start': {'date': start_date_str},
-                                'end': {'date': end_date_str},
-                                'transparency': 'transparent' if row['Private'] == "True" else 'opaque'
-                            }
-                        else:
-                            # 時間指定イベントの場合、日付と時間を使用
-                            start_dt_str = f"{row['Start Date']} {row['Start Time']}"
-                            end_dt_str = f"{row['End Date']} {row['End Time']}"
+                                    event_data = {
+                                        'summary': row['Subject'],
+                                        'location': row['Location'] if pd.notna(row['Location']) else '',
+                                        'description': row['Description'] if pd.notna(row['Description']) else '',
+                                        'start': {'dateTime': start, 'timeZone': 'Asia/Tokyo'},
+                                        'end': {'dateTime': end, 'timeZone': 'Asia/Tokyo'},
+                                        'transparency': 'transparent' if row['Private'] == "True" else 'opaque'
+                                    }
+                                add_event_to_calendar(service, calendar_id, event_data)
+                                successful_registrations += 1
+                            except Exception as e:
+                                st.error(f"{row['Subject']} の登録に失敗しました: {e}")
+                            progress.progress((i + 1) / len(df))
 
-                            start = datetime.strptime(start_dt_str, "%Y/%m/%d %H:%M").isoformat()
-                            end = datetime.strptime(end_dt_str, "%Y/%m/%d %H:%M").isoformat()
-
-                            event_data = {
-                                'summary': row['Subject'],
-                                'location': row['Location'] if pd.notna(row['Location']) else '',
-                                'description': row['Description'] if pd.notna(row['Description']) else '',
-                                'start': {'dateTime': start, 'timeZone': 'Asia/Tokyo'},
-                                'end': {'dateTime': end, 'timeZone': 'Asia/Tokyo'},
-                                'transparency': 'transparent' if row['Private'] == "True" else 'opaque'
-                            }
-                        add_event_to_calendar(service, calendar_id, event_data)
-                        successful_registrations += 1
-                    except Exception as e:
-                        st.error(f"{row['Subject']} の登録に失敗しました: {e}")
-                    progress.progress((i + 1) / len(df))
-
-                st.success(f"✅ {successful_registrations} 件のイベント登録が完了しました！")
+                        st.success(f"✅ {successful_registrations} 件のイベント登録が完了しました！")
 
 
 with tabs[2]:
@@ -156,7 +151,6 @@ with tabs[2]:
     # カレンダーオプションが利用可能かチェックし、なければエラーメッセージを表示
     if 'editable_calendar_options' not in st.session_state or not st.session_state['editable_calendar_options']:
         st.error("削除可能なカレンダーが見つかりませんでした。Google認証を完了しているか、Googleカレンダーの設定を確認してください。")
-        # st.stop() # ここではstopせず、メッセージ表示に留めることで、他のタブには影響しない
     else:
         selected_calendar_name_del = st.selectbox("削除対象カレンダーを選択", list(st.session_state['editable_calendar_options'].keys()), key="del_calendar_select")
         calendar_id_del = st.session_state['editable_calendar_options'][selected_calendar_name_del]
