@@ -1,4 +1,3 @@
-# excel_parser.py
 import pandas as pd
 import re
 import datetime
