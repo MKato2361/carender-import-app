@@ -20,6 +20,7 @@ def authenticate_google():
         return creds
 
     # 2. 認証情報が有効でない、または期限切れの場合、更新または再認証を行います
+    # 修正: token.pickleからの読み込みを削除し、st.session_stateのみに依存
     if creds and creds.expired and creds.refresh_token:
         # トークンが期限切れでリフレッシュトークンがある場合、トークンをリフレッシュします
         try:
@@ -232,20 +233,35 @@ def reconcile_events(excel_df: pd.DataFrame, existing_gcal_events: list):
         # 日時情報の整形
         start_dt_excel_obj = None
         end_dt_excel_obj = None
-        if excel_row['All Day Event'] == "True":
-            start_date_obj = datetime.strptime(excel_row['Start Date'], "%Y/%m/%d").date()
-            end_date_obj = datetime.strptime(excel_row['End Date'], "%Y/%m/%d").date() + timedelta(days=1) # Google Calendar APIの仕様
-            event_data_from_excel['start'] = {'date': start_date_obj.strftime("%Y-%m-%d")}
-            event_data_from_excel['end'] = {'date': end_date_obj.strftime("%Y-%m-%d")}
-            start_dt_excel_obj = start_date_obj # 比較用
-            end_dt_excel_obj = end_date_obj # 比較用、API仕様と合わせる
-        else:
-            start_dt_str = f"{excel_row['Start Date']} {excel_row['Start Time']}"
-            end_dt_str = f"{excel_row['End Date']} {excel_row['End Time']}"
-            start_dt_excel_obj = datetime.strptime(start_dt_str, "%Y/%m/%d %H:%M")
-            end_dt_excel_obj = datetime.strptime(end_dt_str, "%Y/%m/%d %H:%M")
-            event_data_from_excel['start'] = {'dateTime': start_dt_excel_obj.isoformat(), 'timeZone': 'Asia/Tokyo'}
-            event_data_from_excel['end'] = {'dateTime': end_dt_excel_obj.isoformat(), 'timeZone': 'Asia/Tokyo'}
+        
+        # Excelからの日付と時刻は、既にexcel_parserでdatetimeオブジェクトに変換されている前提
+        # ここでは、そのオブジェクトをGoogle Calendar APIが要求する形式に変換する
+        start_date_str = excel_row['Start Date'] # "%Y/%m/%d"形式の文字列
+        end_date_str = excel_row['End Date']   # "%Y/%m/%d"形式の文字列
+        start_time_str = excel_row['Start Time'] # "%H:%M"形式の文字列
+        end_time_str = excel_row['End Time']   # "%H:%M"形式の文字列
+
+
+        if excel_row['All Day Event'] == "True": # Excel側が終日イベント
+            # excel_parserで既に翌日になっているので、そのまま使用
+            start_date_obj_for_api = datetime.strptime(start_date_str, "%Y/%m/%d").strftime("%Y-%m-%d")
+            end_date_obj_for_api = datetime.strptime(end_date_str, "%Y/%m/%d").strftime("%Y-%m-%d")
+            event_data_from_excel['start'] = {'date': start_date_obj_for_api}
+            event_data_from_excel['end'] = {'date': end_date_obj_for_api}
+            
+            # 比較用に日付オブジェクトを保持
+            start_dt_excel_obj = datetime.strptime(start_date_str, "%Y/%m/%d").date()
+            end_dt_excel_obj = datetime.strptime(end_date_str, "%Y/%m/%d").date() # Google API仕様に合わせた後の日付
+        else: # Excel側が時間指定イベント
+            # datetime.datetimeオブジェクトに変換してからISO形式にする
+            start_dt_excel_full = datetime.strptime(f"{start_date_str} {start_time_str}", "%Y/%m/%d %H:%M")
+            end_dt_excel_full = datetime.strptime(f"{end_date_str} {end_time_str}", "%Y/%m/%d %H:%M")
+
+            event_data_from_excel['start'] = {'dateTime': start_dt_excel_full.isoformat(), 'timeZone': 'Asia/Tokyo'}
+            event_data_from_excel['end'] = {'dateTime': end_dt_excel_full.isoformat(), 'timeZone': 'Asia/Tokyo'}
+
+            start_dt_excel_obj = start_dt_excel_full # 比較用
+            end_dt_excel_obj = end_dt_excel_full   # 比較用
 
         # Excelの作業指示書番号が既存のイベントにあるかチェック
         matched_gcal_events = gcal_events_by_wo_number.get(excel_wo_number, [])
@@ -284,49 +300,65 @@ def reconcile_events(excel_df: pd.DataFrame, existing_gcal_events: list):
                 gcal_start_dt_obj_comp = None
                 gcal_end_dt_obj_comp = None
                 
-                if 'date' in gcal_event['start']: # 終日イベント
-                    gcal_start_dt_obj_comp = datetime.strptime(gcal_event['start']['date'], '%Y-%m-%d').date()
-                    gcal_end_dt_obj_comp = datetime.strptime(gcal_event['end']['date'], '%Y-%m-%d').date() - timedelta(days=1) # API仕様を考慮して-1日
-                    
-                    if excel_row['All Day Event'] == "True":
-                        # 両方終日イベントの場合の比較
-                        if not (gcal_start_dt_obj_comp == start_dt_excel_obj and \
-                                gcal_end_dt_obj_comp == (end_dt_excel_obj - timedelta(days=1))): # Excelの終了日も-1日して比較
-                            has_changed = True
-                    else:
-                        # GCalが終日でExcelが時間指定の場合（これは変更とみなす）
-                        has_changed = True
-                elif 'dateTime' in gcal_event['start']: # 時間指定イベント
-                    # Googleカレンダーから取得した日時文字列はUTCであることが多いので、タイムゾーンを考慮してJSTに変換
-                    gcal_start_dt_obj_comp = datetime.fromisoformat(gcal_event['start']['dateTime'].replace('Z', '+00:00')).astimezone(timezone(timedelta(hours=9))).replace(tzinfo=None) # タイムゾーン情報を除去して比較
-                    gcal_end_dt_obj_comp = datetime.fromisoformat(gcal_event['end']['dateTime'].replace('Z', '+00:00')).astimezone(timezone(timedelta(hours=9))).replace(tzinfo=None) # タイムゾーン情報を除去して比較
-                    
-                    if excel_row['All Day Event'] == "False":
-                        # 両方時間指定イベントの場合の比較
-                        if not (gcal_start_dt_obj_comp == start_dt_excel_obj and \
-                                gcal_end_dt_obj_comp == end_dt_excel_obj):
-                            has_changed = True
-                    else:
-                        # GCalが時間指定でExcelが終日イベントの場合（これは変更とみなす）
-                        has_changed = True
+                # Googleカレンダーのイベントが終日か時間指定か
+                is_gcal_all_day = 'date' in gcal_event['start']
 
-                # ここで has_changed が true なら、このイベントを更新対象とする
+                if excel_row['All Day Event'] == "True": # Excel側が終日イベント
+                    if is_gcal_all_day: # GCal側も終日イベント
+                        gcal_start_dt_obj_comp = datetime.strptime(gcal_event['start']['date'], '%Y-%m-%d').date()
+                        gcal_end_dt_obj_comp = datetime.strptime(gcal_event['end']['date'], '%Y-%m-%d').date() # GCalの終日イベントの終了日は翌日が含まれていない
+
+                        # Excelのend_dt_excel_objは既にexcel_parserで翌日になっているので、
+                        # Google Calendar APIの終日イベントの終了日と比較するために、
+                        # GCalの終了日もExcelと同じロジックで翌日を期待する形に変換してから比較
+                        # (GCal APIは終日イベントの場合、開始日+1日をend.dateに指定するのが慣習)
+                        # なので、gcal_end_dt_obj_compも+1日してExcel側と比較
+                        gcal_end_dt_obj_comp_plus_one = gcal_end_dt_obj_comp + timedelta(days=1)
+
+                        if not (start_dt_excel_obj == gcal_start_dt_obj_comp and 
+                                end_dt_excel_obj == gcal_end_dt_obj_comp_plus_one):
+                            has_changed = True
+                    else: # GCal側が時間指定イベント -> 終日イベントへの変更は変更とみなす
+                        has_changed = True
+                else: # Excel側が時間指定イベント
+                    if is_gcal_all_day: # GCal側が終日イベント -> 時間指定イベントへの変更は変更とみなす
+                        has_changed = True
+                    else: # GCal側も時間指定イベント
+                        # Googleカレンダーから取得した日時文字列をdatetimeオブジェクトに変換
+                        try:
+                            gcal_start_dt_obj_comp = datetime.fromisoformat(gcal_event['start']['dateTime'].replace('Z', '+00:00'))
+                            gcal_end_dt_obj_comp = datetime.fromisoformat(gcal_event['end']['dateTime'].replace('Z', '+00:00'))
+                            
+                            # タイムゾーンを考慮せずに純粋な日時を比較 (日本時間基準)
+                            # GCalのdateTimeはUTCなので、JSTに変換してから比較
+                            jst_tz = timezone(timedelta(hours=9))
+                            gcal_start_dt_obj_comp_jst = gcal_start_dt_obj_comp.astimezone(jst_tz)
+                            gcal_end_dt_obj_comp_jst = gcal_end_dt_obj_comp.astimezone(jst_tz)
+
+                            if not (start_dt_excel_obj == gcal_start_dt_obj_comp_jst and 
+                                    end_dt_excel_obj == gcal_end_dt_obj_comp_jst):
+                                has_changed = True
+                        except ValueError as e:
+                            # 日時形式のパースエラーが発生した場合も変更とみなす（データ異常）
+                            st.warning(f"既存Googleカレンダーイベントの日時解析エラー({gcal_event.get('summary')}): {e}。このイベントは変更として扱われます。")
+                            has_changed = True
+                
                 if has_changed:
-                    found_event_to_update = gcal_event
-                    break # 最初に見つかった変更済みイベントを更新対象とする
+                    found_event_to_update = {
+                        'id': gcal_event['id'],
+                        'old_summary': gcal_summary, # 変更前のサマリーを保持
+                        'new_data': event_data_from_excel
+                    }
+                    break # 変更があったイベントが見つかったらループを抜ける
                 else:
-                    # 変更がなかったイベントも記録
-                    found_no_change_event = excel_row.to_dict() # DataFrameの行を辞書に変換して保存
+                    # 変更がなかった場合、スキップリストに追加するために情報を保持
+                    found_no_change_event = excel_row.to_dict() # 元のExcel行データを保持
+                    # 最初の変更なしイベントが見つかったら、それを候補とする
+                    # ただし、後続で変更ありイベントが見つかる可能性があるので、breakはしない
 
             if found_event_to_update:
-                # 更新対象イベントの情報を追加
-                events_to_update_in_gcal.append({
-                    'id': found_event_to_update['id'],
-                    'old_summary': found_event_to_update.get('summary', '不明'),
-                    'new_data': event_data_from_excel
-                })
+                events_to_update_in_gcal.append(found_event_to_update)
             elif found_no_change_event:
-                # 変更がなかった場合はスキップリストに追加
                 events_to_skip_due_to_no_change.append(found_no_change_event)
 
     return events_to_add_to_gcal, events_to_update_in_gcal, events_to_skip_due_to_no_change
