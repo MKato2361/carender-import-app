@@ -24,6 +24,13 @@ def format_description_value(val):
         return str(int(val)) if val.is_integer() else str(round(val, 2))
     return str(val)
 
+def format_worksheet_value(val):
+    if pd.isna(val):
+        return ""
+    if isinstance(val, float):
+        return str(int(val)) if val.is_integer() else str(int(val))  # 小数はすべて整数として扱う
+    return str(val)
+
 def process_excel_files(uploaded_files, description_columns, all_day_event, private_event):
     dataframes = []
 
@@ -88,10 +95,11 @@ def process_excel_files(uploaded_files, description_columns, all_day_event, priv
             [format_description_value(row.get(col)) for col in description_columns if col in row]
         )
 
-        # 作業指示書を先頭に追加
+        # 作業指示書を先頭に追加（整数化して表示）
         worksheet_value = row.get(worksheet_col, "") if worksheet_col else ""
         if pd.notna(worksheet_value) and str(worksheet_value).strip():
-            description = f"作業指示書：{worksheet_value}/ " + description
+            formatted_ws = format_worksheet_value(worksheet_value)
+            description = f"作業指示書：{formatted_ws}/ " + description
 
         output.append({
             "Subject": subj,
