@@ -20,50 +20,49 @@ def authenticate_google():
         return creds
 
     # 2. 認証情報が有効でない、または期限切れの場合、更新または再認証を行います
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            # トークンが期限切れでリフレッシュトークンがある場合、トークンをリフレッシュします
-            try:
-                creds.refresh(Request())
-                # リフレッシュされた認証情報をsession_stateに保存します
-                st.session_state['credentials'] = creds
-                st.info("認証トークンを更新しました。")
-                st.rerun() # トークン更新後、アプリを再実行して変更を反映
-            except Exception as e:
-                st.error(f"トークンのリフレッシュに失敗しました。再認証してください: {e}")
-                st.session_state['credentials'] = None
-                creds = None
-        else: # 有効な認証情報がない場合、新しい認証フローを開始します
-            try:
-                # Streamlit Secretsからクライアント情報を取得
-                client_config = {
-                    "installed": {
-                        "client_id": st.secrets["google"]["client_id"],
-                        "client_secret": st.secrets["google"]["client_secret"],
-                        "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-                        "token_uri": "https://oauth2.googleapis.com/token",
-                        "redirect_uris": ["urn:ietf:wg:oauth:2.0:oob"] # コンソール認証用
-                    }
+    if creds and creds.expired and creds.refresh_token:
+        # トークンが期限切れでリフレッシュトークンがある場合、トークンをリフレッシュします
+        try:
+            creds.refresh(Request())
+            # リフレッシュされた認証情報をsession_stateに保存します
+            st.session_state['credentials'] = creds
+            st.info("認証トークンを更新しました。")
+            st.rerun() # トークン更新後、アプリを再実行して変更を反映
+        except Exception as e:
+            st.error(f"トークンのリフレッシュに失敗しました。再認証してください: {e}")
+            st.session_state['credentials'] = None
+            creds = None
+    elif not creds: # 有効な認証情報がない場合、新しい認証フローを開始します
+        try:
+            # Streamlit Secretsからクライアント情報を取得
+            client_config = {
+                "installed": {
+                    "client_id": st.secrets["google"]["client_id"],
+                    "client_secret": st.secrets["google"]["client_secret"],
+                    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                    "token_uri": "https://oauth2.googleapis.com/token",
+                    "redirect_uris": ["urn:ietf:wg:oauth:2.0:oob"] # コンソール認証用
                 }
-                flow = Flow.from_client_config(client_config, SCOPES)
-                flow.redirect_uri = "urn:ietf:wg:oauth:2.0:oob"
-                auth_url, _ = flow.authorization_url(prompt='consent')
+            }
+            flow = Flow.from_client_config(client_config, SCOPES)
+            flow.redirect_uri = "urn:ietf:wg:oauth:2.0:oob"
+            auth_url, _ = flow.authorization_url(prompt='consent')
 
-                st.info("以下のURLをブラウザで開いて、表示されたコードをここに貼り付けてください：")
-                st.write(auth_url)
-                code = st.text_input("認証コードを貼り付けてください:")
+            st.info("以下のURLをブラウザで開いて、表示されたコードをここに貼り付けてください：")
+            st.write(auth_url)
+            code = st.text_input("認証コードを貼り付けてください:")
 
-                if code:
-                    flow.fetch_token(code=code)
-                    creds = flow.credentials
-                    # 新しい認証情報をsession_stateに保存します
-                    st.session_state['credentials'] = creds
-                    st.success("Google認証が完了しました！")
-                    st.rerun() # 認証成功後、アプリを再読み込み
-            except Exception as e:
-                st.error(f"Google認証に失敗しました: {e}")
-                st.session_state['credentials'] = None
-                return None
+            if code:
+                flow.fetch_token(code=code)
+                creds = flow.credentials
+                # 新しい認証情報をsession_stateに保存します
+                st.session_state['credentials'] = creds
+                st.success("Google認証が完了しました！")
+                st.rerun() # 認証成功後、アプリを再読み込み
+        except Exception as e:
+            st.error(f"Google認証に失敗しました: {e}")
+            st.session_state['credentials'] = None
+            return None
 
     return creds
 
@@ -83,7 +82,11 @@ def delete_events_from_calendar(service, calendar_id, start_datetime, end_dateti
     # Google Calendar APIはUTC時間を要求するため、JSTをUTCに変換
     jst = timezone(timedelta(hours=9))
     start_utc = start_datetime.astimezone(timezone.utc).isoformat() + 'Z'
-    end_utc = end_datetime.astimezone(timezone.utc).isoformat() + 'Z'
+    # end_datetime を23:59:59に設定してからUTCに変換
+    # datetime.combine(end_datetime.date(), datetime.max.time()) の代わりに新しい datetime オブジェクトを作成
+    end_of_day = datetime(end_datetime.year, end_datetime.month, end_datetime.day, 23, 59, 59)
+    end_utc = end_of_day.astimezone(timezone.utc).isoformat() + 'Z'
+
 
     st.info(f"{start_datetime.strftime('%Y/%m/%d')}から{end_datetime.strftime('%Y/%m/%d')}までの削除対象イベントを検索中...")
     
@@ -131,11 +134,16 @@ def delete_events_from_calendar(service, calendar_id, start_datetime, end_dateti
     progress_bar.empty() # プログレスバーをクリア
     return total_events # 削除したイベントの総数を返す
 
-# 新規追加: 指定範囲のカレンダーイベントを取得する関数
+# 修正: 指定範囲のカレンダーイベントを取得する関数
 def get_existing_calendar_events(service, calendar_id, start_datetime, end_datetime):
     jst = timezone(timedelta(hours=9))
     start_utc = start_datetime.astimezone(timezone.utc).isoformat() + 'Z'
-    end_utc = end_datetime.astimezone(timezone.utc).isoformat() + 'Z'
+    
+    # 終日イベントの場合、Google Calendar APIの timeMax は、指定日の23:59:59の次日00:00:00 (UTC) となる。
+    # ここでは、end_datetime が示す日の終わりまでを取得したいので、
+    # その日の23:59:59を明示的に設定し、UTCに変換する
+    end_of_day = datetime(end_datetime.year, end_datetime.month, end_datetime.day, 23, 59, 59)
+    end_utc = end_of_day.astimezone(timezone.utc).isoformat() + 'Z'
     
     events = []
     page_token = None
@@ -158,7 +166,7 @@ def get_existing_calendar_events(service, calendar_id, start_datetime, end_datet
         st.error(f"既存のGoogleカレンダーイベントの取得に失敗しました: {e}")
         return []
 
-# 新規追加: イベントを更新する関数
+# イベントを更新する関数
 def update_event_in_calendar(service, calendar_id, event_id, new_event_data):
     try:
         updated_event = service.events().update(
@@ -170,7 +178,7 @@ def update_event_in_calendar(service, calendar_id, event_id, new_event_data):
         st.error(f"イベントの更新に失敗しました (ID: {event_id}): {e}")
         return None
 
-# 新規追加: ExcelデータとGoogleカレンダーデータを比較し、アクションを決定する関数
+# ExcelデータとGoogleカレンダーデータを比較し、アクションを決定する関数
 def reconcile_events(excel_df: pd.DataFrame, existing_gcal_events: list):
     # 'WorkOrderNumber'が空のExcel行は既にexcel_parserでフィルタリングされている前提
     # ここでは、WorkOrderNumberを持つExcelイベントとGCalイベントの比較を行う
@@ -194,7 +202,7 @@ def reconcile_events(excel_df: pd.DataFrame, existing_gcal_events: list):
 
 
     for index, excel_row in excel_df.iterrows():
-        excel_wo_number = excel_row['WorkOrderNumber']
+        excel_wo_number = str(excel_row['WorkOrderNumber']).strip()
         
         # このreconcile_events関数は、excel_parser側でWorkOrderNumberがない行を既に除外しているため
         # ここではexcel_wo_numberが空であることは基本的にないはずだが、念のためガード
@@ -251,29 +259,6 @@ def reconcile_events(excel_df: pd.DataFrame, existing_gcal_events: list):
                 gcal_description = gcal_event.get('description', '')
                 gcal_transparency = gcal_event.get('transparency', 'opaque') # デフォルトは'opaque'
 
-                # GoogleカレンダーイベントのDescriptionからも作業指示書部分を削除して比較
-                # gcal_description_for_comp = re.sub(r"^作業指示書:\d+\s*/?\s*", "", gcal_description).strip()
-                # summaryからWO番号部分を削除して比較
-                # gcal_summary_for_comp = re.sub(r"^(\d+)\s+", "", gcal_summary).strip() # 不要になったためコメントアウト
-                
-                # ExcelのDescriptionから作業指示書部分を削除して比較
-                excel_description_for_comp = event_data_from_excel['description']
-                # excel_description_for_comp = re.sub(rf"^作業指示書:{re.escape(excel_wo_number)}\s*/?\s*", "", excel_description_for_comp).strip() # 不要になったためコメントアウト
-
-
-                # 開始/終了日時をdatetimeオブジェクトに変換して比較
-                gcal_start_dt_obj_comp = None
-                gcal_end_dt_obj_comp = None
-                
-                if 'date' in gcal_event['start']: # 終日イベント
-                    gcal_start_dt_obj_comp = datetime.strptime(gcal_event['start']['date'], '%Y-%m-%d').date()
-                    gcal_end_dt_obj_comp = datetime.strptime(gcal_event['end']['date'], '%Y-%m-%d').date() - timedelta(days=1)
-                elif 'dateTime' in gcal_event['start']: # 時間指定イベント
-                    # Googleカレンダーから取得した日時文字列はUTCであることが多いので、タイムゾーンを考慮してJSTに変換
-                    gcal_start_dt_obj_comp = datetime.fromisoformat(gcal_event['start']['dateTime'].replace('Z', '+00:00')).astimezone(timezone(timedelta(hours=9))).replace(tzinfo=None) # タイムゾーン情報を除去して比較
-                    gcal_end_dt_obj_comp = datetime.fromisoformat(gcal_event['end']['dateTime'].replace('Z', '+00:00')).astimezone(timezone(timedelta(hours=9))).replace(tzinfo=None) # タイムゾーン情報を除去して比較
-
-
                 has_changed = False
 
                 # 各フィールドの比較
@@ -287,19 +272,35 @@ def reconcile_events(excel_df: pd.DataFrame, existing_gcal_events: list):
                     has_changed = True
 
                 # 日時の比較
-                if excel_row['All Day Event'] == "True":
-                    # Excel側が終日
-                    if not ('date' in gcal_event['start'] and \
-                            gcal_start_dt_obj_comp == start_dt_excel_obj and \
-                            gcal_end_dt_obj_comp == end_dt_excel_obj):
-                        has_changed = True
-                else:
-                    # Excel側が時間指定
-                    if not ('dateTime' in gcal_event['start'] and \
-                            gcal_start_dt_obj_comp == start_dt_excel_obj and \
-                            gcal_end_dt_obj_comp == end_dt_excel_obj):
-                        has_changed = True
+                gcal_start_dt_obj_comp = None
+                gcal_end_dt_obj_comp = None
                 
+                if 'date' in gcal_event['start']: # 終日イベント
+                    gcal_start_dt_obj_comp = datetime.strptime(gcal_event['start']['date'], '%Y-%m-%d').date()
+                    gcal_end_dt_obj_comp = datetime.strptime(gcal_event['end']['date'], '%Y-%m-%d').date() - timedelta(days=1) # API仕様を考慮して-1日
+                    
+                    if excel_row['All Day Event'] == "True":
+                        # 両方終日イベントの場合の比較
+                        if not (gcal_start_dt_obj_comp == start_dt_excel_obj and \
+                                gcal_end_dt_obj_comp == (end_dt_excel_obj - timedelta(days=1))): # Excelの終了日も-1日して比較
+                            has_changed = True
+                    else:
+                        # GCalが終日でExcelが時間指定の場合（これは変更とみなす）
+                        has_changed = True
+                elif 'dateTime' in gcal_event['start']: # 時間指定イベント
+                    # Googleカレンダーから取得した日時文字列はUTCであることが多いので、タイムゾーンを考慮してJSTに変換
+                    gcal_start_dt_obj_comp = datetime.fromisoformat(gcal_event['start']['dateTime'].replace('Z', '+00:00')).astimezone(timezone(timedelta(hours=9))).replace(tzinfo=None) # タイムゾーン情報を除去して比較
+                    gcal_end_dt_obj_comp = datetime.fromisoformat(gcal_event['end']['dateTime'].replace('Z', '+00:00')).astimezone(timezone(timedelta(hours=9))).replace(tzinfo=None) # タイムゾーン情報を除去して比較
+                    
+                    if excel_row['All Day Event'] == "False":
+                        # 両方時間指定イベントの場合の比較
+                        if not (gcal_start_dt_obj_comp == start_dt_excel_obj and \
+                                gcal_end_dt_obj_comp == end_dt_excel_obj):
+                            has_changed = True
+                    else:
+                        # GCalが時間指定でExcelが終日イベントの場合（これは変更とみなす）
+                        has_changed = True
+
                 # ここで has_changed が true なら、このイベントを更新対象とする
                 if has_changed:
                     found_event_to_update = gcal_event
