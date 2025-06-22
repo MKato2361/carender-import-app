@@ -213,7 +213,7 @@ with tabs[2]:
                 st.rerun()
 
             if st.session_state.show_delete_confirmation:
-                st.warning(f"「{selected_calendar_name_del}」カレンダーから {delete_start_date.strftime('%Y年%m月%d日')}から{delete_end_date.strftime('%Y年%m%d日')}までの全てのイベントを削除します。この操作は元に戻せません。よろしいですか？")
+                st.warning(f"「{selected_calendar_name_del}」カレンダーから {delete_start_date.strftime('%Y年%m月%d日')}から{delete_end_date.strftime('%Y年%m月%d日')}までの全てのイベントを削除します。この操作は元に戻せません。よろしいですか？")
 
                 col1, col2 = st.columns(2)
                 with col1:
