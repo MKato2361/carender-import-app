@@ -17,6 +17,11 @@ def find_closest_column(columns, keywords):
         # キーワードも小文字にして比較
         kw_lower = kw.lower()
         for cleaned_col_name, original_col_name in cleaned_columns.items():
+            # 完全に一致するか、部分一致でより適切なものを見つけるロジック
+            # まず完全一致を優先
+            if kw_lower == cleaned_col_name:
+                return original_col_name
+            # 部分一致でキーワードが含まれるものを探す
             if kw_lower in cleaned_col_name:
                 return original_col_name # 元の列名を返す
     return None
@@ -25,8 +30,70 @@ def format_description_value(val):
     if pd.isna(val):
         return ""
     if isinstance(val, float):
+        # 整数であれば整数として、そうでなければ小数点以下2桁で表示
         return str(int(val)) if val.is_integer() else str(round(val, 2))
     return str(val)
+
+def parse_date_robustly(date_val):
+    """様々な形式の日付文字列をdatetime.dateオブジェクトにパースする"""
+    if pd.isna(date_val):
+        return None
+    
+    # Pandasのto_datetimeで一般的な形式を試す
+    try:
+        dt_obj = pd.to_datetime(date_val)
+        return dt_obj.date()
+    except (ValueError, TypeError):
+        pass # 次の形式を試す
+
+    # よくある日付形式を明示的に試す
+    date_formats = [
+        "%Y/%m/%d", "%Y-%m-%d", "%m/%d/%Y", "%m-%d-%Y",
+        "%Y年%m月%d日", "%m月%d日" # 日本語形式
+    ]
+    for fmt in date_formats:
+        try:
+            # datetime.strptimeは文字列にしか使えないため、str()でキャスト
+            return datetime.datetime.strptime(str(date_val), fmt).date()
+        except (ValueError, TypeError):
+            pass
+
+    return None # どれも解析できない場合
+
+def parse_time_robustly(time_val):
+    """様々な形式の時刻をdatetime.timeオブジェクトにパースする"""
+    if pd.isna(time_val):
+        return datetime.time.min # 時刻がない場合は00:00:00を返す
+
+    if isinstance(time_val, datetime.time):
+        return time_val
+    if isinstance(time_val, datetime.timedelta):
+        total_seconds = int(time_val.total_seconds())
+        hours, remainder = divmod(total_seconds, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        return datetime.time(hours, minutes, seconds)
+    
+    # 文字列または数値の場合
+    s_time_val = str(time_val).strip()
+
+    # '9:00', '09:00', '9時00分' など
+    time_formats = ["%H:%M", "%H時%M分", "%H時"] # %H時00分のようなケースも対応
+    for fmt in time_formats:
+        try:
+            return datetime.datetime.strptime(s_time_val, fmt).time()
+        except ValueError:
+            pass
+    
+    # '900', '0900' (HHMM形式)
+    try:
+        # 数値の場合はゼロ埋めして4桁にする
+        if s_time_val.isdigit() and len(s_time_val) <= 4:
+            s_time_val = s_time_val.zfill(4) # 例: '900' -> '0900'
+            return datetime.datetime.strptime(s_time_val, "%H%M").time()
+    except ValueError:
+        pass
+        
+    return datetime.time.min # どれも解析できない場合はデフォルト値を返す
 
 def process_excel_files(uploaded_files, description_columns, all_day_event, private_event, strict_work_order_match=False):
     dataframes = []
@@ -42,18 +109,20 @@ def process_excel_files(uploaded_files, description_columns, all_day_event, priv
             df.columns = [str(c).strip() for c in df.columns]
             
             # 各ファイルの列情報を取得
-            # キーワードをより網羅的にする
-            mng_col = find_closest_column(df.columns, ["管理番号", "作業指示書番号", "作業指示書no"])
-            name_col = find_closest_column(df.columns, ["物件名", "イベント名", "概要", "件名"])
-            start_col = find_closest_column(df.columns, ["予定開始", "開始日", "開始"])
-            end_col = find_closest_column(df.columns, ["予定終了", "終了日", "終了"])
-            start_time_col = find_closest_column(df.columns, ["開始時刻", "開始時間", "開始時"])
-            end_time_col = find_closest_column(df.columns, ["終了時刻", "終了時間", "終了時"])
-            addr_col = find_closest_column(df.columns, ["住所", "所在地", "場所", "現場住所"])
+            # キーワードをさらに網羅的にする
+            mng_col = find_closest_column(df.columns, ["管理番号", "作業指示書番号", "作業指示書No", "案件No", "工事番号"])
+            name_col = find_closest_column(df.columns, ["物件名", "イベント名", "概要", "件名", "工事名"])
+            # 日付関連のキーワードをさらに増やす
+            start_col = find_closest_column(df.columns, ["予定開始", "開始日", "開始", "工事開始日", "着工日", "開始日付", "日付"])
+            end_col = find_closest_column(df.columns, ["予定終了", "終了日", "終了", "工事終了日", "完工日", "終了日付", "完了日"])
+            
+            start_time_col = find_closest_column(df.columns, ["開始時刻", "開始時間", "開始時", "開始時間From"])
+            end_time_col = find_closest_column(df.columns, ["終了時刻", "終了時間", "終了時", "終了時間To"])
+            addr_col = find_closest_column(df.columns, ["住所", "所在地", "場所", "現場住所", "現場"])
 
             # 必須列のチェック
             missing_cols = []
-            if not name_col: missing_cols.append("物件名/イベント名/概要")
+            if not name_col: missing_cols.append("物件名/イベント名")
             if not start_col: missing_cols.append("予定開始/開始日")
             if not end_col: missing_cols.append("予定終了/終了日")
 
@@ -67,19 +136,16 @@ def process_excel_files(uploaded_files, description_columns, all_day_event, priv
                     st.warning(f"ファイル '{uploaded_file.name}' に '管理番号' または '作業指示書番号' 列が見つかりません。このファイルは更新/削除の処理対象外です。")
                     continue
                 # 作業指示書番号の欠損値を持つ行を削除
-                # .copy() を使用してSettingWithCopyWarningを避ける
                 df = df.dropna(subset=[mng_col]).copy()
                 if df.empty:
                     st.info(f"ファイル '{uploaded_file.name}' に有効な作業指示書番号を持つ行がありませんでした。")
                     continue
             
             # 日付列の欠損値を持つ行を削除
-            # .copy() を使用してSettingWithCopyWarningを避ける
             df = df.dropna(subset=[start_col, end_col]).copy()
             if df.empty: # 日付列が欠損した結果、空になった場合
                 st.info(f"ファイル '{uploaded_file.name}' に有効な開始日/終了日を持つ行がありませんでした。")
                 continue
-
 
             dataframes.append(df)
         except Exception as e:
@@ -102,76 +168,38 @@ def process_excel_files(uploaded_files, description_columns, all_day_event, priv
         name = row.get(name_col, "")
         subj = f"{wo_number} {name}".strip() if wo_number else name.strip()
         if not subj: # サブジェクトが空の場合はスキップ
+            st.warning(f"空のイベント名を持つ行がスキップされました: {row.to_dict()}")
             continue
 
         try:
             # 日付と時刻の結合
-            start_date_val = row[start_col]
-            end_date_val = row[end_col]
+            start_date_obj = parse_date_robustly(row[start_col])
+            end_date_obj = parse_date_robustly(row[end_col])
 
-            # PandasのTimestampオブジェクトへの変換を試みる
-            start = pd.to_datetime(start_date_val)
-            end = pd.to_datetime(end_date_val)
+            if start_date_obj is None or end_date_obj is None:
+                st.warning(f"日付の解析に失敗しました。この行はスキップされます: {subj} - 開始日:'{row.get(start_col)}', 終了日:'{row.get(end_col)}'")
+                continue
 
             # 時間列が存在し、かつ終日イベントでない場合のみ時間情報を考慮
-            # find_closest_columnで見つけた列名を使用
             start_time_val = row.get(start_time_col) if start_time_col else None
             end_time_val = row.get(end_time_col) if end_time_col else None
 
             if not all_day_event and pd.notna(start_time_val) and pd.notna(end_time_val):
-                # 時刻は文字列またはtimedelta形式を想定
-                if isinstance(start_time_val, datetime.time):
-                    start_time = start_time_val
-                elif isinstance(start_time_val, datetime.timedelta):
-                    total_seconds = int(start_time_val.total_seconds())
-                    hours, remainder = divmod(total_seconds, 3600)
-                    minutes, seconds = divmod(remainder, 60)
-                    start_time = datetime.time(hours, minutes, seconds)
-                else: # その他の形式 (例: '9:00', '0900'など)
-                    try:
-                        # まずHH:MM形式を試す
-                        start_time = datetime.datetime.strptime(str(start_time_val), "%H:%M").time()
-                    except ValueError:
-                        try:
-                            # 次にHHMM形式を試す (例: 0900 -> 09:00)
-                            start_time_str = str(int(start_time_val)).zfill(4) # 900 -> 0900
-                            start_time = datetime.datetime.strptime(start_time_str, "%H%M").time()
-                        except ValueError:
-                            st.warning(f"開始時刻 '{start_time_val}' の解析に失敗しました。デフォルトの時刻 (00:00) を使用します。")
-                            start_time = datetime.time.min
-
-
-                if isinstance(end_time_val, datetime.time):
-                    end_time = end_time_val
-                elif isinstance(end_time_val, datetime.timedelta):
-                    total_seconds = int(end_time_val.total_seconds())
-                    hours, remainder = divmod(total_seconds, 3600)
-                    minutes, seconds = divmod(remainder, 60)
-                    end_time = datetime.time(hours, minutes, seconds)
-                else: # その他の形式
-                    try:
-                        end_time = datetime.datetime.strptime(str(end_time_val), "%H:%M").time()
-                    except ValueError:
-                        try:
-                            end_time_str = str(int(end_time_val)).zfill(4)
-                            end_time = datetime.datetime.strptime(end_time_str, "%H%M").time()
-                        except ValueError:
-                            st.warning(f"終了時刻 '{end_time_val}' の解析に失敗しました。デフォルトの時刻 (00:00) を使用します。")
-                            end_time = datetime.time.min
+                start_time_obj = parse_time_robustly(start_time_val)
+                end_time_obj = parse_time_robustly(end_time_val)
                 
-                # 日付と時刻を結合
-                start_datetime_obj = datetime.datetime.combine(start.date(), start_time)
-                end_datetime_obj = datetime.datetime.combine(end.date(), end_time)
+                start_datetime_obj = datetime.datetime.combine(start_date_obj, start_time_obj)
+                end_datetime_obj = datetime.datetime.combine(end_date_obj, end_time_obj)
             else:
                 # 終日イベント、または時刻情報がない場合、時刻は無視し、日付のみを使用
-                start_datetime_obj = datetime.datetime.combine(start.date(), datetime.time.min)
-                end_datetime_obj = datetime.datetime.combine(end.date(), datetime.time.min)
+                start_datetime_obj = datetime.datetime.combine(start_date_obj, datetime.time.min)
+                end_datetime_obj = datetime.datetime.combine(end_date_obj, datetime.time.min)
                 # 終日イベントの場合、Google Calendar APIは終了日を翌日に設定する必要がある
                 if all_day_event:
                     end_datetime_obj += datetime.timedelta(days=1)
 
         except Exception as e:
-            st.warning(f"日付または時刻の解析に失敗しました。この行はスキップされます: {subj} - エラー: {e}")
+            st.warning(f"日付または時刻の解析中に予期せぬエラーが発生しました。この行はスキップされます: {subj} - エラー: {e}")
             continue
 
         # 場所の処理
@@ -191,7 +219,7 @@ def process_excel_files(uploaded_files, description_columns, all_day_event, priv
 
         # 選択された他の列を説明に追加
         for col in description_columns:
-            # find_closest_columnの結果を直接使用するため、`col`がdf.columnsに存在するかチェック
+            # find_closest_columnの結果を直接使用するため、`col`がrowに存在するかチェック
             if col in row and pd.notna(row[col]): # NaNではないことを確認
                 description_parts.append(format_description_value(row[col]))
         
