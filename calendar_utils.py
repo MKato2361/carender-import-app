@@ -80,12 +80,18 @@ def add_event_to_calendar(service, calendar_id, event_data):
 
 def delete_events_from_calendar(service, calendar_id, start_datetime, end_datetime):
     # Google Calendar APIはUTC時間を要求するため、JSTをUTCに変換
+    # タイムゾーン情報を付与
     jst = timezone(timedelta(hours=9))
-    start_utc = start_datetime.astimezone(timezone.utc).isoformat() + 'Z'
-    # end_datetime を23:59:59に設定してからUTCに変換
-    # datetime.combine(end_datetime.date(), datetime.max.time()) の代わりに新しい datetime オブジェクトを作成
-    end_of_day = datetime(end_datetime.year, end_datetime.month, end_datetime.day, 23, 59, 59)
-    end_utc = end_of_day.astimezone(timezone.utc).isoformat() + 'Z'
+    
+    # datetimeオブジェクトにタイムゾーン情報を付与し、UTCに変換してからフォーマット
+    # timeMin は開始日の00:00:00 JST から
+    time_min_with_tz = jst.localize(start_datetime) if start_datetime.tzinfo is None else start_datetime
+    time_min_utc = time_min_with_tz.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+
+    # timeMax は終了日の23:59:59 JST まで
+    # main.pyから渡される end_datetime は既に 23:59:59 を含んだ datetime オブジェクトのはず
+    time_max_with_tz = jst.localize(end_datetime) if end_datetime.tzinfo is None else end_datetime
+    time_max_utc = time_max_with_tz.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
 
 
     st.info(f"{start_datetime.strftime('%Y/%m/%d')}から{end_datetime.strftime('%Y/%m/%d')}までの削除対象イベントを検索中...")
@@ -98,8 +104,8 @@ def delete_events_from_calendar(service, calendar_id, start_datetime, end_dateti
             try:
                 events_result = service.events().list(
                     calendarId=calendar_id,
-                    timeMin=start_utc,
-                    timeMax=end_utc,
+                    timeMin=time_min_utc,
+                    timeMax=time_max_utc,
                     singleEvents=True,
                     orderBy='startTime',
                     pageToken=page_token
@@ -137,13 +143,16 @@ def delete_events_from_calendar(service, calendar_id, start_datetime, end_dateti
 # 修正: 指定範囲のカレンダーイベントを取得する関数
 def get_existing_calendar_events(service, calendar_id, start_datetime, end_datetime):
     jst = timezone(timedelta(hours=9))
-    start_utc = start_datetime.astimezone(timezone.utc).isoformat() + 'Z'
     
-    # 終日イベントの場合、Google Calendar APIの timeMax は、指定日の23:59:59の次日00:00:00 (UTC) となる。
-    # ここでは、end_datetime が示す日の終わりまでを取得したいので、
-    # その日の23:59:59を明示的に設定し、UTCに変換する
-    end_of_day = datetime(end_datetime.year, end_datetime.month, end_datetime.day, 23, 59, 59)
-    end_utc = end_of_day.astimezone(timezone.utc).isoformat() + 'Z'
+    # datetimeオブジェクトにタイムゾーン情報を付与し、UTCに変換してからフォーマット
+    # timeMin は開始日の00:00:00 JST から
+    time_min_with_tz = jst.localize(start_datetime) if start_datetime.tzinfo is None else start_datetime
+    time_min_utc = time_min_with_tz.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+    
+    # timeMax は終了日の23:59:59 JST まで
+    # main.pyから渡される end_datetime は既に 23:59:59 を含んだ datetime オブジェクトのはず
+    time_max_with_tz = jst.localize(end_datetime) if end_datetime.tzinfo is None else end_datetime
+    time_max_utc = time_max_with_tz.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
     
     events = []
     page_token = None
@@ -151,8 +160,8 @@ def get_existing_calendar_events(service, calendar_id, start_datetime, end_datet
         while True:
             events_result = service.events().list(
                 calendarId=calendar_id,
-                timeMin=start_utc,
-                timeMax=end_utc,
+                timeMin=time_min_utc,
+                timeMax=time_max_utc,
                 singleEvents=True, # 繰り返しイベントを展開
                 orderBy='startTime',
                 pageToken=page_token
