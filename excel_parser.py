@@ -10,46 +10,53 @@ def clean_mng_num(value):
     return re.sub(r"[^0-9A-Za-z]", "", str(value)).replace("HK", "")
 
 def find_closest_column(columns, keywords):
-    # 列名の前後の空白を除去し、小文字にして比較
+    """
+    指定されたキーワードに最も近い（または含む）列名を探します。
+    複数の候補がある場合、最初に見つかったものを返します。
+    """
     cleaned_columns = {str(col).strip().lower(): col for col in columns}
     
     for kw in keywords:
-        # キーワードも小文字にして比較
         kw_lower = kw.lower()
         for cleaned_col_name, original_col_name in cleaned_columns.items():
-            # 完全に一致するか、部分一致でより適切なものを見つけるロジック
-            # まず完全一致を優先
+            # 完全一致を優先
             if kw_lower == cleaned_col_name:
                 return original_col_name
-            # 部分一致でキーワードが含まれるものを探す
+            # 部分一致 (キーワードが列名に含まれる)
             if kw_lower in cleaned_col_name:
-                return original_col_name # 元の列名を返す
+                return original_col_name
     return None
 
 def format_description_value(val):
     if pd.isna(val):
         return ""
     if isinstance(val, float):
-        # 整数であれば整数として、そうでなければ小数点以下2桁で表示
         return str(int(val)) if val.is_integer() else str(round(val, 2))
     return str(val)
 
-def parse_date_robustly(date_val):
+def parse_date_robustly(date_val, subject_for_error=""):
     """様々な形式の日付文字列をdatetime.dateオブジェクトにパースする"""
     if pd.isna(date_val):
         return None
     
-    # Pandasのto_datetimeで一般的な形式を試す
+    # 既にdatetimeオブジェクトまたはdateオブジェクトの場合
+    if isinstance(date_val, (datetime.datetime, datetime.date)):
+        return date_val.date()
+    
+    # Pandasのto_datetimeで一般的な形式を試す (最も推奨)
     try:
         dt_obj = pd.to_datetime(date_val)
         return dt_obj.date()
-    except (ValueError, TypeError):
+    except (ValueError, TypeError) as e:
+        # st.warning(f"pd.to_datetimeで日付 '{date_val}' の解析に失敗しました: {e} (イベント: {subject_for_error})")
         pass # 次の形式を試す
 
     # よくある日付形式を明示的に試す
     date_formats = [
         "%Y/%m/%d", "%Y-%m-%d", "%m/%d/%Y", "%m-%d-%Y",
-        "%Y年%m月%d日", "%m月%d日" # 日本語形式
+        "%Y年%m月%d日", "%m月%d日", # 日本語形式
+        "%Y/%m/%d %H:%M:%S", "%Y-%m-%d %H:%M:%S", # 日時形式の場合も日付だけ取得
+        "%Y/%m/%d %H:%M"
     ]
     for fmt in date_formats:
         try:
@@ -58,9 +65,10 @@ def parse_date_robustly(date_val):
         except (ValueError, TypeError):
             pass
 
-    return None # どれも解析できない場合
+    st.warning(f"日付 '{date_val}' の解析に失敗しました。このイベント ({subject_for_error}) の日付は不明として扱われます。")
+    return None
 
-def parse_time_robustly(time_val):
+def parse_time_robustly(time_val, subject_for_error=""):
     """様々な形式の時刻をdatetime.timeオブジェクトにパースする"""
     if pd.isna(time_val):
         return datetime.time.min # 時刻がない場合は00:00:00を返す
@@ -77,7 +85,7 @@ def parse_time_robustly(time_val):
     s_time_val = str(time_val).strip()
 
     # '9:00', '09:00', '9時00分' など
-    time_formats = ["%H:%M", "%H時%M分", "%H時"] # %H時00分のようなケースも対応
+    time_formats = ["%H:%M", "%H時%M分", "%H時"]
     for fmt in time_formats:
         try:
             return datetime.datetime.strptime(s_time_val, fmt).time()
@@ -86,13 +94,18 @@ def parse_time_robustly(time_val):
     
     # '900', '0900' (HHMM形式)
     try:
-        # 数値の場合はゼロ埋めして4桁にする
-        if s_time_val.isdigit() and len(s_time_val) <= 4:
+        # 数値の場合 (e.g., float 900.0) も考慮してintに変換
+        if isinstance(time_val, (int, float)):
+            s_time_val = str(int(time_val)).zfill(4) # 例: 900 -> 0900
+        elif s_time_val.isdigit() and len(s_time_val) <= 4:
             s_time_val = s_time_val.zfill(4) # 例: '900' -> '0900'
+
+        if len(s_time_val) == 4: # HHMM形式を想定
             return datetime.datetime.strptime(s_time_val, "%H%M").time()
     except ValueError:
         pass
         
+    st.warning(f"時刻 '{time_val}' の解析に失敗しました。このイベント ({subject_for_error}) の時刻は00:00として扱われます。")
     return datetime.time.min # どれも解析できない場合はデフォルト値を返す
 
 def process_excel_files(uploaded_files, description_columns, all_day_event, private_event, strict_work_order_match=False):
@@ -110,15 +123,15 @@ def process_excel_files(uploaded_files, description_columns, all_day_event, priv
             
             # 各ファイルの列情報を取得
             # キーワードをさらに網羅的にする
-            mng_col = find_closest_column(df.columns, ["管理番号", "作業指示書番号", "作業指示書No", "案件No", "工事番号"])
-            name_col = find_closest_column(df.columns, ["物件名", "イベント名", "概要", "件名", "工事名"])
+            mng_col = find_closest_column(df.columns, ["管理番号", "作業指示書番号", "作業指示書No", "案件No", "工事番号", "WO番号", "番号"])
+            name_col = find_closest_column(df.columns, ["物件名", "イベント名", "概要", "件名", "工事名", "タイトル", "案件名"])
             # 日付関連のキーワードをさらに増やす
-            start_col = find_closest_column(df.columns, ["予定開始", "開始日", "開始", "工事開始日", "着工日", "開始日付", "日付"])
-            end_col = find_closest_column(df.columns, ["予定終了", "終了日", "終了", "工事終了日", "完工日", "終了日付", "完了日"])
+            start_col = find_closest_column(df.columns, ["予定開始", "開始日", "開始", "工事開始日", "着工日", "開始日付", "日付", "開始年月日", "開始日時"])
+            end_col = find_closest_column(df.columns, ["予定終了", "終了日", "終了", "工事終了日", "完工日", "終了日付", "完了日", "終了年月日", "終了日時"])
             
-            start_time_col = find_closest_column(df.columns, ["開始時刻", "開始時間", "開始時", "開始時間From"])
-            end_time_col = find_closest_column(df.columns, ["終了時刻", "終了時間", "終了時", "終了時間To"])
-            addr_col = find_closest_column(df.columns, ["住所", "所在地", "場所", "現場住所", "現場"])
+            start_time_col = find_closest_column(df.columns, ["開始時刻", "開始時間", "開始時", "開始時間From", "StartTime"])
+            end_time_col = find_closest_column(df.columns, ["終了時刻", "終了時間", "終了時", "終了時間To", "EndTime"])
+            addr_col = find_closest_column(df.columns, ["住所", "所在地", "場所", "現場住所", "現場", "所在地"])
 
             # 必須列のチェック
             missing_cols = []
@@ -173,8 +186,8 @@ def process_excel_files(uploaded_files, description_columns, all_day_event, priv
 
         try:
             # 日付と時刻の結合
-            start_date_obj = parse_date_robustly(row[start_col])
-            end_date_obj = parse_date_robustly(row[end_col])
+            start_date_obj = parse_date_robustly(row[start_col], subj)
+            end_date_obj = parse_date_robustly(row[end_col], subj)
 
             if start_date_obj is None or end_date_obj is None:
                 st.warning(f"日付の解析に失敗しました。この行はスキップされます: {subj} - 開始日:'{row.get(start_col)}', 終了日:'{row.get(end_col)}'")
@@ -184,9 +197,10 @@ def process_excel_files(uploaded_files, description_columns, all_day_event, priv
             start_time_val = row.get(start_time_col) if start_time_col else None
             end_time_val = row.get(end_time_col) if end_time_col else None
 
-            if not all_day_event and pd.notna(start_time_val) and pd.notna(end_time_val):
-                start_time_obj = parse_time_robustly(start_time_val)
-                end_time_obj = parse_time_robustly(end_time_val)
+            if not all_day_event and (pd.notna(start_time_val) or pd.notna(end_time_val)):
+                # 片方でも時刻情報があれば、時刻ありイベントとして処理を試みる
+                start_time_obj = parse_time_robustly(start_time_val, subj)
+                end_time_obj = parse_time_robustly(end_time_val, subj)
                 
                 start_datetime_obj = datetime.datetime.combine(start_date_obj, start_time_obj)
                 end_datetime_obj = datetime.datetime.combine(end_date_obj, end_time_obj)
