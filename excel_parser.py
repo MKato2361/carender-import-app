@@ -60,6 +60,7 @@ def process_excel_files(uploaded_files, description_columns, all_day_event, priv
     start_col = find_closest_column(merged_df.columns, ["予定開始"])
     end_col = find_closest_column(merged_df.columns, ["予定終了"])
     addr_col = find_closest_column(merged_df.columns, ["住所", "所在地"])
+    worksheet_col = find_closest_column(merged_df.columns, ["作業指示書"])
 
     if not all([name_col, start_col, end_col]):
         st.error("必要な列（物件名・予定開始・予定終了）が見つかりません。")
@@ -86,6 +87,11 @@ def process_excel_files(uploaded_files, description_columns, all_day_event, priv
         description = " / ".join(
             [format_description_value(row.get(col)) for col in description_columns if col in row]
         )
+
+        # 作業指示書を先頭に追加
+        worksheet_value = row.get(worksheet_col, "") if worksheet_col else ""
+        if pd.notna(worksheet_value) and str(worksheet_value).strip():
+            description = f"作業指示書：{worksheet_value}/ " + description
 
         output.append({
             "Subject": subj,
