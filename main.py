@@ -236,53 +236,11 @@ with tabs[2]: # 3. イベントの更新（作業指示書番号基準）
                         datetime.combine(update_search_end_date, datetime.max.time())
                     )
 
-                    events_to_add_to_gcal, events_to_update_in_gcal = reconcile_events(excel_df_for_update, existing_gcal_events)
-
-                    # スキップされたイベントを特定 (Excelにあるが変更なしのイベント)
-                    all_excel_wo_numbers = set(excel_df_for_update['WorkOrderNumber'].dropna().unique())
-                    processed_wo_numbers = set()
-                    for e in events_to_add_to_gcal:
-                        # process_excel_filesから返されたデータなのでWorkOrderNumberキーがあると仮定
-                        if 'WorkOrderNumber' in e and e['WorkOrderNumber']:
-                            processed_wo_numbers.add(e['WorkOrderNumber'])
-                    for e_upd in events_to_update_in_gcal:
-                        # new_dataにはWorkOrderNumberは含まれないため、old_summaryから抽出するか、reconcile_eventsを修正して返す
-                        # 今回は、reconcile_eventsが既にWO番号を持つイベントのみを処理しているため、
-                        # gcal_events_by_wo_numberから元のWO番号を再取得する必要があるが、それは煩雑。
-                        # ここでは、単純にtotal - add - update でスキップを算出する。
-                        # ただし、reconcile_events がWO番号を持たないExcel行を無視するため、
-                        # excel_df_for_update の行数で比較する方が正確。
-
-                        # ここでのスキップは、reconcile_eventsが処理しなかったWO番号を持つExcelイベントを指す。
-                        # つまり、Googleカレンダーに既存で、かつ変更がなかったイベント。
-                        # 現時点の reconcile_events は、変更がない場合は追加しないため、
-                        # events_to_add_to_gcal と events_to_update_in_gcal に含まれないものがスキップ。
-
-                        # Excelの各行について、それが追加でも更新でもない場合をスキップと判定
-                        skipped_excel_rows_df = pd.DataFrame(columns=excel_df_for_update.columns)
-                        for _, row in excel_df_for_update.iterrows():
-                            is_added = False
-                            for add_event in events_to_add_to_gcal:
-                                # 簡略化された比較。実際にはより厳密な比較が必要
-                                if add_event['summary'] == row['Subject'] and \
-                                   add_event['start'].get('dateTime', add_event['start'].get('date')) == (row['Start Date'] if row['All Day Event'] == "True" else f"{row['Start Date']} {row['Start Time']}"):
-                                    is_added = True
-                                    break
-                            
-                            is_updated = False
-                            for update_event in events_to_update_in_gcal:
-                                if update_event['new_data']['summary'] == row['Subject'] and \
-                                   update_event['new_data']['start'].get('dateTime', update_event['new_data']['start'].get('date')) == (row['Start Date'] if row['All Day Event'] == "True" else f"{row['Start Date']} {row['Start Time']}"):
-                                    is_updated = True
-                                    break
-                            
-                            if not is_added and not is_updated:
-                                skipped_excel_rows_df = pd.concat([skipped_excel_rows_df, pd.DataFrame([row])], ignore_index=True)
-
-
+                    events_to_add_to_gcal, events_to_update_in_gcal, events_to_skip_due_to_no_change = reconcile_events(excel_df_for_update, existing_gcal_events)
+                    
                     st.session_state['events_to_add_update'] = events_to_add_to_gcal
                     st.session_state['events_to_update_update'] = events_to_update_in_gcal
-                    st.session_state['events_to_skip_update'] = skipped_excel_rows_df.to_dict('records') # DataFrameをlist of dictに変換
+                    st.session_state['events_to_skip_update'] = events_to_skip_due_to_no_change
 
                     st.markdown("---")
                     st.success(f"結果: 新規登録 {len(events_to_add_to_gcal)} 件, 更新 {len(events_to_update_in_gcal)} 件, スキップ {len(st.session_state['events_to_skip_update'])} 件")
@@ -305,8 +263,10 @@ with tabs[2]: # 3. イベントの更新（作業指示書番号基準）
                         for e_upd in events_to_update_in_gcal:
                             new_data = e_upd['new_data']
                             old_summary = e_upd['old_summary']
+                            
                             # 更新されるイベントの作業指示書番号も表示 (Descriptionから抽出)
-                            wo_match_old = re.match(r"^作業指示書:(\d+)\s*/?\s*", old_summary) # 数字のみを抽出
+                            # old_summaryからWO番号部分を抽出（例: "12345 イベント名" -> "12345"）
+                            wo_match_old = re.match(r"^(\d+)\s", old_summary) 
                             wo_number_old_display = wo_match_old.group(1) if wo_match_old else "N/A"
 
                             update_display_data.append({
