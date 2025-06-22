@@ -9,7 +9,7 @@ import pandas as pd
 import re
 
 SCOPES = ["https://www.googleapis.com/auth/calendar"]
-TOKEN_FILE = "token.pickle"
+# TOKEN_FILE = "token.pickle" # 複数ユーザー対応のため、このファイルは使用しない
 
 def authenticate_google():
     creds = None
@@ -19,69 +19,62 @@ def authenticate_google():
         creds = st.session_state['credentials']
         return creds
 
-    # 2. session_stateにない場合、token.pickleから永続化された認証情報を読み込もうとします
-    if os.path.exists(TOKEN_FILE):
-        try:
-            with open(TOKEN_FILE, "rb") as token:
-                creds = pickle.load(token)
-            # 読み込んだ認証情報をsession_stateに保存し、このセッションで再利用できるようにします
-            st.session_state['credentials'] = creds 
-        except Exception as e:
-            st.warning(f"既存のトークンファイルの読み込みに失敗しました: {e}。再認証してください。")
-            creds = None
-
-    # 3. 認証情報が有効でない、または期限切れの場合、更新または再認証
+    # 2. 認証情報が有効でない、または期限切れの場合、更新または再認証を行います
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
+            # トークンが期限切れでリフレッシュトークンがある場合、トークンをリフレッシュします
             try:
                 creds.refresh(Request())
-                st.session_state['credentials'] = creds # 更新された認証情報をsession_stateに保存
+                # リフレッシュされた認証情報をsession_stateに保存します
+                st.session_state['credentials'] = creds
+                st.info("認証トークンを更新しました。")
+                st.rerun() # トークン更新後、アプリを再実行して変更を反映
             except Exception as e:
-                st.warning(f"認証トークンの更新に失敗しました: {e}。再認証してください。")
+                st.error(f"トークンのリフレッシュに失敗しました。再認証してください: {e}")
+                st.session_state['credentials'] = None
                 creds = None
-        else:
-            # client_secret.json が存在するか確認
-            if not os.path.exists("client_secret.json"):
-                st.error("client_secret.json ファイルが見つかりません。Google API Consoleからダウンロードして、アプリと同じディレクトリに配置してください。")
-                return None
-                
-            flow = Flow.from_client_secrets_json(
-                "client_secret.json", SCOPES
-            )
-            # Streamlit CloudなどのWebアプリ環境向けにredirect_uriを動的に設定
-            # HerokuやStreamlit Cloudでは環境変数PORTが設定されていることが多い
-            # または、開発環境（localhost）とデプロイ環境で異なるリダイレクトURIを使用
-            if os.getenv("STREAMLIT_SERVER_PORT"): # Streamlit Cloudの環境変数例
-                flow.redirect_uri = "http://localhost:8501" # Streamlit Cloudの外部URLは自動で内部Proxyされる
-            else:
-                flow.redirect_uri = "http://localhost:8501" # ローカル開発環境のデフォルト
+        else: # 有効な認証情報がない場合、新しい認証フローを開始します
+            try:
+                # Streamlit Secretsからクライアント情報を取得
+                client_config = {
+                    "installed": {
+                        "client_id": st.secrets["google"]["client_id"],
+                        "client_secret": st.secrets["google"]["client_secret"],
+                        "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                        "token_uri": "https://oauth2.googleapis.com/token",
+                        "redirect_uris": ["urn:ietf:wg:oauth:2.0:oob"] # コンソール認証用
+                    }
+                }
+                flow = Flow.from_client_config(client_config, SCOPES)
+                flow.redirect_uri = "urn:ietf:wg:oauth:2.0:oob"
+                auth_url, _ = flow.authorization_url(prompt='consent')
 
-            # 認証URLを生成し、ユーザーに表示
-            auth_url, _ = flow.authorization_url(prompt="consent")
-            st.markdown(f"以下の[**Google認証リンク**]({auth_url})をクリックして、認証を完了してください。")
+                st.info("以下のURLをブラウザで開いて、表示されたコードをここに貼り付けてください：")
+                st.write(auth_url)
+                code = st.text_input("認証コードを貼り付けてください:")
 
-            # 認証コードの入力フォーム
-            auth_code = st.text_input("認証コードを入力してください（認証後、URLの最後に表示されます）:")
-            if auth_code:
-                try:
-                    flow.fetch_token(code=auth_code)
+                if code:
+                    flow.fetch_token(code=code)
                     creds = flow.credentials
-                    # 認証情報を保存
-                    with open(TOKEN_FILE, "wb") as token:
-                        pickle.dump(creds, token)
-                    st.session_state['credentials'] = creds # 新しい認証情報をsession_stateに保存
+                    # 新しい認証情報をsession_stateに保存します
+                    st.session_state['credentials'] = creds
                     st.success("Google認証が完了しました！")
-                    st.rerun() # 認証完了後、アプリを再起動してUIを更新
-                except Exception as e:
-                    st.error(f"認証コードの検証に失敗しました: {e}。正しいコードを入力したか確認してください。")
-                    creds = None
+                    st.rerun() # 認証成功後、アプリを再読み込み
+            except Exception as e:
+                st.error(f"Google認証に失敗しました: {e}")
+                st.session_state['credentials'] = None
+                return None
+
     return creds
 
 def add_event_to_calendar(service, calendar_id, event_data):
+    """
+    Googleカレンダーにイベントを追加します。
+    """
     try:
         event = service.events().insert(calendarId=calendar_id, body=event_data).execute()
         # st.success(f"イベント '{event.get('summary')}' を追加しました。")
-        return event
+        return event # 登録されたイベントオブジェクトを返す
     except Exception as e:
         st.error(f"イベントの追加に失敗しました: {e}")
         return None
@@ -138,34 +131,8 @@ def delete_events_from_calendar(service, calendar_id, start_datetime, end_dateti
     progress_bar.empty() # プログレスバーをクリア
     return total_events # 削除したイベントの総数を返す
 
-def list_events_in_range(service, calendar_id, start_datetime, end_datetime):
-    jst = timezone(timedelta(hours=9))
-    start_utc = start_datetime.astimezone(timezone.utc).isoformat() + 'Z'
-    end_utc = end_datetime.astimezone(timezone.utc).isoformat() + 'Z'
-
-    events_list = []
-    page_token = None
-    try:
-        while True:
-            events_result = service.events().list(
-                calendarId=calendar_id,
-                timeMin=start_utc,
-                timeMax=end_utc,
-                singleEvents=True,
-                orderBy='startTime',
-                pageToken=page_token
-            ).execute()
-            events_list.extend(events_result.get('items', []))
-            page_token = events_result.get('nextPageToken')
-            if not page_token:
-                break
-        return events_list
-    except Exception as e:
-        st.error(f"カレンダーイベントの取得に失敗しました: {e}")
-        return []
-
+# 新規追加: 指定範囲のカレンダーイベントを取得する関数
 def get_existing_calendar_events(service, calendar_id, start_datetime, end_datetime):
-    # Google Calendar APIはUTC時間を要求するため、JSTをUTCに変換
     jst = timezone(timedelta(hours=9))
     start_utc = start_datetime.astimezone(timezone.utc).isoformat() + 'Z'
     end_utc = end_datetime.astimezone(timezone.utc).isoformat() + 'Z'
@@ -191,6 +158,7 @@ def get_existing_calendar_events(service, calendar_id, start_datetime, end_datet
         st.error(f"既存のGoogleカレンダーイベントの取得に失敗しました: {e}")
         return []
 
+# 新規追加: イベントを更新する関数
 def update_event_in_calendar(service, calendar_id, event_id, new_event_data):
     try:
         updated_event = service.events().update(
@@ -202,6 +170,7 @@ def update_event_in_calendar(service, calendar_id, event_id, new_event_data):
         st.error(f"イベントの更新に失敗しました (ID: {event_id}): {e}")
         return None
 
+# 新規追加: ExcelデータとGoogleカレンダーデータを比較し、アクションを決定する関数
 def reconcile_events(excel_df: pd.DataFrame, existing_gcal_events: list):
     # 'WorkOrderNumber'が空のExcel行は既にexcel_parserでフィルタリングされている前提
     # ここでは、WorkOrderNumberを持つExcelイベントとGCalイベントの比較を行う
@@ -285,11 +254,11 @@ def reconcile_events(excel_df: pd.DataFrame, existing_gcal_events: list):
                 # GoogleカレンダーイベントのDescriptionからも作業指示書部分を削除して比較
                 # gcal_description_for_comp = re.sub(r"^作業指示書:\d+\s*/?\s*", "", gcal_description).strip()
                 # summaryからWO番号部分を削除して比較
-                gcal_summary_for_comp = re.sub(r"^(\d+)\s+", "", gcal_summary).strip()
+                # gcal_summary_for_comp = re.sub(r"^(\d+)\s+", "", gcal_summary).strip() # 不要になったためコメントアウト
                 
                 # ExcelのDescriptionから作業指示書部分を削除して比較
                 excel_description_for_comp = event_data_from_excel['description']
-                excel_description_for_comp = re.sub(rf"^作業指示書:{re.escape(excel_wo_number)}\s*/?\s*", "", excel_description_for_comp).strip()
+                # excel_description_for_comp = re.sub(rf"^作業指示書:{re.escape(excel_wo_number)}\s*/?\s*", "", excel_description_for_comp).strip() # 不要になったためコメントアウト
 
 
                 # 開始/終了日時をdatetimeオブジェクトに変換して比較
