@@ -1,3 +1,5 @@
+# excel_parser.py
+
 import pandas as pd
 import re
 import datetime
@@ -6,7 +8,6 @@ import streamlit as st
 def clean_mng_num(value):
     if pd.isna(value):
         return ""
-    # 既存のロジック: 数字とアルファベットのみを抽出し、"HK"を削除
     return re.sub(r"[^0-9A-Za-z]", "", str(value)).replace("HK", "")
 
 def find_closest_column(columns, keywords):
@@ -20,13 +21,10 @@ def format_description_value(val):
     if pd.isna(val):
         return ""
     if isinstance(val, float):
-        # 整数値の場合は小数点以下を表示しない
         return str(int(val)) if val.is_integer() else str(round(val, 2))
     return str(val)
 
 def process_excel_files(uploaded_files, description_columns, all_day_event, private_event, strict_work_order_match=False):
-    # strict_work_order_match: Trueの場合、WorkOrderNumberが取得できない行は出力から除外する
-    # Falseの場合（登録タブ向け）、WorkOrderNumberがなくても全行を出力する
     dataframes = []
 
     if not uploaded_files:
@@ -38,114 +36,151 @@ def process_excel_files(uploaded_files, description_columns, all_day_event, priv
             df = pd.read_excel(uploaded_file, engine="openpyxl")
             df.columns = [str(c).strip() for c in df.columns]
             
-            # 検索キーワードに「作業指示書」「作業指示書番号」「管理番号」を追加
-            work_order_col = find_closest_column(df.columns, ["作業指示書番号", "作業指示書", "wo_number", "workorder", "管理番号"])
+            # 各ファイルの列情報を保持
+            mng_col = find_closest_column(df.columns, ["管理番号", "作業指示書番号"])
+            name_col = find_closest_column(df.columns, ["物件名", "イベント名", "概要"])
+            start_col = find_closest_column(df.columns, ["予定開始", "開始日", "開始"])
+            end_col = find_closest_column(df.columns, ["予定終了", "終了日", "終了"])
+            start_time_col = find_closest_column(df.columns, ["開始時刻", "開始時間"])
+            end_time_col = find_closest_column(df.columns, ["終了時刻", "終了時間"])
+            addr_col = find_closest_column(df.columns, ["住所", "所在地", "場所"])
+
+            # 必須列のチェック
+            if not all([name_col, start_col, end_col]):
+                st.warning(f"ファイル '{uploaded_file.name}' に必要な列（物件名・予定開始・予定終了）が見つかりません。このファイルはスキップされます。")
+                continue
+
+            # 作業指示書番号が必須の場合のフィルタリング
+            if strict_work_order_match:
+                if not mng_col:
+                    st.warning(f"ファイル '{uploaded_file.name}' に '管理番号' または '作業指示書番号' 列が見つかりません。このファイルは更新/削除の処理対象外です。")
+                    continue
+                # 作業指示書番号の欠損値を持つ行を削除
+                df = df.dropna(subset=[mng_col])
+                if df.empty:
+                    st.info(f"ファイル '{uploaded_file.name}' に有効な作業指示書番号を持つ行がありませんでした。")
+                    continue
             
-            if work_order_col:
-                # 'WorkOrderNumber' カラムを常に作成し、値があれば整形して格納
-                # clean_mng_num を適用し、その結果から数字のみを抽出（Descriptionに使うため）
-                df["WorkOrderNumber"] = df[work_order_col].apply(lambda x: re.sub(r"[^0-9]", "", clean_mng_num(x)))
-            else:
-                # 作業指示書番号の列が見つからなければ、空文字列でカラムを作成
-                df["WorkOrderNumber"] = "" 
-                st.warning(f"ファイル '{uploaded_file.name}' に '作業指示書番号' または '管理番号' を示す列が見つかりませんでした。このファイルのイベントは、作業指示書番号による更新対象にはなりません。")
-            
+            # 日付列の欠損値を持つ行を削除
+            df = df.dropna(subset=[start_col, end_col])
+
             dataframes.append(df)
         except Exception as e:
-            st.error(f"{uploaded_file.name} の読み込みに失敗しました: {e}")
-            return pd.DataFrame() # エラー時は空のDataFrameを返す
+            st.error(f"ファイル '{uploaded_file.name}' の処理中にエラーが発生しました: {e}")
+            continue
 
     if not dataframes:
         return pd.DataFrame()
 
     merged_df = pd.concat(dataframes, ignore_index=True)
 
-    name_col = find_closest_column(merged_df.columns, ["物件名", "イベント名", "概要"])
-    start_col = find_closest_column(merged_df.columns, ["予定開始", "開始日時", "開始日"])
-    end_col = find_closest_column(merged_df.columns, ["予定終了", "終了日時", "終了日"])
-    addr_col = find_closest_column(merged_df.columns, ["住所", "所在地", "場所"])
-
-    if not all([name_col, start_col, end_col]):
-        st.error("必要な列（物件名・予定開始・予定終了）が見つかりません。")
-        return pd.DataFrame()
-
-    merged_df = merged_df.dropna(subset=[start_col, end_col])
-
     output = []
     for _, row in merged_df.iterrows():
-        # clean_mng_numで処理された後、さらに数字のみを抽出してWorkOrderNumberとする
-        # これはDescriptionに「作業指示書:XXXX / 」と表示するための「数字部分」
-        work_order_number_for_desc = row.get("WorkOrderNumber", "")
-        # 主題（Subject）には clean_mng_num の結果を使用 (HK等が残っている可能性も考慮)
-        # ただし、Subject も数字のみに整形するという元の意図があった場合は、ここを再考する必要がある
-        # 今回の指示ではDescriptionのみの変更なので、Subjectのwo_numberはそのまま
-        
-        # strict_work_order_match が True の場合、WorkOrderNumber がない行はスキップ
-        if strict_work_order_match and not work_order_number_for_desc:
-            continue # この行は更新対象外なのでスキップ
+        # 作業指示書番号の処理
+        wo_number_raw = row.get(mng_col, "") if mng_col else ""
+        wo_number = clean_mng_num(wo_number_raw)
 
+        # イベント名の処理
         name = row.get(name_col, "")
-        
-        # Subject の整形: 作業指示書番号がある場合のみ先頭に追加
-        subj = f"{work_order_number_for_desc} {name}" if work_order_number_for_desc else name
-        subj = subj.strip() # 前後の空白を削除
-
-        try:
-            start = pd.to_datetime(row[start_col])
-            end = pd.to_datetime(row[end_col])
-        except Exception:
+        subj = f"{wo_number} {name}".strip() if wo_number else name.strip()
+        if not subj: # サブジェクトが空の場合はスキップ
             continue
 
-        location = row.get(addr_col, "")
-        if isinstance(location, str) and "北海道札幌市" in location:
-            location = location.replace("北海道札幌市", "")
-        location = location.strip() # 前後の空白を削除
+        try:
+            # 日付と時刻の結合
+            start_date_val = row[start_col]
+            end_date_val = row[end_col]
 
-        # Description の先頭に「作業指示書:XXXX / 」を挿入（WorkOrderNumberがある場合のみ）
-        base_description_parts = []
-        if work_order_number_for_desc: # ここでWorkOrderNumberがあるか確認
-            base_description_parts.append(f"作業指示書:{work_order_number_for_desc}")
+            # PandasのTimestampオブジェクトへの変換を試みる
+            start = pd.to_datetime(start_date_val)
+            end = pd.to_datetime(end_date_val)
 
-        # 選択された項目をDescriptionに追加
-        selected_description_parts = [
-            format_description_value(row.get(col)) for col in description_columns if col in row
-        ]
+            # 時間列が存在し、かつ終日イベントでない場合のみ時間情報を考慮
+            start_time_val = row.get(start_time_col) if start_time_col else None
+            end_time_val = row.get(end_time_col) if end_time_col else None
+
+            if not all_day_event and pd.notna(start_time_val) and pd.notna(end_time_val):
+                # 時刻は文字列またはtimedelta形式を想定
+                # datetime.timeオブジェクトに変換して結合
+                if isinstance(start_time_val, datetime.time):
+                    start_time = start_time_val
+                elif isinstance(start_time_val, datetime.timedelta):
+                    total_seconds = int(start_time_val.total_seconds())
+                    hours, remainder = divmod(total_seconds, 3600)
+                    minutes, seconds = divmod(remainder, 60)
+                    start_time = datetime.time(hours, minutes, seconds)
+                else: # その他の形式 (例: '9:00')
+                    start_time = pd.to_datetime(str(start_time_val)).time()
+
+                if isinstance(end_time_val, datetime.time):
+                    end_time = end_time_val
+                elif isinstance(end_time_val, datetime.timedelta):
+                    total_seconds = int(end_time_val.total_seconds())
+                    hours, remainder = divmod(total_seconds, 3600)
+                    minutes, seconds = divmod(remainder, 60)
+                    end_time = datetime.time(hours, minutes, seconds)
+                else: # その他の形式
+                    end_time = pd.to_datetime(str(end_time_val)).time()
+                
+                # 日付と時刻を結合
+                start_datetime_obj = datetime.datetime.combine(start.date(), start_time)
+                end_datetime_obj = datetime.datetime.combine(end.date(), end_time)
+            else:
+                # 終日イベントの場合、時刻は無視し、日付のみを使用
+                start_datetime_obj = datetime.datetime.combine(start.date(), datetime.time.min)
+                end_datetime_obj = datetime.datetime.combine(end.date(), datetime.time.min)
+                # 終日イベントの場合、Google Calendar APIは終了日を翌日に設定する必要がある
+                if all_day_event:
+                    end_datetime_obj += datetime.timedelta(days=1)
+
+        except Exception as e:
+            st.warning(f"日付または時刻の解析に失敗しました。この行はスキップされます: {subj} - エラー: {e}")
+            continue
+
+        # --- ここを修正 ---
+        location_raw = row.get(addr_col) # None, NaN, または値
+        if pd.isna(location_raw): # NaN かどうかをチェック
+            location = ""
+        else:
+            location = str(location_raw).strip() # 文字列に変換してからstrip
+            if "北海道札幌市" in location:
+                location = location.replace("北海道札幌市", "")
+        # --- 修正終わり ---
+
+        # 説明欄の生成
+        description_parts = []
+        # 作業指示書番号を説明欄の先頭に追加
+        if wo_number:
+            description_parts.append(f"作業指示書:{wo_number}")
+
+        # 選択された他の列を説明に追加
+        for col in description_columns:
+            if col in row and pd.notna(row[col]): # NaNではないことを確認
+                description_parts.append(format_description_value(row[col]))
         
-        # 空でない部分だけを結合し、Descriptionを生成
-        # 作業指示書番号と選択項目が両方ない場合は空にする
-        if not base_description_parts and not selected_description_parts:
-            description = ""
-        else:
-            description = " / ".join(base_description_parts + [p for p in selected_description_parts if p.strip()])
-        description = description.strip()
+        description = " / ".join(description_parts)
 
 
-        # 終日イベントの場合の調整
-        if all_day_event:
-            start_date_str = start.strftime("%Y/%m/%d")
-            # Google Calendar APIの終日イベントは終了日-1日なので、表示上は元の終了日
-            end_date_str = end.strftime("%Y/%m/%d")
-            start_time_str = ""
-            end_time_str = ""
-            is_all_day = "True"
-        else:
-            start_date_str = start.strftime("%Y/%m/%d")
-            end_date_str = end.strftime("%Y/%m/%d")
-            start_time_str = start.strftime("%H:%M")
-            end_time_str = end.strftime("%H:%M")
-            is_all_day = "False"
-
-        output.append({
-            "WorkOrderNumber": work_order_number_for_desc, # 作業指示書番号 (数字のみ)
+        output_row = {
+            "WorkOrderNumber": wo_number,
             "Subject": subj,
-            "Start Date": start_date_str,
-            "Start Time": start_time_str,
-            "End Date": end_date_str,
-            "End Time": end_time_str,
             "Location": location,
             "Description": description,
-            "All Day Event": is_all_day,
-            "Private": "True" if private_event else "False"
-        })
+            "All Day Event": str(all_day_event), # Booleanを文字列で保存
+            "Private": str(private_event) # Booleanを文字列で保存
+        }
+        
+        if all_day_event:
+            output_row["Start Date"] = start_datetime_obj.strftime("%Y/%m/%d")
+            output_row["End Date"] = end_datetime_obj.strftime("%Y/%m/%d")
+            output_row["Start Time"] = "" # 終日の場合は時間を空にする
+            output_row["End Time"] = ""
+        else:
+            output_row["Start Date"] = start_datetime_obj.strftime("%Y/%m/%d")
+            output_row["Start Time"] = start_datetime_obj.strftime("%H:%M")
+            output_row["End Date"] = end_datetime_obj.strftime("%Y/%m/%d")
+            output_row["End Time"] = end_datetime_obj.strftime("%H:%M")
+
+        output.append(output_row)
 
     return pd.DataFrame(output)
