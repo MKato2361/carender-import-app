@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime, date, timedelta, timezone
+from datetime import datetime, date, timedelta, timezone # timezoneをインポート
 from excel_parser import process_excel_files
 from calendar_utils import authenticate_google, add_event_to_calendar, delete_events_from_calendar, get_existing_calendar_events, update_event_in_calendar, reconcile_events
 from googleapiclient.discovery import build
@@ -231,15 +231,15 @@ with tabs[2]: # 3. イベントの更新（作業指示書番号基準）
                     st.session_state['events_to_update_update'] = []
                     st.session_state['events_to_skip_update'] = []
                 else:
-                    # ここで `datetime.combine(update_search_start_date, datetime.min.time())` のように
-                    # 日付オブジェクトから完全な datetime オブジェクトを生成して渡します。
-                    # しかし、`get_existing_calendar_events` 内で既に timeMin/Max の整形が行われるため、
-                    # ここでは `date` オブジェクトのままで良いです。
-                    # calendar_utils.py の修正により、datetime.combine(date, time) で渡しても適切に処理されます。
+                    # 日付オブジェクトをJSTのdatetimeオブジェクトに変換してから渡す
+                    jst = timezone(timedelta(hours=9)) # JSTのタイムゾーンオブジェクトを作成
+                    start_dt_search = jst.localize(datetime.combine(update_search_start_date, datetime.min.time()))
+                    end_dt_search = jst.localize(datetime.combine(update_search_end_date, datetime.max.time()))
+
                     existing_gcal_events = get_existing_calendar_events(
                         service, calendar_id_update,
-                        datetime.combine(update_search_start_date, datetime.min.time()), # datetime オブジェクトとして渡す
-                        datetime.combine(update_search_end_date, datetime.max.time())    # datetime オブジェクトとして渡す
+                        start_dt_search,
+                        end_dt_search
                     )
 
                     events_to_add_to_gcal, events_to_update_in_gcal, events_to_skip_due_to_no_change = reconcile_events(excel_df_for_update, existing_gcal_events)
@@ -381,10 +381,14 @@ with tabs[3]: # 4. イベントの削除
         else:
             st.subheader("👀 削除対象イベントのプレビュー")
             if st.button("削除対象をプレビュー", key="generate_delete_preview_button"):
-                events_to_delete_preview = get_existing_calendar_events( # list_events_in_range を get_existing_calendar_events に変更
+                jst = timezone(timedelta(hours=9)) # JSTのタイムゾーンオブジェクトを作成
+                start_dt_search = jst.localize(datetime.combine(delete_start_date, datetime.min.time()))
+                end_dt_search = jst.localize(datetime.combine(delete_end_date, datetime.max.time()))
+
+                events_to_delete_preview = get_existing_calendar_events(
                     service, calendar_id_del,
-                    datetime.combine(delete_start_date, datetime.min.time()), # datetime オブジェクトとして渡す
-                    datetime.combine(delete_end_date, datetime.max.time())    # datetime オブジェクトとして渡す
+                    start_dt_search,
+                    end_dt_search
                 )
 
                 if events_to_delete_preview:
@@ -432,10 +436,14 @@ with tabs[3]: # 4. イベントの削除
                     col1, col2 = st.columns(2)
                     with col1:
                         if st.button("はい、削除を実行します", key="confirm_delete_button_final"):
+                            jst = timezone(timedelta(hours=9)) # JSTのタイムゾーンオブジェクトを作成
+                            start_dt_delete = jst.localize(datetime.combine(delete_start_date, datetime.min.time()))
+                            end_dt_delete = jst.localize(datetime.combine(delete_end_date, datetime.max.time()))
+
                             deleted_count = delete_events_from_calendar(
                                 service, calendar_id_del,
-                                datetime.combine(delete_start_date, datetime.min.time()),
-                                datetime.combine(delete_end_date, datetime.max.time())
+                                start_dt_delete,
+                                end_dt_delete
                             )
                             st.session_state.last_deleted_count = deleted_count
                             st.session_state.show_delete_confirmation = False
