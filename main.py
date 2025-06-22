@@ -1,81 +1,40 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 from excel_parser import process_excel_files
-from calendar_utils import authenticate_google, add_event_to_calendar, delete_events_from_calendar
+from calendar_utils import authenticate_google, add_event_to_calendar, delete_events_from_calendar, list_events_in_range, get_existing_calendar_events, update_event_in_calendar, reconcile_events
 from googleapiclient.discovery import build
-# from firebase_utils import initialize_firebase, login_user, logout_user, get_current_user # Firebaseを導入する場合にコメントアウトを外す
+import re
+import io
 
-st.set_page_config(page_title="Googleカレンダー登録・削除ツール", layout="wide")
-st.title("📅 Googleカレンダー一括イベント登録・削除")
+st.set_page_config(page_title="Googleカレンダー登録・更新・削除ツール", layout="wide")
+st.title("📅 Googleカレンダー一括イベント登録・更新・削除")
 
-# --- Firebase 認証セクション (Firebaseを導入する場合に有効化) ---
-# if 'logged_in' not in st.session_state:
-#     st.session_state['logged_in'] = False
-#     st.session_state['user_email'] = None
-
-# if not initialize_firebase():
-#     st.error("アプリケーションの初期化に失敗しました。")
-#     st.stop()
-
-# if not st.session_state['logged_in']:
-#     st.sidebar.title("ログイン")
-#     email = st.sidebar.text_input("メールアドレス")
-#     password = st.sidebar.text_input("パスワード", type="password")
-
-#     if st.sidebar.button("ログイン"):
-#         if login_user(email, password):
-#             st.rerun()
-#     st.sidebar.markdown("---")
-#     st.sidebar.info("デモ用: 新規ユーザー登録")
-#     new_email = st.sidebar.text_input("新規メールアドレス")
-#     new_password = st.sidebar.text_input("新規パスワード", type="password", help="6文字以上")
-#     if st.sidebar.button("ユーザー登録"):
-#         try:
-#             user = auth.create_user(email=new_email, password=new_password)
-#             st.sidebar.success(f"ユーザー '{user.email}' を登録しました。ログインしてください。")
-#         except Exception as e:
-#             st.sidebar.error(f"ユーザー登録に失敗しました: {e}")
-
-#     st.stop()
-# else:
-#     st.sidebar.success(f"ようこそ、{get_current_user()} さん！")
-#     if st.sidebar.button("ログアウト"):
-#         logout_user()
-#         st.rerun()
-
-# --- ここからGoogleカレンダー認証セクションの変更 ---
-
-# Streamlitのplaceholderを使って、認証セクションの内容を動的に変更
+# --- Google Calendar Authentication ---
 google_auth_placeholder = st.empty()
 
 with google_auth_placeholder.container():
     st.subheader("🔐 Googleカレンダー認証")
-    creds = authenticate_google() # 認証プロセスを実行
+    creds = authenticate_google()
 
-    # 認証が完了していない場合はここで警告を表示し、停止
     if not creds:
         st.warning("Googleカレンダー認証を完了してください。")
         st.stop()
     else:
-        # 認証が完了したら、placeholerの内容をクリアし、認証済みメッセージを表示
-        google_auth_placeholder.empty() # コンテンツを削除
-        st.sidebar.success("✅ Googleカレンダーに認証済みです！") # サイドバーに認証済みメッセージを表示
+        google_auth_placeholder.empty()
+        st.sidebar.success("✅ Googleカレンダーに認証済みです！")
 
-# 認証が完了したらサービスをビルドし、セッションステートに保存
 if 'calendar_service' not in st.session_state or not st.session_state['calendar_service']:
     try:
         service = build("calendar", "v3", credentials=creds)
         st.session_state['calendar_service'] = service
         calendar_list = service.calendarList().list().execute()
-
         editable_calendar_options = {
             cal['summary']: cal['id']
             for cal in calendar_list['items']
             if cal.get('accessRole') != 'reader'
         }
         st.session_state['editable_calendar_options'] = editable_calendar_options
-
     except Exception as e:
         st.error(f"カレンダーサービスの取得またはカレンダーリストの取得に失敗しました: {e}")
         st.warning("Google認証の状態を確認するか、ページをリロードしてください。")
@@ -83,10 +42,11 @@ if 'calendar_service' not in st.session_state or not st.session_state['calendar_
 else:
     service = st.session_state['calendar_service']
 
-# --- ここからファイルアップロードとイベント設定、イベント削除のタブ (変更なし) ---
-tabs = st.tabs(["1. ファイルのアップロード", "2. イベントの登録", "3. イベントの削除"])
 
-with tabs[0]:
+# --- Tabs ---
+tabs = st.tabs(["1. ファイルのアップロード", "2. イベントの新規登録", "3. イベントの更新（作業指示書番号基準）", "4. イベントの削除"])
+
+with tabs[0]: # 1. ファイルのアップロード (変更なし)
     st.header("ファイルをアップロード")
     uploaded_files = st.file_uploader("Excelファイルを選択（複数可）", type=["xlsx"], accept_multiple_files=True)
 
@@ -111,47 +71,79 @@ with tabs[0]:
             st.write(f"- {f.name}")
 
 
-with tabs[1]:
-    st.header("イベントを登録")
+with tabs[1]: # 2. イベントの新規登録 (既存の登録機能)
+    st.header("イベントを新規登録")
+    st.info("アップロードされたExcelファイルのすべてのイベントを新規にGoogleカレンダーに登録します。既存のイベントとの重複チェックは行われません。")
+
     if not st.session_state.get('uploaded_files'):
         st.info("先に「1. ファイルのアップロード」タブでExcelファイルをアップロードすると、イベント登録機能が利用可能になります。")
     else:
         st.subheader("📝 イベント設定")
-        all_day_event = st.checkbox("終日イベントとして登録", value=False)
-        private_event = st.checkbox("非公開イベントとして登録", value=True)
+        all_day_event_reg = st.checkbox("終日イベントとして登録", value=False, key="reg_all_day_event")
+        private_event_reg = st.checkbox("非公開イベントとして登録", value=True, key="reg_private_event")
 
-        description_columns = st.multiselect(
+        description_columns_reg = st.multiselect(
             "説明欄に含める列（複数選択可）",
-            st.session_state.get('description_columns_pool', [])
+            st.session_state.get('description_columns_pool', []),
+            key="reg_description_columns"
         )
 
         if not st.session_state['editable_calendar_options']:
             st.error("登録可能なカレンダーが見つかりませんでした。Googleカレンダーの設定を確認してください。")
         else:
-            selected_calendar_name = st.selectbox("登録先カレンダーを選択", list(st.session_state['editable_calendar_options'].keys()), key="reg_calendar_select")
-            calendar_id = st.session_state['editable_calendar_options'][selected_calendar_name]
+            selected_calendar_name_reg = st.selectbox("登録先カレンダーを選択", list(st.session_state['editable_calendar_options'].keys()), key="reg_calendar_select")
+            calendar_id_reg = st.session_state['editable_calendar_options'][selected_calendar_name_reg]
 
-            st.subheader("➡️ イベント登録")
-            if st.button("Googleカレンダーに登録する"):
-                with st.spinner("イベントデータを処理中..."):
-                    df = process_excel_files(st.session_state['uploaded_files'], description_columns, all_day_event, private_event)
-                    if df.empty:
-                        st.warning("有効なイベントデータがありません。")
-                    else:
-                        st.info(f"{len(df)} 件のイベントを登録します。")
+            st.subheader("👀 登録イベントのプレビュー")
+            if st.button("登録プレビューを生成", key="generate_register_preview_button"):
+                # strict_work_order_match=False: 作業指示書番号の有無にかかわらず全行を処理
+                preview_df = process_excel_files(
+                    st.session_state['uploaded_files'],
+                    description_columns_reg,
+                    all_day_event_reg,
+                    private_event_reg,
+                    strict_work_order_match=False # 新規登録タブではWO番号がなくても登録対象
+                )
+                if not preview_df.empty:
+                    display_df = preview_df.copy()
+                    display_df = display_df.rename(columns={
+                        'WorkOrderNumber': '作業指示書番号',
+                        'Subject': 'イベント名',
+                        'Start Date': '開始日',
+                        'Start Time': '開始時刻',
+                        'End Date': '終了日',
+                        'End Time': '終了時刻',
+                        'Location': '場所',
+                        'Description': '説明',
+                        'All Day Event': '終日',
+                        'Private': '非公開'
+                    })
+                    columns_to_display = ['作業指示書番号', 'イベント名', '開始日', '開始時刻', '終了日', '終了時刻', '場所', '説明', '終日', '非公開']
+                    display_df = display_df[[col for col in columns_to_display if col in display_df.columns]]
+                    st.info(f"{len(display_df)} 件のイベントが以下のように登録されます。")
+                    st.dataframe(display_df, use_container_width=True)
+                    st.session_state['preview_register_df'] = preview_df
+                else:
+                    st.warning("プレビューする有効なイベントデータがありません。")
+                    st.session_state['preview_register_df'] = pd.DataFrame()
+
+            st.subheader("➡️ イベント登録実行")
+            if st.session_state.get('preview_register_df') is not None and not st.session_state['preview_register_df'].empty:
+                if st.button("Googleカレンダーに一括登録する", key="execute_register_button"):
+                    df_to_register = st.session_state['preview_register_df']
+                    with st.spinner("イベントデータを登録中..."):
                         progress = st.progress(0)
                         successful_registrations = 0
-                        for i, row in df.iterrows():
+                        for i, row in df_to_register.iterrows():
                             try:
                                 if row['All Day Event'] == "True":
                                     start_date_str = datetime.strptime(row['Start Date'], "%Y/%m/%d").strftime("%Y-%m-%d")
                                     end_date_obj = datetime.strptime(row['End Date'], "%Y/%m/%d").date() + timedelta(days=1)
                                     end_date_str = end_date_obj.strftime("%Y-%m-%d")
-
                                     event_data = {
                                         'summary': row['Subject'],
-                                        'location': row['Location'] if pd.notna(row['Location']) else '',
-                                        'description': row['Description'] if pd.notna(row['Description']) else '',
+                                        'location': row['Location'],
+                                        'description': row['Description'],
                                         'start': {'date': start_date_str},
                                         'end': {'date': end_date_str},
                                         'transparency': 'transparent' if row['Private'] == "True" else 'opaque'
@@ -159,28 +151,250 @@ with tabs[1]:
                                 else:
                                     start_dt_str = f"{row['Start Date']} {row['Start Time']}"
                                     end_dt_str = f"{row['End Date']} {row['End Time']}"
-
                                     start = datetime.strptime(start_dt_str, "%Y/%m/%d %H:%M").isoformat()
                                     end = datetime.strptime(end_dt_str, "%Y/%m/%d %H:%M").isoformat()
-
                                     event_data = {
                                         'summary': row['Subject'],
-                                        'location': row['Location'] if pd.notna(row['Location']) else '',
-                                        'description': row['Description'] if pd.notna(row['Description']) else '',
+                                        'location': row['Location'],
+                                        'description': row['Description'],
                                         'start': {'dateTime': start, 'timeZone': 'Asia/Tokyo'},
                                         'end': {'dateTime': end, 'timeZone': 'Asia/Tokyo'},
                                         'transparency': 'transparent' if row['Private'] == "True" else 'opaque'
                                     }
-                                add_event_to_calendar(service, calendar_id, event_data)
+                                add_event_to_calendar(service, calendar_id_reg, event_data)
                                 successful_registrations += 1
                             except Exception as e:
                                 st.error(f"{row['Subject']} の登録に失敗しました: {e}")
-                            progress.progress((i + 1) / len(df))
+                            progress.progress((i + 1) / len(df_to_register))
 
                         st.success(f"✅ {successful_registrations} 件のイベント登録が完了しました！")
+                        st.session_state['preview_register_df'] = pd.DataFrame()
+            else:
+                st.info("プレビューを生成してから登録を実行してください。")
 
 
-with tabs[2]:
+with tabs[2]: # 3. イベントの更新（作業指示書番号基準）
+    st.header("イベントの更新（作業指示書番号基準）")
+    st.info("アップロードされたExcelファイル内の「作業指示書番号」をキーとして、既存のGoogleカレンダーイベントを更新します。変更がない場合はスキップし、Googleカレンダーに存在しない作業指示書番号のイベントは新規登録されます。")
+    st.warning("Excelファイルに「作業指示書番号」がない、または空欄の行は、この機能の処理対象外となります。それらを新規登録したい場合は「2. イベントの新規登録」タブをご利用ください。")
+
+    if not st.session_state.get('uploaded_files'):
+        st.info("先に「1. ファイルのアップロード」タブでExcelファイルをアップロードしてください。")
+    else:
+        if not st.session_state['editable_calendar_options']:
+            st.error("更新可能なカレンダーが見つかりませんでした。Googleカレンダーの設定を確認してください。")
+            st.stop()
+
+        selected_calendar_name_update = st.selectbox("更新対象カレンダーを選択", list(st.session_state['editable_calendar_options'].keys()), key="update_calendar_select")
+        calendar_id_update = st.session_state['editable_calendar_options'][selected_calendar_name_update]
+
+        st.subheader("🔍 期間と設定")
+        if st.session_state.get('uploaded_files'):
+            combined_df_temp_for_dates = process_excel_files(st.session_state['uploaded_files'], [], False, False, strict_work_order_match=False) # 日付範囲検出は全行対象
+            if not combined_df_temp_for_dates.empty and not combined_df_temp_for_dates['Start Date'].empty:
+                min_date_excel = pd.to_datetime(combined_df_temp_for_dates['Start Date']).min().date()
+                max_date_excel = pd.to_datetime(combined_df_temp_for_dates['End Date']).max().date()
+            else:
+                min_date_excel = date.today() - timedelta(days=30)
+                max_date_excel = date.today() + timedelta(days=30)
+        else:
+            min_date_excel = date.today() - timedelta(days=30)
+            max_date_excel = date.today() + timedelta(days=30)
+
+        update_search_start_date = st.date_input("カレンダー検索開始日", value=min_date_excel - timedelta(days=7), key="update_start_search_date")
+        update_search_end_date = st.date_input("カレンダー検索終了日", value=max_date_excel + timedelta(days=7), key="update_end_search_date")
+
+        all_day_event_upd = st.checkbox("終日イベントとして更新（Excelの値で上書き）", value=False, key="upd_all_day_event")
+        private_event_upd = st.checkbox("非公開イベントとして更新（Excelの値で上書き）", value=True, key="upd_private_event")
+        description_columns_upd = st.multiselect(
+            "説明欄に含める列（複数選択可）",
+            st.session_state.get('description_columns_pool', []),
+            key="upd_description_columns"
+        )
+
+        st.subheader("🔄 変更プレビュー")
+        if st.button("変更をプレビュー", key="preview_update_button"):
+            with st.spinner("既存イベントとExcelデータを比較中..."):
+                # strict_work_order_match=True: WorkOrderNumberがない行はここで除外される
+                excel_df_for_update = process_excel_files(
+                    st.session_state['uploaded_files'],
+                    description_columns_upd,
+                    all_day_event_upd,
+                    private_event_upd,
+                    strict_work_order_match=True
+                )
+
+                if excel_df_for_update.empty:
+                    st.warning("プレビューする有効なExcelデータがありません。作業指示書番号が特定できる行がないか、ファイルが空です。")
+                    st.session_state['events_to_add_update'] = []
+                    st.session_state['events_to_update_update'] = []
+                    st.session_state['events_to_skip_update'] = [] # 追加
+                else:
+                    existing_gcal_events = get_existing_calendar_events(
+                        service, calendar_id_update,
+                        datetime.combine(update_search_start_date, datetime.min.time()),
+                        datetime.combine(update_search_end_date, datetime.max.time())
+                    )
+
+                    events_to_add_to_gcal, events_to_update_in_gcal = reconcile_events(excel_df_for_update, existing_gcal_events)
+
+                    # スキップされたイベントを特定 (Excelにあるが変更なしのイベント)
+                    all_excel_wo_numbers = set(excel_df_for_update['WorkOrderNumber'].dropna().unique())
+                    processed_wo_numbers = set()
+                    for e in events_to_add_to_gcal:
+                        # process_excel_filesから返されたデータなのでWorkOrderNumberキーがあると仮定
+                        if 'WorkOrderNumber' in e and e['WorkOrderNumber']:
+                            processed_wo_numbers.add(e['WorkOrderNumber'])
+                    for e_upd in events_to_update_in_gcal:
+                        # new_dataにはWorkOrderNumberは含まれないため、old_summaryから抽出するか、reconcile_eventsを修正して返す
+                        # 今回は、reconcile_eventsが既にWO番号を持つイベントのみを処理しているため、
+                        # gcal_events_by_wo_numberから元のWO番号を再取得する必要があるが、それは煩雑。
+                        # ここでは、単純にtotal - add - update でスキップを算出する。
+                        # ただし、reconcile_events がWO番号を持たないExcel行を無視するため、
+                        # excel_df_for_update の行数で比較する方が正確。
+
+                        # ここでのスキップは、reconcile_eventsが処理しなかったWO番号を持つExcelイベントを指す。
+                        # つまり、Googleカレンダーに既存で、かつ変更がなかったイベント。
+                        # 現時点の reconcile_events は、変更がない場合は追加しないため、
+                        # events_to_add_to_gcal と events_to_update_in_gcal に含まれないものがスキップ。
+
+                        # Excelの各行について、それが追加でも更新でもない場合をスキップと判定
+                        skipped_excel_rows_df = pd.DataFrame(columns=excel_df_for_update.columns)
+                        for _, row in excel_df_for_update.iterrows():
+                            is_added = False
+                            for add_event in events_to_add_to_gcal:
+                                # 簡略化された比較。実際にはより厳密な比較が必要
+                                if add_event['summary'] == row['Subject'] and \
+                                   add_event['start'].get('dateTime', add_event['start'].get('date')) == (row['Start Date'] if row['All Day Event'] == "True" else f"{row['Start Date']} {row['Start Time']}"):
+                                    is_added = True
+                                    break
+                            
+                            is_updated = False
+                            for update_event in events_to_update_in_gcal:
+                                if update_event['new_data']['summary'] == row['Subject'] and \
+                                   update_event['new_data']['start'].get('dateTime', update_event['new_data']['start'].get('date')) == (row['Start Date'] if row['All Day Event'] == "True" else f"{row['Start Date']} {row['Start Time']}"):
+                                    is_updated = True
+                                    break
+                            
+                            if not is_added and not is_updated:
+                                skipped_excel_rows_df = pd.concat([skipped_excel_rows_df, pd.DataFrame([row])], ignore_index=True)
+
+
+                    st.session_state['events_to_add_update'] = events_to_add_to_gcal
+                    st.session_state['events_to_update_update'] = events_to_update_in_gcal
+                    st.session_state['events_to_skip_update'] = skipped_excel_rows_df.to_dict('records') # DataFrameをlist of dictに変換
+
+                    st.markdown("---")
+                    st.success(f"結果: 新規登録 {len(events_to_add_to_gcal)} 件, 更新 {len(events_to_update_in_gcal)} 件, スキップ {len(st.session_state['events_to_skip_update'])} 件")
+
+                    if events_to_add_to_gcal:
+                        st.subheader("➕ 新規登録されるイベント")
+                        display_add_df = pd.DataFrame({
+                            '作業指示書番号': [e.get('WorkOrderNumber', '') for e in events_to_add_to_gcal], # WorkOrderNumberを追加
+                            'イベント名': [e['summary'] for e in events_to_add_to_gcal],
+                            '開始': [e['start'].get('dateTime', e['start'].get('date')) for e in events_to_add_to_gcal],
+                            '終了': [e['end'].get('dateTime', e['end'].get('date')) for e in events_to_add_to_gcal],
+                            '場所': [e.get('location', '') for e in events_to_add_to_gcal],
+                            '説明': [e.get('description', '') for e in events_to_add_to_gcal]
+                        })
+                        st.dataframe(display_add_df, use_container_width=True)
+
+                    if events_to_update_in_gcal:
+                        st.subheader("✏️ 更新されるイベント")
+                        update_display_data = []
+                        for e_upd in events_to_update_in_gcal:
+                            new_data = e_upd['new_data']
+                            old_summary = e_upd['old_summary']
+                            # 更新されるイベントの作業指示書番号も表示 (Descriptionから抽出)
+                            wo_match_old = re.match(r"^作業指示書:(\d+)\s*/?\s*", old_summary) # 数字のみを抽出
+                            wo_number_old_display = wo_match_old.group(1) if wo_match_old else "N/A"
+
+                            update_display_data.append({
+                                '作業指示書番号': wo_number_old_display,
+                                '既存イベント名': old_summary,
+                                '新しいイベント名': new_data['summary'],
+                                '新しい開始': new_data['start'].get('dateTime', new_data['start'].get('date')),
+                                '新しい終了': new_data['end'].get('dateTime', new_data['end'].get('date')),
+                                '新しい場所': new_data.get('location', ''),
+                                '新しい説明': new_data.get('description', '')
+                            })
+                        st.dataframe(pd.DataFrame(update_display_data), use_container_width=True)
+                    
+                    if st.session_state['events_to_skip_update']:
+                        st.subheader("➡️ スキップされるイベント（変更なし）")
+                        display_skip_df = pd.DataFrame(st.session_state['events_to_skip_update'])
+                        display_skip_df = display_skip_df.rename(columns={
+                            'WorkOrderNumber': '作業指示書番号',
+                            'Subject': 'イベント名',
+                            'Start Date': '開始日',
+                            'Start Time': '開始時刻',
+                            'End Date': '終了日',
+                            'End Time': '終了時刻',
+                            'Location': '場所',
+                            'Description': '説明',
+                            'All Day Event': '終日',
+                            'Private': '非公開'
+                        })
+                        columns_to_display = ['作業指示書番号', 'イベント名', '開始日', '開始時刻', '終了日', '終了時刻', '場所', '説明', '終日', '非公開']
+                        display_skip_df = display_skip_df[[col for col in columns_to_display if col in display_skip_df.columns]]
+                        st.dataframe(display_skip_df, use_container_width=True)
+
+
+                    if not events_to_add_to_gcal and not events_to_update_in_gcal and not st.session_state['events_to_skip_update']:
+                        st.info("変更・新規登録が必要なイベントは見つかりませんでした。")
+
+        st.subheader("🚀 イベント更新実行")
+        # プレビューデータが存在する場合のみ実行ボタンを表示
+        if st.session_state.get('events_to_add_update') is not None and \
+           st.session_state.get('events_to_update_update') is not None and \
+           (st.session_state['events_to_add_update'] or st.session_state['events_to_update_update']):
+
+            if st.button("Googleカレンダーに変更を反映する", key="execute_update_button"):
+                with st.spinner("変更をGoogleカレンダーに反映中..."):
+                    added_count = 0
+                    updated_count = 0
+                    
+                    # 新規登録イベントの処理
+                    if st.session_state['events_to_add_update']:
+                        st.info(f"新規イベントを登録中 ({len(st.session_state['events_to_add_update'])} 件)...")
+                        add_progress = st.progress(0, text="新規登録イベント...")
+                        for i, event_data in enumerate(st.session_state['events_to_add_update']):
+                            try:
+                                # WorkOrderNumberはExcelから渡されるデータフレームにのみ存在するので、APIリクエストから除外
+                                event_data_for_api = {k: v for k, v in event_data.items() if k != 'WorkOrderNumber'}
+                                add_event_to_calendar(service, calendar_id_update, event_data_for_api)
+                                added_count += 1
+                            except Exception as e:
+                                st.error(f"新規登録に失敗しました ({event_data.get('summary', '無題')}): {e}")
+                            add_progress.progress((i + 1) / len(st.session_state['events_to_add_update']))
+                        add_progress.empty()
+
+                    # 更新イベントの処理
+                    if st.session_state['events_to_update_update']:
+                        st.info(f"既存イベントを更新中 ({len(st.session_state['events_to_update_update'])} 件)...")
+                        update_progress = st.progress(0, text="既存イベント更新中...")
+                        for i, update_item in enumerate(st.session_state['events_to_update_update']):
+                            try:
+                                # WorkOrderNumberはAPIリクエストから除外
+                                new_data_for_api = {k: v for k, v in update_item['new_data'].items() if k != 'WorkOrderNumber'}
+                                update_event_in_calendar(service, calendar_id_update, update_item['id'], new_data_for_api)
+                                updated_count += 1
+                            except Exception as e:
+                                st.error(f"更新に失敗しました ({update_item['new_data'].get('summary', '無題')}): {e}")
+                            update_progress.progress((i + 1) / len(st.session_state['events_to_update_update']))
+                        update_progress.empty()
+
+                    st.success(f"✅ Googleカレンダーへの変更が完了しました！ (新規登録: {added_count} 件, 更新: {updated_count} 件)")
+                    # 処理完了後にプレビューデータをクリア
+                    st.session_state['events_to_add_update'] = []
+                    st.session_state['events_to_update_update'] = []
+                    st.session_state['events_to_skip_update'] = []
+                    st.rerun()
+
+        else:
+            st.info("「変更をプレビュー」ボタンを押して、変更内容を確認してください。")
+
+with tabs[3]: # 4. イベントの削除
     st.header("イベントを削除")
 
     if 'editable_calendar_options' not in st.session_state or not st.session_state['editable_calendar_options']:
@@ -194,12 +408,46 @@ with tabs[2]:
         default_start_date = today - timedelta(days=30)
         default_end_date = today
 
-        delete_start_date = st.date_input("削除開始日", value=default_start_date)
-        delete_end_date = st.date_input("削除終了日", value=default_end_date)
+        delete_start_date = st.date_input("削除開始日", value=default_start_date, key="del_start_date")
+        delete_end_date = st.date_input("削除終了日", value=default_end_date, key="del_end_date")
 
         if delete_start_date > delete_end_date:
             st.error("削除開始日は終了日より前に設定してください。")
         else:
+            st.subheader("👀 削除対象イベントのプレビュー")
+            if st.button("削除対象をプレビュー", key="generate_delete_preview_button"):
+                events_to_delete_preview = list_events_in_range(
+                    service, calendar_id_del,
+                    datetime.combine(delete_start_date, datetime.min.time()),
+                    datetime.combine(delete_end_date, datetime.max.time())
+                )
+
+                if events_to_delete_preview:
+                    st.info(f"以下の {len(events_to_delete_preview)} 件のイベントが削除されます。")
+                    display_events = []
+                    for event in events_to_delete_preview:
+                        summary = event.get('summary', 'タイトルなし')
+                        start_info = event['start'].get('dateTime', event['start'].get('date'))
+                        end_info = event['end'].get('dateTime', event['end'].get('date'))
+                        
+                        # Descriptionから作業指示書番号を抽出して表示 (数字のみ)
+                        description = event.get('description', '')
+                        wo_match = re.match(r"^作業指示書:(\d+)\s*/?\s*", description) # 数字のみを抽出
+                        wo_number_display = wo_match.group(1) if wo_match else "N/A"
+
+                        display_events.append({
+                            '作業指示書番号': wo_number_display,
+                            'イベント名': summary,
+                            '開始日時': start_info,
+                            '終了日時': end_info,
+                            '場所': event.get('location', '')
+                        })
+                    st.dataframe(pd.DataFrame(display_events), use_container_width=True)
+                    st.session_state['events_to_delete_confirm'] = events_to_delete_preview
+                else:
+                    st.info("指定された期間内に削除するイベントは見つかりませんでした。")
+                    st.session_state['events_to_delete_confirm'] = []
+
             st.subheader("🗑️ 削除実行")
 
             if 'show_delete_confirmation' not in st.session_state:
@@ -207,31 +455,34 @@ with tabs[2]:
             if 'last_deleted_count' not in st.session_state:
                 st.session_state.last_deleted_count = None
 
-            if st.button("選択期間のイベントを削除する", key="delete_events_button"):
-                st.session_state.show_delete_confirmation = True
-                st.session_state.last_deleted_count = None
-                st.rerun()
+            if st.session_state.get('events_to_delete_confirm') and st.session_state['events_to_delete_confirm']:
+                if st.button("選択期間のイベントを削除する", key="delete_events_button"):
+                    st.session_state.show_delete_confirmation = True
+                    st.session_state.last_deleted_count = None
+                    st.rerun()
 
-            if st.session_state.show_delete_confirmation:
-                st.warning(f"「{selected_calendar_name_del}」カレンダーから {delete_start_date.strftime('%Y年%m月%d日')}から{delete_end_date.strftime('%Y年%m%d日')}までの全てのイベントを削除します。この操作は元に戻せません。よろしいですか？")
+                if st.session_state.show_delete_confirmation:
+                    st.warning(f"「{selected_calendar_name_del}」カレンダーから {delete_start_date.strftime('%Y年%m月%d日')}から{delete_end_date.strftime('%Y年%m%d日')}までの全てのイベントを削除します。この操作は元に戻せません。よろしいですか？")
 
-                col1, col2 = st.columns(2)
-                with col1:
-                    if st.button("はい、削除を実行します", key="confirm_delete_button_final"):
-                        deleted_count = delete_events_from_calendar(
-                            service, calendar_id_del,
-                            datetime.combine(delete_start_date, datetime.min.time()),
-                            datetime.combine(delete_end_date, datetime.max.time())
-                        )
-                        st.session_state.last_deleted_count = deleted_count
-                        st.session_state.show_delete_confirmation = False
-                        st.rerun()
-                with col2:
-                    if st.button("いいえ、キャンセルします", key="cancel_delete_button"):
-                        st.info("削除はキャンセルされました。")
-                        st.session_state.show_delete_confirmation = False
-                        st.session_state.last_deleted_count = None
-                        st.rerun()
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        if st.button("はい、削除を実行します", key="confirm_delete_button_final"):
+                            deleted_count = delete_events_from_calendar(
+                                service, calendar_id_del,
+                                datetime.combine(delete_start_date, datetime.min.time()),
+                                datetime.combine(delete_end_date, datetime.max.time())
+                            )
+                            st.session_state.last_deleted_count = deleted_count
+                            st.session_state.show_delete_confirmation = False
+                            st.rerun()
+                    with col2:
+                        if st.button("いいえ、キャンセルします", key="cancel_delete_button"):
+                            st.info("削除はキャンセルされました。")
+                            st.session_state.show_delete_confirmation = False
+                            st.session_state.last_deleted_count = None
+                            st.rerun()
+            else:
+                st.info("削除対象をプレビューしてから削除を実行してください。")
 
             if not st.session_state.show_delete_confirmation and st.session_state.last_deleted_count is not None:
                 if st.session_state.last_deleted_count > 0:
