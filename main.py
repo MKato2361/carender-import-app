@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime, date, timedelta, timezone # timezoneをインポート
+from datetime import datetime, date, timedelta, timezone
 from excel_parser import process_excel_files
 from calendar_utils import authenticate_google, add_event_to_calendar, delete_events_from_calendar, get_existing_calendar_events, update_event_in_calendar, reconcile_events
 from googleapiclient.discovery import build
@@ -46,7 +46,7 @@ else:
 # --- Tabs ---
 tabs = st.tabs(["1. ファイルのアップロード", "2. イベントの新規登録", "3. イベントの更新（作業指示書番号基準）", "4. イベントの削除"])
 
-with tabs[0]: # 1. ファイルのアップロード (変更なし)
+with tabs[0]: # 1. ファイルのアップロード
     st.header("ファイルをアップロード")
     uploaded_files = st.file_uploader("Excelファイルを選択（複数可）", type=["xlsx"], accept_multiple_files=True)
 
@@ -138,7 +138,7 @@ with tabs[1]: # 2. イベントの新規登録 (既存の登録機能)
                             try:
                                 if row['All Day Event'] == "True":
                                     start_date_str = datetime.strptime(row['Start Date'], "%Y/%m/%d").strftime("%Y-%m-%d")
-                                    end_date_obj = datetime.strptime(row['End Date'], "%Y/%m/%d").date() + timedelta(days=1)
+                                    end_date_obj = datetime.strptime(row['End Date'], "%Y/%m/%d").date() # 既にexcel_parserで翌日になっている
                                     end_date_str = end_date_obj.strftime("%Y-%m-%d")
                                     event_data = {
                                         'summary': row['Subject'],
@@ -149,10 +149,9 @@ with tabs[1]: # 2. イベントの新規登録 (既存の登録機能)
                                         'transparency': 'transparent' if row['Private'] == "True" else 'opaque'
                                     }
                                 else:
-                                    start_dt_str = f"{row['Start Date']} {row['Start Time']}"
-                                    end_dt_str = f"{row['End Date']} {row['End Time']}"
-                                    start = datetime.strptime(start_dt_str, "%Y/%m/%d %H:%M").isoformat()
-                                    end = datetime.strptime(end_dt_str, "%Y/%m/%d %H:%M").isoformat()
+                                    # 日付と時刻が既にISO形式でなくても対応できるように
+                                    start = datetime.strptime(f"{row['Start Date']} {row['Start Time']}", "%Y/%m/%d %H:%M").isoformat()
+                                    end = datetime.strptime(f"{row['End Date']} {row['End Time']}", "%Y/%m/%d %H:%M").isoformat()
                                     event_data = {
                                         'summary': row['Subject'],
                                         'location': row['Location'],
@@ -190,14 +189,8 @@ with tabs[2]: # 3. イベントの更新（作業指示書番号基準）
 
         st.subheader("🔍 期間と設定")
         if st.session_state.get('uploaded_files'):
-            # Excelファイルの全行を対象に日付範囲を検出
-            combined_df_temp_for_dates = process_excel_files(st.session_state['uploaded_files'], [], False, False, strict_work_order_match=False)
-            if not combined_df_temp_for_dates.empty and not combined_df_temp_for_dates['Start Date'].empty:
-                min_date_excel = pd.to_datetime(combined_df_temp_for_dates['Start Date']).min().date()
-                max_date_excel = pd.to_datetime(combined_df_temp_for_dates['End Date']).max().date()
-            else:
-                min_date_excel = date.today() - timedelta(days=30)
-                max_date_excel = date.today() + timedelta(days=30)
+            min_date_excel = date.today() - timedelta(days=30)
+            max_date_excel = date.today() + timedelta(days=30)
         else:
             min_date_excel = date.today() - timedelta(days=30)
             max_date_excel = date.today() + timedelta(days=30)
@@ -426,42 +419,43 @@ with tabs[3]: # 4. イベントの削除
             if 'last_deleted_count' not in st.session_state:
                 st.session_state.last_deleted_count = None
 
-            if st.session_state.get('events_to_delete_confirm') and st.session_state['events_to_delete_confirm']:
-                if st.button("選択期間のイベントを削除する", key="delete_events_button"):
+            if st.session_state.get('events_to_delete_confirm') and len(st.session_state['events_to_delete_confirm']) > 0 and not st.session_state.show_delete_confirmation:
+                if st.button("上記のイベントを削除する", key="initiate_delete_button"):
                     st.session_state.show_delete_confirmation = True
-                    st.session_state.last_deleted_count = None
-                    st.rerun()
+                    st.session_state.last_deleted_count = None # 削除前にリセット
+                    st.rerun() # 確認ダイアログを表示するために再実行
 
-                if st.session_state.show_delete_confirmation:
-                    st.warning(f"「{selected_calendar_name_del}」カレンダーから {delete_start_date.strftime('%Y年%m月%d日')}から{delete_end_date.strftime('%Y年%m%d日')}までの全てのイベントを削除します。この操作は元に戻せません。よろしいですか？")
+            if st.session_state.show_delete_confirmation:
+                st.warning(f"「{selected_calendar_name_del}」カレンダーから {delete_start_date.strftime('%Y年%m月%d日')}から{delete_end_date.strftime('%Y年%m月%d日')}までの全てのイベントを削除します。この操作は元に戻せません。よろしいですか？")
 
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        if st.button("はい、削除を実行します", key="confirm_delete_button_final"):
-                            jst = timezone(timedelta(hours=9)) # JSTのタイムゾーンオブジェクトを作成
-                            # 修正: .localize() の代わりに .replace(tzinfo=jst) を使用
-                            start_dt_delete = datetime.combine(delete_start_date, datetime.min.time()).replace(tzinfo=jst)
-                            end_dt_delete = datetime.combine(delete_end_date, datetime.max.time()).replace(tzinfo=jst)
+                col1, col2 = st.columns(2)
+                with col1:
+                    if st.button("はい、削除を実行します", key="confirm_delete_button_final"):
+                        # 日付オブジェクトをJSTのdatetimeオブジェクトに変換してから渡す
+                        jst = timezone(timedelta(hours=9)) # JSTのタイムゾーンオブジェクトを作成
+                        start_dt_delete = datetime.combine(delete_start_date, datetime.min.time()).replace(tzinfo=jst)
+                        end_dt_delete = datetime.combine(delete_end_date, datetime.max.time()).replace(tzinfo=jst)
+                        
+                        deleted_count = delete_events_from_calendar(
+                            service, calendar_id_del,
+                            start_dt_delete,
+                            end_dt_delete
+                        )
+                        st.session_state.last_deleted_count = deleted_count
+                        st.session_state.show_delete_confirmation = False
+                        st.session_state['events_to_delete_confirm'] = [] # 削除後はプレビューをクリア
+                        st.rerun()
+                with col2:
+                    if st.button("いいえ、キャンセルします", key="cancel_delete_button"):
+                        st.info("削除はキャンセルされました。")
+                        st.session_state.show_delete_confirmation = False
+                        st.session_state.last_deleted_count = None
+                        st.session_state['events_to_delete_confirm'] = [] # キャンセル時もプレビューをクリア
+                        st.rerun()
 
-                            deleted_count = delete_events_from_calendar(
-                                service, calendar_id_del,
-                                start_dt_delete,
-                                end_dt_delete
-                            )
-                            st.session_state.last_deleted_count = deleted_count
-                            st.session_state.show_delete_confirmation = False
-                            st.rerun()
-                    with col2:
-                        if st.button("いいえ、キャンセルします", key="cancel_delete_button"):
-                            st.info("削除はキャンセルされました。")
-                            st.session_state.show_delete_confirmation = False
-                            st.session_state.last_deleted_count = None
-                            st.rerun()
-            else:
-                st.info("削除対象をプレビューしてから削除を実行してください。")
-
+            # 削除完了メッセージを表示
             if not st.session_state.show_delete_confirmation and st.session_state.last_deleted_count is not None:
                 if st.session_state.last_deleted_count > 0:
                     st.success(f"✅ {st.session_state.last_deleted_count} 件のイベントが削除されました。")
                 else:
-                    st.info("指定された期間内に削除するイベントは見つかりませんでした。")
+                    st.info("指定された期間内に削除されたイベントはありませんでした。")
