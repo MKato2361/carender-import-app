@@ -231,10 +231,15 @@ with tabs[2]: # 3. イベントの更新（作業指示書番号基準）
                     st.session_state['events_to_update_update'] = []
                     st.session_state['events_to_skip_update'] = []
                 else:
+                    # ここで `datetime.combine(update_search_start_date, datetime.min.time())` のように
+                    # 日付オブジェクトから完全な datetime オブジェクトを生成して渡します。
+                    # しかし、`get_existing_calendar_events` 内で既に timeMin/Max の整形が行われるため、
+                    # ここでは `date` オブジェクトのままで良いです。
+                    # calendar_utils.py の修正により、datetime.combine(date, time) で渡しても適切に処理されます。
                     existing_gcal_events = get_existing_calendar_events(
                         service, calendar_id_update,
-                        datetime.combine(update_search_start_date, datetime.min.time()),
-                        datetime.combine(update_search_end_date, datetime.max.time())
+                        datetime.combine(update_search_start_date, datetime.min.time()), # datetime オブジェクトとして渡す
+                        datetime.combine(update_search_end_date, datetime.max.time())    # datetime オブジェクトとして渡す
                     )
 
                     events_to_add_to_gcal, events_to_update_in_gcal, events_to_skip_due_to_no_change = reconcile_events(excel_df_for_update, existing_gcal_events)
@@ -378,8 +383,8 @@ with tabs[3]: # 4. イベントの削除
             if st.button("削除対象をプレビュー", key="generate_delete_preview_button"):
                 events_to_delete_preview = get_existing_calendar_events( # list_events_in_range を get_existing_calendar_events に変更
                     service, calendar_id_del,
-                    datetime.combine(delete_start_date, datetime.min.time()),
-                    datetime.combine(delete_end_date, datetime.max.time())
+                    datetime.combine(delete_start_date, datetime.min.time()), # datetime オブジェクトとして渡す
+                    datetime.combine(delete_end_date, datetime.max.time())    # datetime オブジェクトとして渡す
                 )
 
                 if events_to_delete_preview:
