@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, date, timedelta, timezone
 from excel_parser import process_excel_files
-from calendar_utils import authenticate_google, add_event_to_calendar, delete_events_from_calendar, list_events_in_range, get_existing_calendar_events, update_event_in_calendar, reconcile_events
+from calendar_utils import authenticate_google, add_event_to_calendar, delete_events_from_calendar, get_existing_calendar_events, update_event_in_calendar, reconcile_events
 from googleapiclient.discovery import build
 import re
 import io
@@ -190,7 +190,8 @@ with tabs[2]: # 3. イベントの更新（作業指示書番号基準）
 
         st.subheader("🔍 期間と設定")
         if st.session_state.get('uploaded_files'):
-            combined_df_temp_for_dates = process_excel_files(st.session_state['uploaded_files'], [], False, False, strict_work_order_match=False) # 日付範囲検出は全行対象
+            # Excelファイルの全行を対象に日付範囲を検出
+            combined_df_temp_for_dates = process_excel_files(st.session_state['uploaded_files'], [], False, False, strict_work_order_match=False)
             if not combined_df_temp_for_dates.empty and not combined_df_temp_for_dates['Start Date'].empty:
                 min_date_excel = pd.to_datetime(combined_df_temp_for_dates['Start Date']).min().date()
                 max_date_excel = pd.to_datetime(combined_df_temp_for_dates['End Date']).max().date()
@@ -228,7 +229,7 @@ with tabs[2]: # 3. イベントの更新（作業指示書番号基準）
                     st.warning("プレビューする有効なExcelデータがありません。作業指示書番号が特定できる行がないか、ファイルが空です。")
                     st.session_state['events_to_add_update'] = []
                     st.session_state['events_to_update_update'] = []
-                    st.session_state['events_to_skip_update'] = [] # 追加
+                    st.session_state['events_to_skip_update'] = []
                 else:
                     existing_gcal_events = get_existing_calendar_events(
                         service, calendar_id_update,
@@ -248,7 +249,7 @@ with tabs[2]: # 3. イベントの更新（作業指示書番号基準）
                     if events_to_add_to_gcal:
                         st.subheader("➕ 新規登録されるイベント")
                         display_add_df = pd.DataFrame({
-                            '作業指示書番号': [e.get('WorkOrderNumber', '') for e in events_to_add_to_gcal], # WorkOrderNumberを追加
+                            '作業指示書番号': [e.get('WorkOrderNumber', '') for e in events_to_add_to_gcal],
                             'イベント名': [e['summary'] for e in events_to_add_to_gcal],
                             '開始': [e['start'].get('dateTime', e['start'].get('date')) for e in events_to_add_to_gcal],
                             '終了': [e['end'].get('dateTime', e['end'].get('date')) for e in events_to_add_to_gcal],
@@ -264,8 +265,7 @@ with tabs[2]: # 3. イベントの更新（作業指示書番号基準）
                             new_data = e_upd['new_data']
                             old_summary = e_upd['old_summary']
                             
-                            # 更新されるイベントの作業指示書番号も表示 (Descriptionから抽出)
-                            # old_summaryからWO番号部分を抽出（例: "12345 イベント名" -> "12345"）
+                            # 更新されるイベントの作業指示書番号も表示 (既存のsummaryから抽出)
                             wo_match_old = re.match(r"^(\d+)\s", old_summary) 
                             wo_number_old_display = wo_match_old.group(1) if wo_match_old else "N/A"
 
@@ -376,7 +376,7 @@ with tabs[3]: # 4. イベントの削除
         else:
             st.subheader("👀 削除対象イベントのプレビュー")
             if st.button("削除対象をプレビュー", key="generate_delete_preview_button"):
-                events_to_delete_preview = list_events_in_range(
+                events_to_delete_preview = get_existing_calendar_events( # list_events_in_range を get_existing_calendar_events に変更
                     service, calendar_id_del,
                     datetime.combine(delete_start_date, datetime.min.time()),
                     datetime.combine(delete_end_date, datetime.max.time())
