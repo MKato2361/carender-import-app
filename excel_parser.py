@@ -3,11 +3,11 @@ import re
 import datetime
 import streamlit as st
 
-def clean_work_order_number(value):
+def clean_mng_num(value):
     if pd.isna(value):
         return ""
-    # 数字のみを抽出し、文字列として返す
-    return re.sub(r"[^0-9]", "", str(value))
+    # 既存のロジック: 数字とアルファベットのみを抽出し、"HK"を削除
+    return re.sub(r"[^0-9A-Za-z]", "", str(value)).replace("HK", "")
 
 def find_closest_column(columns, keywords):
     for kw in keywords:
@@ -38,16 +38,17 @@ def process_excel_files(uploaded_files, description_columns, all_day_event, priv
             df = pd.read_excel(uploaded_file, engine="openpyxl")
             df.columns = [str(c).strip() for c in df.columns]
             
-            # 検索キーワードに「作業指示書」を追加
-            work_order_col = find_closest_column(df.columns, ["作業指示書番号", "作業指示書", "wo_number", "workorder"])
+            # 検索キーワードに「作業指示書」「作業指示書番号」「管理番号」を追加
+            work_order_col = find_closest_column(df.columns, ["作業指示書番号", "作業指示書", "wo_number", "workorder", "管理番号"])
             
             if work_order_col:
                 # 'WorkOrderNumber' カラムを常に作成し、値があれば整形して格納
-                df["WorkOrderNumber"] = df[work_order_col].apply(clean_work_order_number)
+                # clean_mng_num を適用し、その結果から数字のみを抽出（Descriptionに使うため）
+                df["WorkOrderNumber"] = df[work_order_col].apply(lambda x: re.sub(r"[^0-9]", "", clean_mng_num(x)))
             else:
                 # 作業指示書番号の列が見つからなければ、空文字列でカラムを作成
                 df["WorkOrderNumber"] = "" 
-                st.warning(f"ファイル '{uploaded_file.name}' に '作業指示書番号' または '作業指示書' を示す列が見つかりませんでした。このファイルのイベントは、作業指示書番号による更新対象にはなりません。")
+                st.warning(f"ファイル '{uploaded_file.name}' に '作業指示書番号' または '管理番号' を示す列が見つかりませんでした。このファイルのイベントは、作業指示書番号による更新対象にはなりません。")
             
             dataframes.append(df)
         except Exception as e:
@@ -72,16 +73,21 @@ def process_excel_files(uploaded_files, description_columns, all_day_event, priv
 
     output = []
     for _, row in merged_df.iterrows():
-        work_order_number = str(row.get("WorkOrderNumber", "")).strip()
-
+        # clean_mng_numで処理された後、さらに数字のみを抽出してWorkOrderNumberとする
+        # これはDescriptionに「作業指示書:XXXX / 」と表示するための「数字部分」
+        work_order_number_for_desc = row.get("WorkOrderNumber", "")
+        # 主題（Subject）には clean_mng_num の結果を使用 (HK等が残っている可能性も考慮)
+        # ただし、Subject も数字のみに整形するという元の意図があった場合は、ここを再考する必要がある
+        # 今回の指示ではDescriptionのみの変更なので、Subjectのwo_numberはそのまま
+        
         # strict_work_order_match が True の場合、WorkOrderNumber がない行はスキップ
-        if strict_work_order_match and not work_order_number:
+        if strict_work_order_match and not work_order_number_for_desc:
             continue # この行は更新対象外なのでスキップ
 
         name = row.get(name_col, "")
         
         # Subject の整形: 作業指示書番号がある場合のみ先頭に追加
-        subj = f"{work_order_number} {name}" if work_order_number else name
+        subj = f"{work_order_number_for_desc} {name}" if work_order_number_for_desc else name
         subj = subj.strip() # 前後の空白を削除
 
         try:
@@ -95,10 +101,10 @@ def process_excel_files(uploaded_files, description_columns, all_day_event, priv
             location = location.replace("北海道札幌市", "")
         location = location.strip() # 前後の空白を削除
 
-        # Description の先頭に「作業指示書:12345678 / 」を挿入（WorkOrderNumberがある場合のみ）
+        # Description の先頭に「作業指示書:XXXX / 」を挿入（WorkOrderNumberがある場合のみ）
         base_description_parts = []
-        if work_order_number: # ここでWorkOrderNumberがあるか確認
-            base_description_parts.append(f"作業指示書:{work_order_number}")
+        if work_order_number_for_desc: # ここでWorkOrderNumberがあるか確認
+            base_description_parts.append(f"作業指示書:{work_order_number_for_desc}")
 
         # 選択された項目をDescriptionに追加
         selected_description_parts = [
@@ -130,7 +136,7 @@ def process_excel_files(uploaded_files, description_columns, all_day_event, priv
             is_all_day = "False"
 
         output.append({
-            "WorkOrderNumber": work_order_number, # 作業指示書番号
+            "WorkOrderNumber": work_order_number_for_desc, # 作業指示書番号 (数字のみ)
             "Subject": subj,
             "Start Date": start_date_str,
             "Start Time": start_time_str,
