@@ -233,8 +233,9 @@ with tabs[2]: # 3. イベントの更新（作業指示書番号基準）
                 else:
                     # 日付オブジェクトをJSTのdatetimeオブジェクトに変換してから渡す
                     jst = timezone(timedelta(hours=9)) # JSTのタイムゾーンオブジェクトを作成
-                    start_dt_search = jst.localize(datetime.combine(update_search_start_date, datetime.min.time()))
-                    end_dt_search = jst.localize(datetime.combine(update_search_end_date, datetime.max.time()))
+                    # 修正: .localize() の代わりに .replace(tzinfo=jst) を使用
+                    start_dt_search = datetime.combine(update_search_start_date, datetime.min.time()).replace(tzinfo=jst)
+                    end_dt_search = datetime.combine(update_search_end_date, datetime.max.time()).replace(tzinfo=jst)
 
                     existing_gcal_events = get_existing_calendar_events(
                         service, calendar_id_update,
@@ -382,8 +383,9 @@ with tabs[3]: # 4. イベントの削除
             st.subheader("👀 削除対象イベントのプレビュー")
             if st.button("削除対象をプレビュー", key="generate_delete_preview_button"):
                 jst = timezone(timedelta(hours=9)) # JSTのタイムゾーンオブジェクトを作成
-                start_dt_search = jst.localize(datetime.combine(delete_start_date, datetime.min.time()))
-                end_dt_search = jst.localize(datetime.combine(delete_end_date, datetime.max.time()))
+                # 修正: .localize() の代わりに .replace(tzinfo=jst) を使用
+                start_dt_search = datetime.combine(delete_start_date, datetime.min.time()).replace(tzinfo=jst)
+                end_dt_search = datetime.combine(delete_end_date, datetime.max.time()).replace(tzinfo=jst)
 
                 events_to_delete_preview = get_existing_calendar_events(
                     service, calendar_id_del,
@@ -437,8 +439,9 @@ with tabs[3]: # 4. イベントの削除
                     with col1:
                         if st.button("はい、削除を実行します", key="confirm_delete_button_final"):
                             jst = timezone(timedelta(hours=9)) # JSTのタイムゾーンオブジェクトを作成
-                            start_dt_delete = jst.localize(datetime.combine(delete_start_date, datetime.min.time()))
-                            end_dt_delete = jst.localize(datetime.combine(delete_end_date, datetime.max.time()))
+                            # 修正: .localize() の代わりに .replace(tzinfo=jst) を使用
+                            start_dt_delete = datetime.combine(delete_start_date, datetime.min.time()).replace(tzinfo=jst)
+                            end_dt_delete = datetime.combine(delete_end_date, datetime.max.time()).replace(tzinfo=jst)
 
                             deleted_count = delete_events_from_calendar(
                                 service, calendar_id_del,
