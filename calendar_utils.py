@@ -1,4 +1,3 @@
-# calendar_utils.py
 import pickle
 import os
 import streamlit as st
@@ -12,13 +11,196 @@ import re
 SCOPES = ["https://www.googleapis.com/auth/calendar"]
 TOKEN_FILE = "token.pickle"
 
-# authenticate_google (変更なし)
-# add_event_to_calendar (変更なし)
-# delete_events_from_calendar (変更なし)
-# list_events_in_range (変更なし)
-# get_existing_calendar_events (変更なし)
-# update_event_in_calendar (変更なし)
+def authenticate_google():
+    creds = None
+    
+    # 1. まず現在のセッションの認証情報がst.session_stateにあるか確認します
+    if 'credentials' in st.session_state and st.session_state['credentials'] and st.session_state['credentials'].valid:
+        creds = st.session_state['credentials']
+        return creds
 
+    # 2. session_stateにない場合、token.pickleから永続化された認証情報を読み込もうとします
+    if os.path.exists(TOKEN_FILE):
+        try:
+            with open(TOKEN_FILE, "rb") as token:
+                creds = pickle.load(token)
+            # 読み込んだ認証情報をsession_stateに保存し、このセッションで再利用できるようにします
+            st.session_state['credentials'] = creds 
+        except Exception as e:
+            st.warning(f"既存のトークンファイルの読み込みに失敗しました: {e}。再認証してください。")
+            creds = None
+
+    # 3. 認証情報が有効でない、または期限切れの場合、更新または再認証
+    if not creds or not creds.valid:
+        if creds and creds.expired and creds.refresh_token:
+            try:
+                creds.refresh(Request())
+                st.session_state['credentials'] = creds # 更新された認証情報をsession_stateに保存
+            except Exception as e:
+                st.warning(f"認証トークンの更新に失敗しました: {e}。再認証してください。")
+                creds = None
+        else:
+            # client_secret.json が存在するか確認
+            if not os.path.exists("client_secret.json"):
+                st.error("client_secret.json ファイルが見つかりません。Google API Consoleからダウンロードして、アプリと同じディレクトリに配置してください。")
+                return None
+                
+            flow = Flow.from_client_secrets_json(
+                "client_secret.json", SCOPES
+            )
+            # Streamlit CloudなどのWebアプリ環境向けにredirect_uriを動的に設定
+            # HerokuやStreamlit Cloudでは環境変数PORTが設定されていることが多い
+            # または、開発環境（localhost）とデプロイ環境で異なるリダイレクトURIを使用
+            if os.getenv("STREAMLIT_SERVER_PORT"): # Streamlit Cloudの環境変数例
+                flow.redirect_uri = "http://localhost:8501" # Streamlit Cloudの外部URLは自動で内部Proxyされる
+            else:
+                flow.redirect_uri = "http://localhost:8501" # ローカル開発環境のデフォルト
+
+            # 認証URLを生成し、ユーザーに表示
+            auth_url, _ = flow.authorization_url(prompt="consent")
+            st.markdown(f"以下の[**Google認証リンク**]({auth_url})をクリックして、認証を完了してください。")
+
+            # 認証コードの入力フォーム
+            auth_code = st.text_input("認証コードを入力してください（認証後、URLの最後に表示されます）:")
+            if auth_code:
+                try:
+                    flow.fetch_token(code=auth_code)
+                    creds = flow.credentials
+                    # 認証情報を保存
+                    with open(TOKEN_FILE, "wb") as token:
+                        pickle.dump(creds, token)
+                    st.session_state['credentials'] = creds # 新しい認証情報をsession_stateに保存
+                    st.success("Google認証が完了しました！")
+                    st.rerun() # 認証完了後、アプリを再起動してUIを更新
+                except Exception as e:
+                    st.error(f"認証コードの検証に失敗しました: {e}。正しいコードを入力したか確認してください。")
+                    creds = None
+    return creds
+
+def add_event_to_calendar(service, calendar_id, event_data):
+    try:
+        event = service.events().insert(calendarId=calendar_id, body=event_data).execute()
+        # st.success(f"イベント '{event.get('summary')}' を追加しました。")
+        return event
+    except Exception as e:
+        st.error(f"イベントの追加に失敗しました: {e}")
+        return None
+
+def delete_events_from_calendar(service, calendar_id, start_datetime, end_datetime):
+    # Google Calendar APIはUTC時間を要求するため、JSTをUTCに変換
+    jst = timezone(timedelta(hours=9))
+    start_utc = start_datetime.astimezone(timezone.utc).isoformat() + 'Z'
+    end_utc = end_datetime.astimezone(timezone.utc).isoformat() + 'Z'
+
+    st.info(f"{start_datetime.strftime('%Y/%m/%d')}から{end_datetime.strftime('%Y/%m/%d')}までの削除対象イベントを検索中...")
+    
+    all_events_to_delete = []
+    page_token = None
+
+    with st.spinner("イベントを検索中..."):
+        while True:
+            try:
+                events_result = service.events().list(
+                    calendarId=calendar_id,
+                    timeMin=start_utc,
+                    timeMax=end_utc,
+                    singleEvents=True,
+                    orderBy='startTime',
+                    pageToken=page_token
+                ).execute()
+                events = events_result.get('items', [])
+                all_events_to_delete.extend(events) # 取得したイベントをリストに追加
+
+                page_token = events_result.get('nextPageToken')
+                if not page_token:
+                    break 
+            except Exception as e:
+                st.error(f"イベントの検索中にエラーが発生しました: {e}")
+                return 0 # エラーが発生したら処理を中断
+
+    total_events = len(all_events_to_delete)
+    
+    # 削除対象イベントがない場合、ここでリターン
+    if total_events == 0:
+        return 0
+
+    # Step 2: 取得したイベントを削除（プログレスバー表示）
+    progress_bar = st.progress(0)
+    
+    for i, event in enumerate(all_events_to_delete):
+        event_summary = event.get('summary', '不明なイベント')
+        try:
+            service.events().delete(calendarId=calendar_id, eventId=event['id']).execute()
+            progress_bar.progress((i + 1) / total_events, text=f"削除中: {event_summary} ({i+1}/{total_events})")
+        except Exception as e:
+            st.error(f"イベント '{event_summary}' の削除に失敗しました: {e}")
+    
+    progress_bar.empty() # プログレスバーをクリア
+    return total_events # 削除したイベントの総数を返す
+
+def list_events_in_range(service, calendar_id, start_datetime, end_datetime):
+    jst = timezone(timedelta(hours=9))
+    start_utc = start_datetime.astimezone(timezone.utc).isoformat() + 'Z'
+    end_utc = end_datetime.astimezone(timezone.utc).isoformat() + 'Z'
+
+    events_list = []
+    page_token = None
+    try:
+        while True:
+            events_result = service.events().list(
+                calendarId=calendar_id,
+                timeMin=start_utc,
+                timeMax=end_utc,
+                singleEvents=True,
+                orderBy='startTime',
+                pageToken=page_token
+            ).execute()
+            events_list.extend(events_result.get('items', []))
+            page_token = events_result.get('nextPageToken')
+            if not page_token:
+                break
+        return events_list
+    except Exception as e:
+        st.error(f"カレンダーイベントの取得に失敗しました: {e}")
+        return []
+
+def get_existing_calendar_events(service, calendar_id, start_datetime, end_datetime):
+    # Google Calendar APIはUTC時間を要求するため、JSTをUTCに変換
+    jst = timezone(timedelta(hours=9))
+    start_utc = start_datetime.astimezone(timezone.utc).isoformat() + 'Z'
+    end_utc = end_datetime.astimezone(timezone.utc).isoformat() + 'Z'
+    
+    events = []
+    page_token = None
+    try:
+        while True:
+            events_result = service.events().list(
+                calendarId=calendar_id,
+                timeMin=start_utc,
+                timeMax=end_utc,
+                singleEvents=True, # 繰り返しイベントを展開
+                orderBy='startTime',
+                pageToken=page_token
+            ).execute()
+            events.extend(events_result.get('items', []))
+            page_token = events_result.get('nextPageToken')
+            if not page_token:
+                break
+        return events
+    except Exception as e:
+        st.error(f"既存のGoogleカレンダーイベントの取得に失敗しました: {e}")
+        return []
+
+def update_event_in_calendar(service, calendar_id, event_id, new_event_data):
+    try:
+        updated_event = service.events().update(
+            calendarId=calendar_id, eventId=event_id, body=new_event_data
+        ).execute()
+        # st.success(f"イベント '{updated_event.get('summary')}' を更新しました。")
+        return updated_event
+    except Exception as e:
+        st.error(f"イベントの更新に失敗しました (ID: {event_id}): {e}")
+        return None
 
 def reconcile_events(excel_df: pd.DataFrame, existing_gcal_events: list):
     # 'WorkOrderNumber'が空のExcel行は既にexcel_parserでフィルタリングされている前提
@@ -26,6 +208,7 @@ def reconcile_events(excel_df: pd.DataFrame, existing_gcal_events: list):
     
     events_to_add_to_gcal = []    # ExcelにWO番号があり、GCalに該当WO番号がないもの
     events_to_update_in_gcal = [] # ExcelにWO番号があり、GCalに該当WO番号があり、内容に変更があるもの
+    events_to_skip_due_to_no_change = [] # 新たに追加: 変更がないためスキップされたイベント
 
     # 既存のGoogleカレンダーイベントをWorkOrderNumberでマッピング（Descriptionから抽出）
     gcal_events_by_wo_number = {}
@@ -69,7 +252,7 @@ def reconcile_events(excel_df: pd.DataFrame, existing_gcal_events: list):
             event_data_from_excel['start'] = {'date': start_date_obj.strftime("%Y-%m-%d")}
             event_data_from_excel['end'] = {'date': end_date_obj.strftime("%Y-%m-%d")}
             start_dt_excel_obj = start_date_obj # 比較用
-            end_dt_excel_obj = end_date_obj - timedelta(days=1) # 比較用、API仕様と合わせる
+            end_dt_excel_obj = end_date_obj # 比較用、API仕様と合わせる
         else:
             start_dt_str = f"{excel_row['Start Date']} {excel_row['Start Time']}"
             end_dt_str = f"{excel_row['End Date']} {excel_row['End Time']}"
@@ -83,12 +266,15 @@ def reconcile_events(excel_df: pd.DataFrame, existing_gcal_events: list):
 
         if not matched_gcal_events:
             # ExcelにあるがGoogleカレンダーにない場合は新規登録リストに追加
+            # WorkOrderNumberもイベントデータに含めて、後で表示できるようにする
+            event_data_from_excel['WorkOrderNumber'] = excel_wo_number
             events_to_add_to_gcal.append(event_data_from_excel)
         else:
             # マッチした既存イベントがある場合、更新が必要かチェック
             # 同じWO_NUMBERで複数のGCalイベントがある場合、内容が変更されている最初のイベントを更新対象とする
             found_event_to_update = None
-            
+            found_no_change_event = None # 変更がなかったイベントを追跡
+
             for gcal_event in matched_gcal_events:
                 # 既存GCalイベントのデータを取得
                 gcal_summary = gcal_event.get('summary', '')
@@ -97,7 +283,9 @@ def reconcile_events(excel_df: pd.DataFrame, existing_gcal_events: list):
                 gcal_transparency = gcal_event.get('transparency', 'opaque') # デフォルトは'opaque'
 
                 # GoogleカレンダーイベントのDescriptionからも作業指示書部分を削除して比較
-                gcal_description_for_comp = re.sub(r"^作業指示書:\d+\s*/?\s*", "", gcal_description).strip()
+                # gcal_description_for_comp = re.sub(r"^作業指示書:\d+\s*/?\s*", "", gcal_description).strip()
+                # summaryからWO番号部分を削除して比較
+                gcal_summary_for_comp = re.sub(r"^(\d+)\s+", "", gcal_summary).strip()
                 
                 # ExcelのDescriptionから作業指示書部分を削除して比較
                 excel_description_for_comp = event_data_from_excel['description']
@@ -113,23 +301,23 @@ def reconcile_events(excel_df: pd.DataFrame, existing_gcal_events: list):
                     gcal_end_dt_obj_comp = datetime.strptime(gcal_event['end']['date'], '%Y-%m-%d').date() - timedelta(days=1)
                 elif 'dateTime' in gcal_event['start']: # 時間指定イベント
                     # Googleカレンダーから取得した日時文字列はUTCであることが多いので、タイムゾーンを考慮してJSTに変換
-                    gcal_start_dt_obj_comp = datetime.fromisoformat(gcal_event['start']['dateTime'].replace('Z', '+00:00')).astimezone(timezone(timedelta(hours=9)))
-                    gcal_end_dt_obj_comp = datetime.fromisoformat(gcal_event['end']['dateTime'].replace('Z', '+00:00')).astimezone(timezone(timedelta(hours=9)))
+                    gcal_start_dt_obj_comp = datetime.fromisoformat(gcal_event['start']['dateTime'].replace('Z', '+00:00')).astimezone(timezone(timedelta(hours=9))).replace(tzinfo=None) # タイムゾーン情報を除去して比較
+                    gcal_end_dt_obj_comp = datetime.fromisoformat(gcal_event['end']['dateTime'].replace('Z', '+00:00')).astimezone(timezone(timedelta(hours=9))).replace(tzinfo=None) # タイムゾーン情報を除去して比較
+
 
                 has_changed = False
 
                 # 各フィールドの比較
-                if gcal_summary != event_data_from_excel['summary']:
+                if gcal_summary != event_data_from_excel['summary']: # Subject全体を比較
                     has_changed = True
                 if gcal_location != event_data_from_excel['location']:
                     has_changed = True
-                if gcal_description_for_comp != excel_description_for_comp:
+                if gcal_description != event_data_from_excel['description']: # Description全体を比較
                     has_changed = True
                 if gcal_transparency != event_data_from_excel['transparency']: # 非公開設定の比較
                     has_changed = True
 
                 # 日時の比較
-                # 比較対象のオブジェクトタイプが異なる可能性があるため、日付部分のみ、または日時全体で慎重に比較
                 if excel_row['All Day Event'] == "True":
                     # Excel側が終日
                     if not ('date' in gcal_event['start'] and \
@@ -147,6 +335,9 @@ def reconcile_events(excel_df: pd.DataFrame, existing_gcal_events: list):
                 if has_changed:
                     found_event_to_update = gcal_event
                     break # 最初に見つかった変更済みイベントを更新対象とする
+                else:
+                    # 変更がなかったイベントも記録
+                    found_no_change_event = excel_row.to_dict() # DataFrameの行を辞書に変換して保存
 
             if found_event_to_update:
                 # 更新対象イベントの情報を追加
@@ -155,6 +346,8 @@ def reconcile_events(excel_df: pd.DataFrame, existing_gcal_events: list):
                     'old_summary': found_event_to_update.get('summary', '不明'),
                     'new_data': event_data_from_excel
                 })
-            # else: 同じWO_NUMBERだが変更がない場合は、events_to_add_to_gcalにもevents_to_update_in_gcalにも追加しない（スキップ）
+            elif found_no_change_event:
+                # 変更がなかった場合はスキップリストに追加
+                events_to_skip_due_to_no_change.append(found_no_change_event)
 
-    return events_to_add_to_gcal, events_to_update_in_gcal
+    return events_to_add_to_gcal, events_to_update_in_gcal, events_to_skip_due_to_no_change
