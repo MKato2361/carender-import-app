@@ -238,3 +238,89 @@ with tabs[2]:
                     st.success(f"✅ {st.session_state.last_deleted_count} 件のイベントが削除されました。")
                 else:
                     st.info("指定された期間内に削除するイベントは見つかりませんでした。")
+
+                    
+# --- 追加タブ: イベント更新 ---
+with tabs[3]:
+    st.header("イベントを更新")
+
+    if not st.session_state.get('uploaded_files'):
+        st.info("先に「1. ファイルのアップロード」タブでExcelファイルをアップロードしてください。")
+    else:
+        all_day_event = st.checkbox("終日イベントとして扱う", value=False, key="update_all_day")
+        private_event = st.checkbox("非公開イベントとして扱う", value=True, key="update_private")
+        description_columns = st.multiselect(
+            "説明欄に含める列",
+            st.session_state['description_columns_pool'],
+            key="update_desc_cols"
+        )
+
+        if not st.session_state['editable_calendar_options']:
+            st.error("更新可能なカレンダーが見つかりません。")
+        else:
+            selected_calendar_name_upd = st.selectbox(
+                "更新対象カレンダーを選択",
+                list(st.session_state['editable_calendar_options'].keys()),
+                key="update_calendar_select"
+            )
+            calendar_id_upd = st.session_state['editable_calendar_options'][selected_calendar_name_upd]
+
+            if st.button("イベントを照合・更新"):
+                with st.spinner("イベントを処理中..."):
+                    df = process_excel_files(
+                        st.session_state['uploaded_files'],
+                        description_columns,
+                        all_day_event,
+                        private_event
+                    )
+
+                    if df.empty:
+                        st.warning("有効なイベントデータがありません。")
+                        st.stop()
+
+                    today = datetime.now()
+                    time_min = (today - timedelta(days=180)).isoformat() + 'Z'
+                    time_max = (today + timedelta(days=180)).isoformat() + 'Z'
+                    events = fetch_all_events(service, calendar_id_upd, time_min, time_max)
+
+                    worksheet_to_event = {}
+                    for event in events:
+                        desc = event.get('description', '')
+                        match = re.search(r"作業指示書：(\d+)", desc)
+                        if match:
+                            worksheet_to_event[match.group(1)] = event
+
+                    update_count = 0
+                    for i, row in df.iterrows():
+                        match = re.search(r"作業指示書：(\d+)", row['Description'])
+                        if not match:
+                            continue
+                        worksheet_id = match.group(1)
+                        matched_event = worksheet_to_event.get(worksheet_id)
+                        if not matched_event:
+                            continue
+
+                        if row['All Day Event'] == "True":
+                            start_date = datetime.strptime(row['Start Date'], "%Y/%m/%d").strftime("%Y-%m-%d")
+                            end_date = (datetime.strptime(row['End Date'], "%Y/%m/%d") + timedelta(days=1)).strftime("%Y-%m-%d")
+                            event_data = {
+                                'start': {'date': start_date},
+                                'end': {'date': end_date}
+                            }
+                        else:
+                            start_dt = f"{row['Start Date']} {row['Start Time']}"
+                            end_dt = f"{row['End Date']} {row['End Time']}"
+                            event_data = {
+                                'start': {'dateTime': datetime.strptime(start_dt, "%Y/%m/%d %H:%M").isoformat(), 'timeZone': 'Asia/Tokyo'},
+                                'end': {'dateTime': datetime.strptime(end_dt, "%Y/%m/%d %H:%M").isoformat(), 'timeZone': 'Asia/Tokyo'}
+                            }
+
+                        try:
+                            if update_event_if_needed(service, calendar_id_upd, matched_event, event_data):
+                                update_count += 1
+                        except Exception as e:
+                            st.error(f"{row['Subject']} の更新に失敗: {e}")
+
+                    st.success(f"✅ {update_count} 件のイベントを更新しました。")
+
+
