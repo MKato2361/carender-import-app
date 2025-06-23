@@ -129,3 +129,49 @@ def delete_events_from_calendar(service, calendar_id, start_date: datetime, end_
         progress_bar.progress((i + 1) / total_events)
 
     return deleted_count
+
+import re
+
+def fetch_all_events(service, calendar_id, time_min, time_max):
+    """
+    指定期間内の全イベントを取得
+    """
+    events = []
+    page_token = None
+    while True:
+        result = service.events().list(
+            calendarId=calendar_id,
+            timeMin=time_min,
+            timeMax=time_max,
+            singleEvents=True,
+            orderBy="startTime",
+            pageToken=page_token
+        ).execute()
+        events.extend(result.get('items', []))
+        page_token = result.get('nextPageToken')
+        if not page_token:
+            break
+    return events
+
+def update_event_if_needed(service, calendar_id, event, new_event_data):
+    """
+    イベントに変更があればGoogleカレンダーを更新
+    """
+    updated = False
+    if 'date' in event['start']:  # 終日イベント
+        if (event['start']['date'] != new_event_data['start']['date'] or
+            event['end']['date'] != new_event_data['end']['date']):
+            event['start']['date'] = new_event_data['start']['date']
+            event['end']['date'] = new_event_data['end']['date']
+            updated = True
+    else:  # 時間指定イベント
+        if (event['start']['dateTime'] != new_event_data['start']['dateTime'] or
+            event['end']['dateTime'] != new_event_data['end']['dateTime']):
+            event['start']['dateTime'] = new_event_data['start']['dateTime']
+            event['end']['dateTime'] = new_event_data['end']['dateTime']
+            updated = True
+
+    if updated:
+        service.events().update(calendarId=calendar_id, eventId=event['id'], body=event).execute()
+    return updated
+
