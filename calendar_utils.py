@@ -1,4 +1,3 @@
-
 import pickle
 import os
 import streamlit as st
@@ -8,7 +7,8 @@ from googleapiclient.discovery import build
 from datetime import datetime, timedelta, timezone
 import re
 
-SCOPES = ["https://www.googleapis.com/auth/calendar"]
+# SCOPESにGoogle Tasksのスコープを追加
+SCOPES = ["https://www.googleapis.com/auth/calendar", "https://www.googleapis.com/auth/tasks"]
 
 def authenticate_google():
     creds = None
@@ -59,6 +59,40 @@ def authenticate_google():
                 return None
 
     return creds
+
+def build_tasks_service(creds):
+    """Google ToDoリストサービスを構築する"""
+    return build("tasks", "v1", credentials=creds)
+
+def add_task_to_todo_list(service, task_list_id, title, due_date: datetime.date = None):
+    """
+    指定されたToDoリストにタスクを追加する。
+    :param service: Google Tasks APIサービスオブジェクト
+    :param task_list_id: タスクを追加するToDoリストのID
+    :param title: タスクのタイトル
+    :param due_date: タスクの期限 (datetime.dateオブジェクト)
+    """
+    task_body = {
+        'title': title
+    }
+    if due_date:
+        # RFC 3339 format (YYYY-MM-DDTHH:MM:SS.sssZ) に変換
+        # ToDoリストのdueはUTCで時刻まで必要なので、JSTの0時0分0秒に設定し、UTCに変換
+        # 日本時間 (JST) のタイムゾーンオフセット
+        JST = timezone(timedelta(hours=9))
+        # 期限日の開始時刻をJSTで指定
+        due_datetime_jst = datetime(due_date.year, due_date.month, due_date.day, 0, 0, 0, tzinfo=JST)
+        # UTCに変換
+        due_datetime_utc = due_datetime_jst.astimezone(timezone.utc)
+        task_body['due'] = due_datetime_utc.isoformat(timespec='milliseconds').replace('+00:00', 'Z')
+
+
+    try:
+        task = service.tasks().insert(tasklist=task_list_id, body=task_body).execute()
+        return task
+    except Exception as e:
+        st.error(f"ToDoリストへのタスク追加に失敗しました ('{title}'): {e}")
+        return None
 
 def add_event_to_calendar(service, calendar_id, event_data):
     event = service.events().insert(calendarId=calendar_id, body=event_data).execute()
