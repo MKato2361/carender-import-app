@@ -6,12 +6,12 @@ from excel_parser import process_excel_files
 from calendar_utils import (
     authenticate_google,
     add_event_to_calendar,
-    delete_events_from_calendar,
+    delete_events_from_calendar, # この関数は実質使われませんが、importは残します
     fetch_all_events,
     update_event_if_needed,
     build_tasks_service,
     add_task_to_todo_list,
-    find_and_delete_tasks_by_event_id # 追加
+    find_and_delete_tasks_by_event_id
 )
 from googleapiclient.discovery import build
 
@@ -310,7 +310,7 @@ with tabs[2]:
                     st.stop()
 
                 deleted_events_count = 0
-                deleted_todos_count = 0
+                deleted_todos_count = 0 # ToDoの削除数をカウント
                 total_events = len(events_to_delete)
                 
                 progress_bar = st.progress(0)
@@ -332,8 +332,9 @@ with tabs[2]:
                                 event_id
                             )
                             deleted_todos_count += deleted_task_count_for_event
-                            if deleted_task_count_for_event > 0:
-                                st.info(f"イベント '{event_summary}' に関連するToDoタスクを {deleted_task_count_for_event} 件削除しました。")
+                            # 各イベントごとのToDo削除メッセージは表示せず、最終的な合計のみ表示するように変更
+                            # if deleted_task_count_for_event > 0:
+                            #     st.info(f"イベント '{event_summary}' に関連するToDoタスクを {deleted_task_count_for_event} 件削除しました。")
                         
                         # イベント自体の削除
                         calendar_service.events().delete(calendarId=calendar_id_del, eventId=event_id).execute()
@@ -347,10 +348,11 @@ with tabs[2]:
 
                 if deleted_events_count > 0:
                     st.success(f"✅ {deleted_events_count} 件のイベントが削除されました。")
-                    if delete_related_todos and deleted_todos_count > 0:
-                        st.success(f"✅ 関連するToDoタスクを合計 {deleted_todos_count} 件削除しました。")
-                    elif delete_related_todos and deleted_todos_count == 0:
-                        st.info("関連するToDoタスクは見つからなかったか、すでに削除されていました。")
+                    if delete_related_todos: # チェックボックスがオンの場合のみToDo削除結果を表示
+                        if deleted_todos_count > 0:
+                            st.success(f"✅ {deleted_todos_count} 件の関連ToDoタスクが削除されました。")
+                        else:
+                            st.info("関連するToDoタスクは見つからなかったか、すでに削除されていました。")
                 else:
                     st.info("指定期間内に削除するイベントはありませんでした。")
 
