@@ -31,16 +31,7 @@ def format_worksheet_value(val):
         return str(int(val)) if val.is_integer() else str(int(val))  # 小数はすべて整数として扱う
     return str(val)
 
-def create_todo_checklist():
-    """ToDoチェックリストを生成"""
-    todo_items = [
-        "☐ 点検通知（FAX）",
-        "☐ 点検通知（電話）", 
-        "☐ 貼紙"
-    ]
-    return "\n".join(todo_items)
-
-def process_excel_files(uploaded_files, description_columns, all_day_event, private_event, include_todo=True):
+def process_excel_files(uploaded_files, description_columns, all_day_event, private_event):
     dataframes = []
 
     if not uploaded_files:
@@ -109,14 +100,6 @@ def process_excel_files(uploaded_files, description_columns, all_day_event, priv
         if pd.notna(worksheet_value) and str(worksheet_value).strip():
             formatted_ws = format_worksheet_value(worksheet_value)
             description = f"作業指示書：{formatted_ws}/ " + description
-
-        # ToDoリストを追加
-        if include_todo:
-            todo_list = create_todo_checklist()
-            if description.strip():
-                description = description + "\n\n【作業ToDo】\n" + todo_list
-            else:
-                description = "【作業ToDo】\n" + todo_list
 
         output.append({
             "Subject": subj,
