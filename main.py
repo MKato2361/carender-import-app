@@ -9,8 +9,8 @@ from calendar_utils import (
     delete_events_from_calendar,
     fetch_all_events,
     update_event_if_needed,
-    build_tasks_service, # 追加
-    add_task_to_todo_list # 追加
+    build_tasks_service,
+    add_task_to_todo_list
 )
 from googleapiclient.discovery import build
 
@@ -130,18 +130,17 @@ with tabs[1]:
             st.subheader("✅ ToDoリスト連携設定 (オプション)")
             create_todo = st.checkbox("このイベントに対応するToDoリストを作成する", value=False, key="create_todo_checkbox")
 
-            todo_type_options = {
-                "点検通知（FAX）": "点検通知（FAX）",
-                "点検通知（電話）": "点検通知（電話）",
-                "貼紙": "貼紙",
-            }
+            # ToDoの選択肢を固定
+            fixed_todo_types = [
+                "点検通知（FAX）",
+                "点検通知（電話）",
+                "貼紙",
+            ]
+            
+            st.markdown("以下のToDoが**常にすべて**作成されます:")
+            for todo_item in fixed_todo_types:
+                st.markdown(f"- {todo_item}")
 
-            selected_todo_type = st.selectbox(
-                "ToDoリストの内容を選択",
-                list(todo_type_options.keys()),
-                disabled=not create_todo,
-                key="todo_type_select"
-            )
 
             deadline_offset_options = {
                 "2週間前": 14,
@@ -214,8 +213,6 @@ with tabs[1]:
 
                                 # ToDoリストの作成ロジック
                                 if create_todo and tasks_service and st.session_state.get('default_task_list_id'):
-                                    todo_summary = f"{todo_type_options[selected_todo_type]} - {row['Subject']}"
-                                    
                                     # イベント開始日を基準にToDo期限を計算
                                     event_start_date_for_todo = None
                                     if row['All Day Event'] == "True":
@@ -230,17 +227,21 @@ with tabs[1]:
 
                                         if offset_days is not None:
                                             todo_due_date = event_start_date_for_todo - timedelta(days=offset_days)
-                                            add_task_to_todo_list(
-                                                tasks_service,
-                                                st.session_state['default_task_list_id'],
-                                                todo_summary,
-                                                todo_due_date
-                                            )
-                                            successful_todo_creations += 1
+                                            
+                                            # 全ての固定ToDoタイプを追加
+                                            for todo_item in fixed_todo_types:
+                                                todo_summary = f"{todo_item} - {row['Subject']}"
+                                                add_task_to_todo_list(
+                                                    tasks_service,
+                                                    st.session_state['default_task_list_id'],
+                                                    todo_summary,
+                                                    todo_due_date
+                                                )
+                                                successful_todo_creations += 1
                                         else:
-                                            st.warning(f"ToDo '{todo_summary}' の期限が設定されませんでした。カスタム日数が無効です。")
+                                            st.warning(f"ToDoの期限が設定されませんでした。カスタム日数が無効です。")
                                     else:
-                                        st.warning(f"ToDo '{todo_summary}' の期限を設定できませんでした。イベント開始日が不明です。")
+                                        st.warning(f"ToDoの期限を設定できませんでした。イベント開始日が不明です。")
 
                             except Exception as e:
                                 st.error(f"{row['Subject']} の登録またはToDoリスト作成に失敗しました: {e}")
