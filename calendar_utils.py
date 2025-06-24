@@ -8,10 +8,7 @@ from googleapiclient.discovery import build
 from datetime import datetime, timedelta, timezone
 import re
 
-SCOPES = [
-    "https://www.googleapis.com/auth/calendar",
-    "https://www.googleapis.com/auth/tasks"
-]
+SCOPES = ["https://www.googleapis.com/auth/calendar"]
 
 def authenticate_google():
     creds = None
@@ -28,7 +25,7 @@ def authenticate_google():
                 st.info("認証トークンを更新しました。")
                 st.rerun()
             except Exception as e:
-                st.error(f"トークンのリフレッシュに失敗しました: {e}")
+                st.error(f"トークンのリフレッシュに失敗しました。再認証してください: {e}")
                 st.session_state['credentials'] = None
                 creds = None
         else:
@@ -155,17 +152,3 @@ def update_event_if_needed(service, calendar_id, event, new_event_data):
     if updated:
         service.events().update(calendarId=calendar_id, eventId=event['id'], body=event).execute()
     return updated
-
-def create_tasks_for_event(service, task_service, title, due_datetime):
-    task_titles = [
-        f"{title} - 点検通知（FAX）",
-        f"{title} - 点検通知（電話）",
-        f"{title} - 貼紙"
-    ]
-    task_list_id = task_service.tasklists().list().execute()["items"][0]["id"]
-    for task_title in task_titles:
-        task = {
-            'title': task_title,
-            'due': due_datetime.isoformat() + 'Z'
-        }
-        task_service.tasks().insert(tasklist=task_list_id, body=task).execute()
