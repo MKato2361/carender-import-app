@@ -130,16 +130,10 @@ with tabs[1]:
             st.subheader("✅ ToDoリスト連携設定 (オプション)")
             create_todo = st.checkbox("このイベントに対応するToDoリストを作成する", value=False, key="create_todo_checkbox")
 
-            # ToDoの選択肢を固定
-            fixed_todo_types = [
-                "点検通知（FAX）",
-                "点検通知（電話）",
-                "貼紙",
-            ]
+            # ToDoの選択肢を「点検通知」のみに固定
+            fixed_todo_types = ["点検通知"]
             
-            st.markdown("以下のToDoが**常にすべて**作成されます:")
-            for todo_item in fixed_todo_types:
-                st.markdown(f"- {todo_item}")
+            st.markdown(f"以下のToDoが**常にすべて**作成されます: {', '.join(fixed_todo_types)}")
 
 
             deadline_offset_options = {
@@ -179,12 +173,17 @@ with tabs[1]:
                         successful_todo_creations = 0
 
                         for i, row in df.iterrows():
+                            event_start_date_obj = None
+                            event_end_date_obj = None
+                            event_time_str = "" # ToDo詳細用の時間文字列
+
                             try:
                                 if row['All Day Event'] == "True":
-                                    start_date_obj = datetime.strptime(row['Start Date'], "%Y/%m/%d").date()
-                                    end_date_obj = datetime.strptime(row['End Date'], "%Y/%m/%d").date() + timedelta(days=1)
-                                    start_date_str = start_date_obj.strftime("%Y-%m-%d")
-                                    end_date_str = end_date_obj.strftime("%Y-%m-%d")
+                                    event_start_date_obj = datetime.strptime(row['Start Date'], "%Y/%m/%d").date()
+                                    event_end_date_obj = datetime.strptime(row['End Date'], "%Y/%m/%d").date()
+                                    
+                                    start_date_str = event_start_date_obj.strftime("%Y-%m-%d")
+                                    end_date_str = (event_end_date_obj + timedelta(days=1)).strftime("%Y-%m-%d") # 終日イベントは終了日+1
 
                                     event_data = {
                                         'summary': row['Subject'],
@@ -194,11 +193,19 @@ with tabs[1]:
                                         'end': {'date': end_date_str},
                                         'transparency': 'transparent' if row['Private'] == "True" else 'opaque'
                                     }
+                                    event_time_str = f"{event_start_date_obj.strftime('%-m/%-d')}" # 例: 6/30
+                                    if event_start_date_obj != event_end_date_obj:
+                                        event_time_str += f"～{event_end_date_obj.strftime('%-m/%-d')}"
+
                                 else:
-                                    start_datetime_obj = datetime.strptime(f"{row['Start Date']} {row['Start Time']}", "%Y/%m/%d %H:%M")
-                                    end_datetime_obj = datetime.strptime(f"{row['End Date']} {row['End Time']}", "%Y/%m/%d %H:%M")
-                                    start = start_datetime_obj.isoformat()
-                                    end = end_datetime_obj.isoformat()
+                                    event_start_datetime_obj = datetime.strptime(f"{row['Start Date']} {row['Start Time']}", "%Y/%m/%d %H:%M")
+                                    event_end_datetime_obj = datetime.strptime(f"{row['End Date']} {row['End Time']}", "%Y/%m/%d %H:%M")
+                                    
+                                    event_start_date_obj = event_start_datetime_obj.date()
+                                    event_end_date_obj = event_end_datetime_obj.date()
+
+                                    start = event_start_datetime_obj.isoformat()
+                                    end = event_end_datetime_obj.isoformat()
 
                                     event_data = {
                                         'summary': row['Subject'],
@@ -208,34 +215,35 @@ with tabs[1]:
                                         'end': {'dateTime': end, 'timeZone': 'Asia/Tokyo'},
                                         'transparency': 'transparent' if row['Private'] == "True" else 'opaque'
                                     }
+                                    # 例: 6/30 9:00～10:00
+                                    event_time_str = f"{event_start_datetime_obj.strftime('%-m/%-d %H:%M')}～{event_end_datetime_obj.strftime('%H:%M')}"
+                                    if event_start_datetime_obj.date() != event_end_datetime_obj.date():
+                                        event_time_str = f"{event_start_datetime_obj.strftime('%-m/%-d %H:%M')}～{event_end_datetime_obj.strftime('%-m/%-d %H:%M')}"
+
                                 add_event_to_calendar(service, calendar_id, event_data)
                                 successful_registrations += 1
 
                                 # ToDoリストの作成ロジック
                                 if create_todo and tasks_service and st.session_state.get('default_task_list_id'):
-                                    # イベント開始日を基準にToDo期限を計算
-                                    event_start_date_for_todo = None
-                                    if row['All Day Event'] == "True":
-                                        event_start_date_for_todo = datetime.strptime(row['Start Date'], "%Y/%m/%d").date()
-                                    else:
-                                        event_start_date_for_todo = datetime.strptime(row['Start Date'], "%Y/%m/%d").date() # 時刻を考慮せず日付のみ
-
-                                    if event_start_date_for_todo:
+                                    if event_start_date_obj: # ToDo期限計算の基準となる日付
                                         offset_days = deadline_offset_options.get(selected_offset_key)
                                         if selected_offset_key == "カスタム日数前" and custom_offset_days is not None:
                                             offset_days = custom_offset_days
 
                                         if offset_days is not None:
-                                            todo_due_date = event_start_date_for_todo - timedelta(days=offset_days)
+                                            todo_due_date = event_start_date_obj - timedelta(days=offset_days)
                                             
                                             # 全ての固定ToDoタイプを追加
                                             for todo_item in fixed_todo_types:
                                                 todo_summary = f"{todo_item} - {row['Subject']}"
+                                                todo_notes = f"イベント日時: {event_time_str}\n場所: {row['Location']}"
+
                                                 add_task_to_todo_list(
                                                     tasks_service,
                                                     st.session_state['default_task_list_id'],
                                                     todo_summary,
-                                                    todo_due_date
+                                                    todo_due_date,
+                                                    notes=todo_notes # notes引数を追加
                                                 )
                                                 successful_todo_creations += 1
                                         else:
