@@ -32,13 +32,13 @@ def format_worksheet_value(val):
     return str(val)
 
 def create_todo_checklist():
-    """ToDoチェックリストを生成"""
+    """ToDoチェックリストを生成（クリック可能なHTMLチェックボックス）"""
     todo_items = [
-        "☐ 点検通知（FAX）",
-        "☐ 点検通知（電話）", 
-        "☐ 貼紙"
+        '<input type="checkbox" id="fax"> <label for="fax">点検通知（FAX）</label>',
+        '<input type="checkbox" id="phone"> <label for="phone">点検通知（電話）</label>',
+        '<input type="checkbox" id="paper"> <label for="paper">貼紙</label>'
     ]
-    return "\n".join(todo_items)
+    return "<br>".join(todo_items)
 
 def process_excel_files(uploaded_files, description_columns, all_day_event, private_event, include_todo=True):
     dataframes = []
@@ -114,9 +114,9 @@ def process_excel_files(uploaded_files, description_columns, all_day_event, priv
         if include_todo:
             todo_list = create_todo_checklist()
             if description.strip():
-                description = description + "\n\n【作業ToDo】\n" + todo_list
+                description = description + "<br><br><strong>【作業ToDo】</strong><br>" + todo_list
             else:
-                description = "【作業ToDo】\n" + todo_list
+                description = "<strong>【作業ToDo】</strong><br>" + todo_list
 
         output.append({
             "Subject": subj,
