@@ -32,13 +32,26 @@ def format_worksheet_value(val):
     return str(val)
 
 def create_todo_checklist():
-    """ToDoチェックリストを生成（クリック可能なHTMLチェックボックス）"""
+    """ToDoチェックリストを生成（Unicodeチェックボックス使用）"""
     todo_items = [
-        '<input type="checkbox" id="fax"> <label for="fax">点検通知（FAX）</label>',
-        '<input type="checkbox" id="phone"> <label for="phone">点検通知（電話）</label>',
-        '<input type="checkbox" id="paper"> <label for="paper">貼紙</label>'
+        "☐ 点検通知（FAX）",
+        "☐ 点検通知（電話）", 
+        "☐ 貼紙"
     ]
-    return "<br>".join(todo_items)
+    return "\n".join(todo_items)
+
+def create_interactive_todo_checklist():
+    """インタラクティブなToDoチェックリストを生成"""
+    # Googleカレンダーで使用可能なフォーマット
+    todo_template = """
+【作業ToDo】
+□ 点検通知（FAX）    → ☑ 点検通知（FAX）
+□ 点検通知（電話）   → ☑ 点検通知（電話）
+□ 貼紙              → ☑ 貼紙
+
+※ 完了時は □ を ☑ に変更してください
+"""
+    return todo_template.strip()
 
 def process_excel_files(uploaded_files, description_columns, all_day_event, private_event, include_todo=True):
     dataframes = []
@@ -112,11 +125,11 @@ def process_excel_files(uploaded_files, description_columns, all_day_event, priv
 
         # ToDoリストを追加
         if include_todo:
-            todo_list = create_todo_checklist()
+            todo_list = create_interactive_todo_checklist()
             if description.strip():
-                description = description + "<br><br><strong>【作業ToDo】</strong><br>" + todo_list
+                description = description + "\n\n" + todo_list
             else:
-                description = "<strong>【作業ToDo】</strong><br>" + todo_list
+                description = todo_list
 
         output.append({
             "Subject": subj,
