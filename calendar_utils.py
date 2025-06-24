@@ -64,13 +64,14 @@ def build_tasks_service(creds):
     """Google ToDoリストサービスを構築する"""
     return build("tasks", "v1", credentials=creds)
 
-def add_task_to_todo_list(service, task_list_id, title, due_date: datetime.date = None):
+def add_task_to_todo_list(service, task_list_id, title, due_date: datetime.date = None, notes: str = None):
     """
     指定されたToDoリストにタスクを追加する。
     :param service: Google Tasks APIサービスオブジェクト
     :param task_list_id: タスクを追加するToDoリストのID
     :param title: タスクのタイトル
     :param due_date: タスクの期限 (datetime.dateオブジェクト)
+    :param notes: タスクの詳細（メモ）
     """
     task_body = {
         'title': title
@@ -86,6 +87,8 @@ def add_task_to_todo_list(service, task_list_id, title, due_date: datetime.date 
         due_datetime_utc = due_datetime_jst.astimezone(timezone.utc)
         task_body['due'] = due_datetime_utc.isoformat(timespec='milliseconds').replace('+00:00', 'Z')
 
+    if notes: # notesが存在する場合、task_bodyに追加
+        task_body['notes'] = notes
 
     try:
         task = service.tasks().insert(tasklist=task_list_id, body=task_body).execute()
