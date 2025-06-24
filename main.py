@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 from datetime import datetime, date, timedelta
@@ -88,6 +87,9 @@ with tabs[1]:
         st.subheader("📝 イベント設定")
         all_day_event = st.checkbox("終日イベントとして登録", value=False)
         private_event = st.checkbox("非公開イベントとして登録", value=True)
+        
+        # ToDoオプションを追加
+        include_todo = st.checkbox("作業ToDoリストを追加", value=True, help="☐ 点検通知（FAX）, ☐ 点検通知（電話）, ☐ 貼紙")
 
         description_columns = st.multiselect(
             "説明欄に含める列（複数選択可）",
@@ -103,7 +105,7 @@ with tabs[1]:
             st.subheader("➡️ イベント登録")
             if st.button("Googleカレンダーに登録する"):
                 with st.spinner("イベントデータを処理中..."):
-                    df = process_excel_files(st.session_state['uploaded_files'], description_columns, all_day_event, private_event)
+                    df = process_excel_files(st.session_state['uploaded_files'], description_columns, all_day_event, private_event, include_todo)
                     if df.empty:
                         st.warning("有効なイベントデータがありません。")
                     else:
@@ -182,6 +184,10 @@ with tabs[3]:
     else:
         all_day_event = st.checkbox("終日イベントとして扱う", value=False, key="update_all_day")
         private_event = st.checkbox("非公開イベントとして扱う", value=True, key="update_private")
+        
+        # 更新タブにもToDoオプションを追加
+        include_todo_update = st.checkbox("作業ToDoリストを追加", value=True, key="update_todo", help="☐ 点検通知（FAX）, ☐ 点検通知（電話）, ☐ 貼紙")
+        
         description_columns = st.multiselect("説明欄に含める列", st.session_state['description_columns_pool'], key="update_desc_cols")
 
         if not st.session_state['editable_calendar_options']:
@@ -192,7 +198,7 @@ with tabs[3]:
 
             if st.button("イベントを照合・更新"):
                 with st.spinner("イベントを処理中..."):
-                    df = process_excel_files(st.session_state['uploaded_files'], description_columns, all_day_event, private_event)
+                    df = process_excel_files(st.session_state['uploaded_files'], description_columns, all_day_event, private_event, include_todo_update)
                     if df.empty:
                         st.warning("有効なイベントデータがありません。")
                         st.stop()
@@ -239,6 +245,8 @@ with tabs[3]:
                                 update_count += 1
                         except Exception as e:
                             st.error(f"{row['Subject']} の更新に失敗: {e}")
+
+                    st.success(f"✅ {update_count} 件のイベントを更新しました。")
 
                     st.success(f"✅ {update_count} 件のイベントを更新しました。")
 
