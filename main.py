@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 from datetime import datetime, date, timedelta
@@ -9,7 +8,9 @@ from calendar_utils import (
     add_event_to_calendar,
     delete_events_from_calendar,
     fetch_all_events,
-    update_event_if_needed
+    update_event_if_needed,
+    build_tasks_service, # 追加
+    add_task_to_todo_list # 追加
 )
 from googleapiclient.discovery import build
 
@@ -29,6 +30,7 @@ with google_auth_placeholder.container():
         google_auth_placeholder.empty()
         st.sidebar.success("✅ Googleカレンダーに認証済みです！")
 
+# ToDoリストサービスの初期化を試みる
 if 'calendar_service' not in st.session_state or not st.session_state['calendar_service']:
     try:
         service = build("calendar", "v3", credentials=creds)
@@ -48,6 +50,31 @@ if 'calendar_service' not in st.session_state or not st.session_state['calendar_
         st.stop()
 else:
     service = st.session_state['calendar_service']
+
+# ToDoリストサービスをここでビルド
+if 'tasks_service' not in st.session_state or not st.session_state['tasks_service']:
+    try:
+        tasks_service = build_tasks_service(creds)
+        st.session_state['tasks_service'] = tasks_service
+        # デフォルトのToDoリストIDを取得
+        task_lists = tasks_service.tasklists().list().execute()
+        default_task_list_id = None
+        for task_list in task_lists.get('items', []):
+            if task_list.get('title') == 'My Tasks': # もしくは 'Default List' など、環境による
+                default_task_list_id = task_list['id']
+                break
+        if not default_task_list_id and task_lists.get('items'): # デフォルトが見つからない場合、最初のリストを使う
+            default_task_list_id = task_lists['items'][0]['id']
+
+        st.session_state['default_task_list_id'] = default_task_list_id
+
+    except Exception as e:
+        st.warning(f"Google ToDoリストサービスの初期化に失敗しました。ToDoリスト機能は利用できません: {e}")
+        st.session_state['tasks_service'] = None
+        st.session_state['default_task_list_id'] = None
+else:
+    tasks_service = st.session_state['tasks_service']
+
 
 tabs = st.tabs([
     "1. ファイルのアップロード",
@@ -100,6 +127,46 @@ with tabs[1]:
             selected_calendar_name = st.selectbox("登録先カレンダーを選択", list(st.session_state['editable_calendar_options'].keys()), key="reg_calendar_select")
             calendar_id = st.session_state['editable_calendar_options'][selected_calendar_name]
 
+            st.subheader("✅ ToDoリスト連携設定 (オプション)")
+            create_todo = st.checkbox("このイベントに対応するToDoリストを作成する", value=False, key="create_todo_checkbox")
+
+            todo_type_options = {
+                "点検通知（FAX）": "点検通知（FAX）",
+                "点検通知（電話）": "点検通知（電話）",
+                "貼紙": "貼紙",
+            }
+
+            selected_todo_type = st.selectbox(
+                "ToDoリストの内容を選択",
+                list(todo_type_options.keys()),
+                disabled=not create_todo,
+                key="todo_type_select"
+            )
+
+            deadline_offset_options = {
+                "2週間前": 14,
+                "10日前": 10,
+                "1週間前": 7,
+                "カスタム日数前": None
+            }
+            selected_offset_key = st.selectbox(
+                "ToDoリストの期限をイベント開始日の何日前に設定しますか？",
+                list(deadline_offset_options.keys()),
+                disabled=not create_todo,
+                key="deadline_offset_select"
+            )
+
+            custom_offset_days = None
+            if selected_offset_key == "カスタム日数前":
+                custom_offset_days = st.number_input(
+                    "何日前に設定しますか？ (日数)",
+                    min_value=0,
+                    value=3,
+                    disabled=not create_todo,
+                    key="custom_offset_input"
+                )
+
+
             st.subheader("➡️ イベント登録")
             if st.button("Googleカレンダーに登録する"):
                 with st.spinner("イベントデータを処理中..."):
@@ -110,11 +177,14 @@ with tabs[1]:
                         st.info(f"{len(df)} 件のイベントを登録します。")
                         progress = st.progress(0)
                         successful_registrations = 0
+                        successful_todo_creations = 0
+
                         for i, row in df.iterrows():
                             try:
                                 if row['All Day Event'] == "True":
-                                    start_date_str = datetime.strptime(row['Start Date'], "%Y/%m/%d").strftime("%Y-%m-%d")
-                                    end_date_obj = datetime.strptime(row['End Date'], "%Y/%m/%d") + timedelta(days=1)
+                                    start_date_obj = datetime.strptime(row['Start Date'], "%Y/%m/%d").date()
+                                    end_date_obj = datetime.strptime(row['End Date'], "%Y/%m/%d").date() + timedelta(days=1)
+                                    start_date_str = start_date_obj.strftime("%Y-%m-%d")
                                     end_date_str = end_date_obj.strftime("%Y-%m-%d")
 
                                     event_data = {
@@ -126,8 +196,10 @@ with tabs[1]:
                                         'transparency': 'transparent' if row['Private'] == "True" else 'opaque'
                                     }
                                 else:
-                                    start = datetime.strptime(f"{row['Start Date']} {row['Start Time']}", "%Y/%m/%d %H:%M").isoformat()
-                                    end = datetime.strptime(f"{row['End Date']} {row['End Time']}", "%Y/%m/%d %H:%M").isoformat()
+                                    start_datetime_obj = datetime.strptime(f"{row['Start Date']} {row['Start Time']}", "%Y/%m/%d %H:%M")
+                                    end_datetime_obj = datetime.strptime(f"{row['End Date']} {row['End Time']}", "%Y/%m/%d %H:%M")
+                                    start = start_datetime_obj.isoformat()
+                                    end = end_datetime_obj.isoformat()
 
                                     event_data = {
                                         'summary': row['Subject'],
@@ -139,11 +211,44 @@ with tabs[1]:
                                     }
                                 add_event_to_calendar(service, calendar_id, event_data)
                                 successful_registrations += 1
+
+                                # ToDoリストの作成ロジック
+                                if create_todo and tasks_service and st.session_state.get('default_task_list_id'):
+                                    todo_summary = f"{todo_type_options[selected_todo_type]} - {row['Subject']}"
+                                    
+                                    # イベント開始日を基準にToDo期限を計算
+                                    event_start_date_for_todo = None
+                                    if row['All Day Event'] == "True":
+                                        event_start_date_for_todo = datetime.strptime(row['Start Date'], "%Y/%m/%d").date()
+                                    else:
+                                        event_start_date_for_todo = datetime.strptime(row['Start Date'], "%Y/%m/%d").date() # 時刻を考慮せず日付のみ
+
+                                    if event_start_date_for_todo:
+                                        offset_days = deadline_offset_options.get(selected_offset_key)
+                                        if selected_offset_key == "カスタム日数前" and custom_offset_days is not None:
+                                            offset_days = custom_offset_days
+
+                                        if offset_days is not None:
+                                            todo_due_date = event_start_date_for_todo - timedelta(days=offset_days)
+                                            add_task_to_todo_list(
+                                                tasks_service,
+                                                st.session_state['default_task_list_id'],
+                                                todo_summary,
+                                                todo_due_date
+                                            )
+                                            successful_todo_creations += 1
+                                        else:
+                                            st.warning(f"ToDo '{todo_summary}' の期限が設定されませんでした。カスタム日数が無効です。")
+                                    else:
+                                        st.warning(f"ToDo '{todo_summary}' の期限を設定できませんでした。イベント開始日が不明です。")
+
                             except Exception as e:
-                                st.error(f"{row['Subject']} の登録に失敗しました: {e}")
+                                st.error(f"{row['Subject']} の登録またはToDoリスト作成に失敗しました: {e}")
                             progress.progress((i + 1) / len(df))
 
                         st.success(f"✅ {successful_registrations} 件のイベント登録が完了しました！")
+                        if create_todo:
+                            st.success(f"✅ {successful_todo_creations} 件のToDoリストが作成されました！")
 
 with tabs[2]:
     st.header("イベントを削除")
@@ -241,5 +346,3 @@ with tabs[3]:
                             st.error(f"{row['Subject']} の更新に失敗: {e}")
 
                     st.success(f"✅ {update_count} 件のイベントを更新しました。")
-
-
