@@ -10,7 +10,8 @@ from calendar_utils import (
     fetch_all_events,
     update_event_if_needed,
     build_tasks_service,
-    add_task_to_todo_list
+    add_task_to_todo_list,
+    find_and_delete_tasks_by_event_id # 追加
 )
 from googleapiclient.discovery import build
 
@@ -176,6 +177,7 @@ with tabs[1]:
                             event_start_date_obj = None
                             event_end_date_obj = None
                             event_time_str = "" # ToDo詳細用の時間文字列
+                            event_id = None # 追加: ToDoに紐付けるイベントID
 
                             try:
                                 if row['All Day Event'] == "True":
@@ -220,11 +222,14 @@ with tabs[1]:
                                     if event_start_datetime_obj.date() != event_end_datetime_obj.date():
                                         event_time_str = f"{event_start_datetime_obj.strftime('%-m/%-d %H:%M')}～{event_end_datetime_obj.strftime('%-m/%-d %H:%M')}"
 
-                                add_event_to_calendar(service, calendar_id, event_data)
-                                successful_registrations += 1
+                                # イベント登録し、イベントIDを取得
+                                created_event = add_event_to_calendar(service, calendar_id, event_data)
+                                if created_event:
+                                    successful_registrations += 1
+                                    event_id = created_event.get('id')
 
                                 # ToDoリストの作成ロジック
-                                if create_todo and tasks_service and st.session_state.get('default_task_list_id'):
+                                if create_todo and tasks_service and st.session_state.get('default_task_list_id') and event_id: # event_idがある場合のみToDo作成
                                     if event_start_date_obj: # ToDo期限計算の基準となる日付
                                         offset_days = deadline_offset_options.get(selected_offset_key)
                                         if selected_offset_key == "カスタム日数前" and custom_offset_days is not None:
@@ -236,14 +241,19 @@ with tabs[1]:
                                             # 全ての固定ToDoタイプを追加
                                             for todo_item in fixed_todo_types:
                                                 todo_summary = f"{todo_item} - {row['Subject']}"
-                                                todo_notes = f"イベント日時: {event_time_str}\n場所: {row['Location']}"
+                                                # ToDo詳細にイベントIDを含める
+                                                todo_notes = (
+                                                    f"関連イベントID: {event_id}\n" # イベントIDを保存
+                                                    f"イベント日時: {event_time_str}\n"
+                                                    f"場所: {row['Location']}"
+                                                )
 
                                                 add_task_to_todo_list(
                                                     tasks_service,
                                                     st.session_state['default_task_list_id'],
                                                     todo_summary,
                                                     todo_due_date,
-                                                    notes=todo_notes # notes引数を追加
+                                                    notes=todo_notes
                                                 )
                                                 successful_todo_creations += 1
                                         else:
@@ -272,21 +282,78 @@ with tabs[2]:
         today = date.today()
         delete_start_date = st.date_input("削除開始日", value=today - timedelta(days=30))
         delete_end_date = st.date_input("削除終了日", value=today)
+        
+        # ToDoリストも削除するかどうかのチェックボックス
+        delete_related_todos = st.checkbox("関連するToDoリストも削除する (イベント詳細にIDが記載されている場合)", value=False)
+
 
         if delete_start_date > delete_end_date:
             st.error("削除開始日は終了日より前に設定してください。")
         else:
             st.subheader("🗑️ 削除実行")
             if st.button("選択期間のイベントを削除する"):
-                deleted_count = delete_events_from_calendar(
-                    service, calendar_id_del,
-                    datetime.combine(delete_start_date, datetime.min.time()),
-                    datetime.combine(delete_end_date, datetime.max.time())
-                )
-                if deleted_count > 0:
-                    st.success(f"{deleted_count} 件のイベントが削除されました。")
+                calendar_service = st.session_state['calendar_service']
+                tasks_service = st.session_state['tasks_service']
+                default_task_list_id = st.session_state.get('default_task_list_id')
+
+                # まず期間内のイベントを取得
+                JST_OFFSET = timedelta(hours=9)
+                start_dt_jst = datetime.combine(delete_start_date, datetime.min.time())
+                end_dt_jst = datetime.combine(delete_end_date, datetime.max.time())
+                time_min_utc = (start_dt_jst - JST_OFFSET).isoformat(timespec='microseconds') + 'Z'
+                time_max_utc = (end_dt_jst - JST_OFFSET).isoformat(timespec='microseconds') + 'Z'
+
+                events_to_delete = fetch_all_events(calendar_service, calendar_id_del, time_min_utc, time_max_utc)
+                
+                if not events_to_delete:
+                    st.info("指定期間内に削除するイベントはありませんでした。")
+                    st.stop()
+
+                deleted_events_count = 0
+                deleted_todos_count = 0
+                total_events = len(events_to_delete)
+                
+                progress_bar = st.progress(0)
+                status_text = st.empty()
+
+                for i, event in enumerate(events_to_delete):
+                    event_summary = event.get('summary', '不明なイベント')
+                    event_id = event['id']
+                    
+                    status_text.text(f"イベント '{event_summary}' を削除中... ({i+1}/{total_events})")
+
+                    try:
+                        # 関連ToDoの削除
+                        if delete_related_todos and tasks_service and default_task_list_id:
+                            # ToDo詳細に保存されたイベントIDに基づいてタスクを検索し削除
+                            deleted_task_count_for_event = find_and_delete_tasks_by_event_id(
+                                tasks_service,
+                                default_task_list_id,
+                                event_id
+                            )
+                            deleted_todos_count += deleted_task_count_for_event
+                            if deleted_task_count_for_event > 0:
+                                st.info(f"イベント '{event_summary}' に関連するToDoタスクを {deleted_task_count_for_event} 件削除しました。")
+                        
+                        # イベント自体の削除
+                        calendar_service.events().delete(calendarId=calendar_id_del, eventId=event_id).execute()
+                        deleted_events_count += 1
+                    except Exception as e:
+                        st.error(f"イベント '{event_summary}' (ID: {event_id}) の削除に失敗しました: {e}")
+                    
+                    progress_bar.progress((i + 1) / total_events)
+                
+                status_text.empty() # 処理完了後にステータステキストをクリア
+
+                if deleted_events_count > 0:
+                    st.success(f"✅ {deleted_events_count} 件のイベントが削除されました。")
+                    if delete_related_todos and deleted_todos_count > 0:
+                        st.success(f"✅ 関連するToDoタスクを合計 {deleted_todos_count} 件削除しました。")
+                    elif delete_related_todos and deleted_todos_count == 0:
+                        st.info("関連するToDoタスクは見つからなかったか、すでに削除されていました。")
                 else:
                     st.info("指定期間内に削除するイベントはありませんでした。")
+
 
 with tabs[3]:
     st.header("イベントを更新")
