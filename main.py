@@ -11,8 +11,7 @@ from calendar_utils import (
     update_event_if_needed,
     build_tasks_service,
     add_task_to_todo_list,
-    find_and_delete_tasks_by_event_id,
-    generate_ics_content # 新しくインポート
+    find_and_delete_tasks_by_event_id
 )
 from googleapiclient.discovery import build
 
@@ -82,8 +81,7 @@ tabs = st.tabs([
     "1. ファイルのアップロード",
     "2. イベントの登録",
     "3. イベントの削除",
-    "4. イベントの更新",
-    "5. ICSファイルの出力" # 新しいタブを追加
+    "4. イベントの更新"
 ])
 
 with tabs[0]:
@@ -426,50 +424,3 @@ with tabs[3]:
                             st.error(f"{row['Subject']} の更新に失敗: {e}")
 
                     st.success(f"✅ {update_count} 件のイベントを更新しました。")
-
-with tabs[4]: # 新しいICS出力タブ
-    st.header("ICSファイルの出力")
-
-    if 'editable_calendar_options' not in st.session_state or not st.session_state['editable_calendar_options']:
-        st.error("利用可能なカレンダーが見つかりませんでした。")
-    else:
-        selected_calendar_name_ics = st.selectbox("出力対象カレンダーを選択", list(st.session_state['editable_calendar_options'].keys()), key="ics_calendar_select")
-        calendar_id_ics = st.session_state['editable_calendar_options'][selected_calendar_name_ics]
-
-        st.subheader("🗓️ 出力期間の選択")
-        today = date.today()
-        # デフォルトで過去30日と未来30日を設定
-        ics_start_date = st.date_input("開始日", value=today - timedelta(days=30), key="ics_start_date")
-        ics_end_date = st.date_input("終了日", value=today + timedelta(days=30), key="ics_end_date")
-
-        if ics_start_date > ics_end_date:
-            st.error("開始日は終了日より前に設定してください。")
-        else:
-            st.subheader("⬇️ ICSファイル生成")
-            if st.button("ICSファイルを生成する"):
-                with st.spinner("イベントデータを取得中..."):
-                    calendar_service = st.session_state['calendar_service']
-                    JST_OFFSET = timedelta(hours=9)
-                    
-                    # 開始日と終了日をJSTでDateTimeオブジェクトに変換し、UTCにオフセット
-                    # timeMinは日の始まり、timeMaxは日の終わり
-                    start_dt_jst = datetime.combine(ics_start_date, datetime.min.time())
-                    end_dt_jst = datetime.combine(ics_end_date, datetime.max.time())
-                    
-                    time_min_utc = (start_dt_jst - JST_OFFSET).isoformat(timespec='microseconds') + 'Z'
-                    time_max_utc = (end_dt_jst - JST_OFFSET).isoformat(timespec='microseconds') + 'Z'
-
-                    events_to_export = fetch_all_events(calendar_service, calendar_id_ics, time_min_utc, time_max_utc)
-
-                    if not events_to_export:
-                        st.info("指定期間内にエクスポートするイベントはありませんでした。")
-                    else:
-                        ics_content = generate_ics_content(events_to_export)
-                        file_name = f"calendar_events_{ics_start_date}_{ics_end_date}.ics"
-                        st.download_button(
-                            label="ICSファイルをダウンロード",
-                            data=ics_content,
-                            file_name=file_name,
-                            mime="text/calendar"
-                        )
-                        st.success(f"✅ {len(events_to_export)} 件のイベントを含むICSファイルを生成しました。")
