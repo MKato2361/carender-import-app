@@ -6,6 +6,7 @@ from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 from datetime import datetime, timedelta, timezone
 import re
+from icalendar import Calendar, Event, vUri # Import Calendar, Event, and vUri from icalendar
 
 # SCOPESにGoogle Tasksのスコープを追加
 SCOPES = ["https://www.googleapis.com/auth/calendar", "https://www.googleapis.com/auth/tasks"]
@@ -171,3 +172,61 @@ def update_event_if_needed(service, calendar_id, event, new_event_data):
     if updated:
         service.events().update(calendarId=calendar_id, eventId=event['id'], body=event).execute()
     return updated
+
+def generate_ics_content(events: list) -> str:
+    """
+    Google Calendar APIから取得したイベントリストからICSファイルの内容を生成する。
+    """
+    cal = Calendar()
+    cal.add('prodid', '-//Google Calendar Events Export//jp')
+    cal.add('version', '2.0')
+
+    # 日本のタイムゾーンを定義 (Asia/Tokyo)
+    tokyo_tz = timezone(timedelta(hours=9))
+
+    for event_data in events:
+        event = Event()
+        event.add('summary', event_data.get('summary', ''))
+        event.add('description', event_data.get('description', ''))
+        event.add('location', event_data.get('location', ''))
+        event.add('uid', event_data.get('id') + '@google.com') # GoogleイベントIDをUIDとして使用
+
+        # 日付/時刻情報の処理
+        start = event_data['start']
+        end = event_data['end']
+
+        if 'dateTime' in start: # 通常イベント (日付と時刻)
+            try:
+                # Google Calendar APIから取得したdateTimeはISO 8601形式 (例: 2023-10-27T09:00:00+09:00)
+                # icalendarはタイムゾーン情報を持つdatetimeオブジェクトを直接受け入れる
+                start_dt = datetime.fromisoformat(start['dateTime'])
+                end_dt = datetime.fromisoformat(end['dateTime'])
+                
+                event.add('dtstart', start_dt)
+                event.add('dtend', end_dt)
+
+            except ValueError as e:
+                st.warning(f"イベント '{event_data.get('summary')}' の日時解析に失敗しました: {e}. このイベントはスキップされます。")
+                continue # 解析失敗したイベントはスキップ
+
+        elif 'date' in start: # 終日イベント (日付のみ)
+            try:
+                # 終日イベントの場合、icalendarはPythonのdateオブジェクトまたはnaive datetimeオブジェクトを期待する
+                # Google Calendar APIの終日イベントのend.dateはイベントの最終日の翌日を指すため、-1日する
+                start_date = datetime.strptime(start['date'], '%Y-%m-%d').date()
+                end_date = datetime.strptime(end['date'], '%Y-%m-%d').date() - timedelta(days=1)
+
+                event.add('dtstart', start_date)
+                event.add('dtend', end_date)
+                # 終日イベントのプロパティを追加 (X-GUESTYLE-ALLDAY: TRUE などは非標準)
+                # icalendarはdtstart/dtendが日付オブジェクトの場合、自動的に終日イベントとして扱います。
+            except ValueError as e:
+                st.warning(f"イベント '{event_data.get('summary')}' の終日イベント日時解析に失敗しました: {e}. このイベントはスキップされます。")
+                continue # 解析失敗したイベントはスキップ
+        else:
+            st.warning(f"イベント '{event_data.get('summary')}' の開始/終了日時形式が不明です。このイベントはスキップされます。")
+            continue
+
+        cal.add_component(event)
+
+    return str(cal.to_ical().decode('utf-8'))
