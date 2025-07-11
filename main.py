@@ -13,12 +13,12 @@ from calendar_utils import (
     find_and_delete_tasks_by_event_id
 )
 from firebase_auth import initialize_firebase, firebase_auth_form, get_firebase_user_id
-from googleapiclient.discovery import build
+from googleapiclient.discovery import build # build関数をインポート
 from googleapiclient.errors import HttpError
-from googleapiclient.discovery import build
 
 st.set_page_config(page_title="Googleカレンダー一括イベント登録・削除", layout="wide")
 st.title("📅 Googleカレンダー一括イベント登録・削除")
+
 
 # Firebaseの初期化
 if not initialize_firebase():
