@@ -1,6 +1,14 @@
 streamlit
 pandas
 openpyxl
+google-auth
+google-auth-oauthlib
+google-api-python-client
+cryptography
+firebase-admin
+streamlit
+pandas
+openpyxl
 google-auth-oauthlib
 google-api-python-client
 firebase-admin
