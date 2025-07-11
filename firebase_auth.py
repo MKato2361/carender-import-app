@@ -34,7 +34,6 @@ def initialize_firebase():
             return False
     return True
 
-# 以下、変更なし
 def firebase_auth_form():
     """ログイン/サインアップのUIを表示し、認証状態を管理する"""
     st.title("Firebase認証")
@@ -65,7 +64,7 @@ def firebase_auth_form():
                         st.session_state.user_info = user.uid
                         st.session_state.user_email = email
                         st.success("ログインしました！")
-                        st.rerun() # ここを修正
+                        st.rerun()
                     except auth.UserNotFoundError:
                         st.error("ユーザーが見つかりません。")
                     except Exception as e:
@@ -80,7 +79,7 @@ def firebase_auth_form():
             if 'credentials' in st.session_state:
                 del st.session_state.credentials
             st.info("ログアウトしました。")
-            st.rerun() # ここを修正
+            st.rerun()
 
 def get_firebase_user_id():
     """現在の認証済みユーザーIDを返す"""
