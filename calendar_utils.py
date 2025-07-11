@@ -60,3 +60,8 @@ def authenticate_google():
             return None
 
     return creds
+
+# ... (その他の関数は変更なし)
+# build_tasks_service, add_task_to_todo_list, find_and_delete_tasks_by_event_id,
+# add_event_to_calendar, fetch_all_events, update_event_if_needed
+# これらの関数は元の内容のままです。
