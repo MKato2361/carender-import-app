@@ -28,7 +28,7 @@ def format_worksheet_value(val):
     if pd.isna(val):
         return ""
     if isinstance(val, float):
-        return str(int(val)) if val.is_integer() else str(int(val))  # 小数はすべて整数として扱う
+        return str(int(val)) if val.is_integer() else str(int(val))
     return str(val)
 
 def process_excel_files(uploaded_files, description_columns, all_day_event, private_event):
@@ -56,12 +56,26 @@ def process_excel_files(uploaded_files, description_columns, all_day_event, priv
     if not dataframes:
         return pd.DataFrame()
 
-    merged_df = dataframes[0]
-    for df in dataframes[1:]:
-        merged_df = pd.merge(merged_df, df, on="管理番号", how="outer")
+    # --- 修正箇所：複数のファイルで同一名称の列がある場合の統合処理 ---
+    # まず、すべてのDataFrameの管理番号列を文字列に変換
+    for df in dataframes:
+        df['管理番号'] = df['管理番号'].astype(str)
 
+    # 最初のDataFrameを結合のベースとする
+    merged_df = dataframes[0]
+    
+    # 2つ目以降のDataFrameを結合
+    for i, df in enumerate(dataframes[1:], 2):
+        # 共通の列を見つけ、管理番号以外は結合しない
+        cols_to_merge = [col for col in df.columns if col == "管理番号" or col not in merged_df.columns]
+        
+        # 結合対象の列を抽出し、管理番号をキーに結合
+        merged_df = pd.merge(merged_df, df[cols_to_merge], on="管理番号", how="outer")
+
+    # 管理番号の重複を削除し、一意なエントリのみにする
     merged_df["管理番号"] = merged_df["管理番号"].apply(clean_mng_num)
     merged_df.drop_duplicates(subset="管理番号", inplace=True)
+    # --- 修正ここまで ---
 
     name_col = find_closest_column(merged_df.columns, ["物件名"])
     start_col = find_closest_column(merged_df.columns, ["予定開始"])
