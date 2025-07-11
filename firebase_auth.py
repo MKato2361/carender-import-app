@@ -65,7 +65,7 @@ def firebase_auth_form():
                         st.session_state.user_info = user.uid
                         st.session_state.user_email = email
                         st.success("ログインしました！")
-                        st.experimental_rerun()
+                        st.rerun() # ここを修正
                     except auth.UserNotFoundError:
                         st.error("ユーザーが見つかりません。")
                     except Exception as e:
@@ -80,7 +80,7 @@ def firebase_auth_form():
             if 'credentials' in st.session_state:
                 del st.session_state.credentials
             st.info("ログアウトしました。")
-            st.experimental_rerun()
+            st.rerun() # ここを修正
 
 def get_firebase_user_id():
     """現在の認証済みユーザーIDを返す"""
