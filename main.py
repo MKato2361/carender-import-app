@@ -48,6 +48,7 @@ with google_auth_placeholder.container():
         google_auth_placeholder.empty()
         st.sidebar.success("✅ Googleカレンダーに認証済みです！")
 
+
 # カレンダーサービスの初期化
 def initialize_calendar_service():
     """カレンダーサービスを初期化する"""
