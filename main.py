@@ -223,7 +223,8 @@ with st.sidebar:
     if st.button("🚪 ログアウト", type="secondary"):
         # セッション状態をクリア
         for key in list(st.session_state.keys()):
-            if key.startswith(('calendar_', 'tasks_', 'uploaded_', 'description_')):
+            # 全てのセッション情報をクリアして完全にログアウトする
+            if key in st.session_state:
                 del st.session_state[key]
         st.success("ログアウトしました")
         st.rerun()
