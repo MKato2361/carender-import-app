@@ -1,43 +1,61 @@
 import streamlit as st
+import firebase_admin
+from firebase_admin import credentials, auth, firestore # firestoreを追加
 from google_auth_oauthlib.flow import Flow
 from google.auth.transport.requests import Request
-from googleapiclient.discovery import build
-from googleapiclient.errors import HttpError
 from google.oauth2.credentials import Credentials
+import json # 必要に応じて使用
+import re
 from datetime import datetime, timedelta, timezone
-import json
 
+# 外部モジュールからFirebaseユーザーIDを取得
+from firebase_auth import get_firebase_user_id
+
+# 認証スコープ
 SCOPES = ["https://www.googleapis.com/auth/calendar", "https://www.googleapis.com/auth/tasks"]
 
 def authenticate_google():
-    """Google認証を処理する"""
     creds = None
+    user_id = get_firebase_user_id()
     
-    # 認証情報がセッションステートに存在し、有効な場合はそれを使用
+    if not user_id:
+        # Firebaseユーザーが認証されていない場合はGoogle認証も行わない
+        return None
+
+    db = firestore.client()
+    doc_ref = db.collection('google_tokens').document(user_id)
+
+    # 1. セッションステートから認証情報を確認 (高速化のため)
     if 'credentials' in st.session_state and st.session_state['credentials']:
         creds = st.session_state['credentials']
         if creds.valid:
             return creds
-        # トークンが期限切れの場合はリフレッシュを試みる
-        if creds.expired and creds.refresh_token:
-            try:
+
+    # 2. Firestoreから永続化された認証情報を読み込む
+    try:
+        doc = doc_ref.get()
+        if doc.exists:
+            token_data = doc.to_dict()
+            creds = Credentials.from_authorized_user_info(token_data, SCOPES)
+            st.session_state['credentials'] = creds # セッションステートにも保存
+            
+            # トークンが期限切れの場合はリフレッシュを試みる
+            if creds.expired and creds.refresh_token:
                 creds.refresh(Request())
                 st.session_state['credentials'] = creds
+                # 成功したらFirestoreのトークンも更新
+                doc_ref.set(creds.to_json())
                 st.info("認証トークンを更新しました。")
-                return creds
-            except Exception as e:
-                st.error(f"トークンのリフレッシュに失敗しました。再認証が必要です: {e}")
-                st.session_state['credentials'] = None
-                creds = None
+                st.rerun()
                 
-    # 認証情報がない場合、OAuthフローを開始
+            return creds
+    except Exception as e:
+        st.error(f"Firestoreからのトークン読み込みに失敗しました: {e}")
+        creds = None
+
+    # 3. 認証情報がまだない場合、OAuthフローを開始
     if not creds:
         try:
-            # secrets.tomlからクライアント情報を取得
-            if "google" not in st.secrets:
-                st.error("Google認証情報が設定されていません。secrets.tomlを確認してください。")
-                return None
-                
             client_config = {
                 "installed": {
                     "client_id": st.secrets["google"]["client_id"],
@@ -47,34 +65,29 @@ def authenticate_google():
                     "redirect_uris": ["urn:ietf:wg:oauth:2.0:oob"]
                 }
             }
-            
             flow = Flow.from_client_config(client_config, SCOPES)
             flow.redirect_uri = "urn:ietf:wg:oauth:2.0:oob"
-            
-            # 認証URLを生成
             auth_url, _ = flow.authorization_url(prompt='consent')
-            
+
             st.info("以下のURLをブラウザで開いて、表示されたコードをここに貼り付けてください：")
-            st.code(auth_url)
-            
-            code = st.text_input("認証コードを貼り付けてください:", type="password")
-            
+            st.write(auth_url)
+            code = st.text_input("認証コードを貼り付けてください:")
+
             if code:
-                try:
-                    flow.fetch_token(code=code)
-                    creds = flow.credentials
-                    st.session_state['credentials'] = creds
-                    st.success("Google認証が完了しました！")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"認証コードの処理に失敗しました: {e}")
-                    return None
-                    
+                flow.fetch_token(code=code)
+                creds = flow.credentials
+                st.session_state['credentials'] = creds
+                
+                # 認証が完了したらFirestoreに保存
+                doc_ref.set(json.loads(creds.to_json()))
+                
+                st.success("Google認証が完了しました！")
+                st.rerun()
         except Exception as e:
             st.error(f"Google認証に失敗しました: {e}")
             st.session_state['credentials'] = None
             return None
-            
+
     return creds
 
 def build_tasks_service(creds):
