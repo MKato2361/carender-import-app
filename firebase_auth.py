@@ -2,9 +2,10 @@ import streamlit as st
 import firebase_admin
 from firebase_admin import credentials, auth
 from google.oauth2.credentials import Credentials
+import json # ここにjsonライブラリを追加
 
 # StreamlitのシークレットからFirebaseのサービスアカウント情報を取得
-FIREBASE_SERVICE_ACCOUNT_KEY = st.secrets["firebase"]["service_account_key"]
+FIREBASE_SERVICE_ACCOUNT_KEY_STRING = st.secrets["firebase"]["service_account_key"]
 # Google認証用のシークレットも同時に取得
 GOOGLE_CLIENT_ID = st.secrets["google"]["client_id"]
 GOOGLE_CLIENT_SECRET = st.secrets["google"]["client_secret"]
@@ -13,8 +14,11 @@ def initialize_firebase():
     """Firebase Admin SDKの初期化"""
     if not firebase_admin._apps:
         try:
-            # シークレットから取得したJSON文字列を使って認証情報を初期化
-            cred = credentials.Certificate(FIREBASE_SERVICE_ACCOUNT_KEY)
+            # JSON文字列をPythonの辞書に変換
+            cred_dict = json.loads(FIREBASE_SERVICE_ACCOUNT_KEY_STRING)
+            
+            # 変換した辞書を使って認証情報を初期化
+            cred = credentials.Certificate(cred_dict)
             firebase_admin.initialize_app(cred)
             return True
         except Exception as e:
@@ -73,6 +77,10 @@ def firebase_auth_form():
                 del st.session_state.credentials
             st.info("ログアウトしました。")
             st.experimental_rerun()
+
+def get_firebase_user_id():
+    """現在の認証済みユーザーIDを返す"""
+    return st.session_state.get("user_info")
 
 def get_firebase_user_id():
     """現在の認証済みユーザーIDを返す"""
