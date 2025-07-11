@@ -1,12 +1,15 @@
 import streamlit as st
 import firebase_admin
-from firebase_admin import credentials, auth, firestore # firestoreを追加
+from firebase_admin import credentials, auth, firestore
 from google_auth_oauthlib.flow import Flow
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
-import json # 必要に応じて使用
+import json
 import re
 from datetime import datetime, timedelta, timezone
+from googleapiclient.discovery import build # build関数をインポート
+from googleapiclient.errors import HttpError
+import requests
 
 # 外部モジュールからFirebaseユーザーIDを取得
 from firebase_auth import get_firebase_user_id
