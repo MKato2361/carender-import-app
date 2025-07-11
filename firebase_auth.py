@@ -2,22 +2,30 @@ import streamlit as st
 import firebase_admin
 from firebase_admin import credentials, auth
 from google.oauth2.credentials import Credentials
-import json # ここにjsonライブラリを追加
 
 # StreamlitのシークレットからFirebaseのサービスアカウント情報を取得
-FIREBASE_SERVICE_ACCOUNT_KEY_STRING = st.secrets["firebase"]["service_account_key"]
-# Google認証用のシークレットも同時に取得
-GOOGLE_CLIENT_ID = st.secrets["google"]["client_id"]
-GOOGLE_CLIENT_SECRET = st.secrets["google"]["client_secret"]
+FIREBASE_SECRETS = st.secrets["firebase"]
 
 def initialize_firebase():
     """Firebase Admin SDKの初期化"""
     if not firebase_admin._apps:
         try:
-            # JSON文字列をPythonの辞書に変換
-            cred_dict = json.loads(FIREBASE_SERVICE_ACCOUNT_KEY_STRING)
+            # 辞書を再構成
+            cred_dict = {
+                "type": FIREBASE_SECRETS["type"],
+                "project_id": FIREBASE_SECRETS["project_id"],
+                "private_key_id": FIREBASE_SECRETS["private_key_id"],
+                "private_key": FIREBASE_SECRETS["private_key"],
+                "client_email": FIREBASE_SECRETS["client_email"],
+                "client_id": FIREBASE_SECRETS["client_id"],
+                "auth_uri": FIREBASE_SECRETS["auth_uri"],
+                "token_uri": FIREBASE_SECRETS["token_uri"],
+                "auth_provider_x509_cert_url": FIREBASE_SECRETS["auth_provider_x509_cert_url"],
+                "client_x509_cert_url": FIREBASE_SECRETS["client_x509_cert_url"],
+                "universe_domain": FIREBASE_SECRETS["universe_domain"]
+            }
             
-            # 変換した辞書を使って認証情報を初期化
+            # 辞書を使って認証情報を初期化
             cred = credentials.Certificate(cred_dict)
             firebase_admin.initialize_app(cred)
             return True
@@ -26,6 +34,7 @@ def initialize_firebase():
             return False
     return True
 
+# 以下、変更なし
 def firebase_auth_form():
     """ログイン/サインアップのUIを表示し、認証状態を管理する"""
     st.title("Firebase認証")
@@ -52,12 +61,7 @@ def firebase_auth_form():
             if st.button("ログイン"):
                 if email and password:
                     try:
-                        # Streamlitで直接ユーザーのパスワードを認証する安全な方法がないため、
-                        # 仮のロジックとして、Firebaseのカスタム認証トークンを発行し、ユーザーの存在を確認する
-                        # 実際のWebアプリケーションではクライアント側（JavaScript）で認証を行うのが一般的
                         user = auth.get_user_by_email(email)
-                        # この時点でパスワードの正当性は検証できないため、
-                        # 厳密な認証には、クライアントサイドでの実装が必須
                         st.session_state.user_info = user.uid
                         st.session_state.user_email = email
                         st.success("ログインしました！")
@@ -77,10 +81,6 @@ def firebase_auth_form():
                 del st.session_state.credentials
             st.info("ログアウトしました。")
             st.experimental_rerun()
-
-def get_firebase_user_id():
-    """現在の認証済みユーザーIDを返す"""
-    return st.session_state.get("user_info")
 
 def get_firebase_user_id():
     """現在の認証済みユーザーIDを返す"""
