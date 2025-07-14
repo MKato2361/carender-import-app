@@ -39,7 +39,7 @@ def authenticate_user(email, password):
     """Firebase REST APIを使用してユーザー認証"""
     try:
         # Firebase Web API Key（st.secretsに追加が必要）
-        API_KEY = st.secrets["firebase"]["web_api_key"]
+        API_KEY = st.secrets["web_api_key"]
         
         url = f"https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key={API_KEY}"
         
@@ -75,7 +75,7 @@ def create_user_account(email, password):
     """Firebase REST APIを使用してユーザー作成"""
     try:
         # Firebase Web API Key
-        API_KEY = st.secrets["firebase"]["web_api_key"]
+        API_KEY = st.secrets["web_api_key"]
         
         url = f"https://identitytoolkit.googleapis.com/v1/accounts:signUp?key={API_KEY}"
         
