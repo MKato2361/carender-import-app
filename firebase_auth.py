@@ -1,7 +1,8 @@
 import streamlit as st
 import firebase_admin
 from firebase_admin import credentials, auth
-from google.oauth2.credentials import Credentials
+import requests
+import json
 
 # StreamlitのシークレットからFirebaseのサービスアカウント情報を取得
 FIREBASE_SECRETS = st.secrets["firebase"]
@@ -34,50 +35,129 @@ def initialize_firebase():
             return False
     return True
 
+def authenticate_user(email, password):
+    """Firebase REST APIを使用してユーザー認証"""
+    try:
+        # Firebase Web API Key（st.secretsに追加が必要）
+        API_KEY = st.secrets["firebase"]["web_api_key"]
+        
+        url = f"https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key={API_KEY}"
+        
+        payload = {
+            "email": email,
+            "password": password,
+            "returnSecureToken": True
+        }
+        
+        response = requests.post(url, json=payload)
+        
+        if response.status_code == 200:
+            user_data = response.json()
+            return {
+                "success": True,
+                "user_id": user_data["localId"],
+                "email": user_data["email"],
+                "id_token": user_data["idToken"]
+            }
+        else:
+            error_data = response.json()
+            return {
+                "success": False,
+                "error": error_data.get("error", {}).get("message", "認証に失敗しました")
+            }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e)
+        }
+
+def create_user_account(email, password):
+    """Firebase REST APIを使用してユーザー作成"""
+    try:
+        # Firebase Web API Key
+        API_KEY = st.secrets["firebase"]["web_api_key"]
+        
+        url = f"https://identitytoolkit.googleapis.com/v1/accounts:signUp?key={API_KEY}"
+        
+        payload = {
+            "email": email,
+            "password": password,
+            "returnSecureToken": True
+        }
+        
+        response = requests.post(url, json=payload)
+        
+        if response.status_code == 200:
+            user_data = response.json()
+            return {
+                "success": True,
+                "user_id": user_data["localId"],
+                "email": user_data["email"]
+            }
+        else:
+            error_data = response.json()
+            return {
+                "success": False,
+                "error": error_data.get("error", {}).get("message", "アカウント作成に失敗しました")
+            }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e)
+        }
+
 def firebase_auth_form():
     """ログイン/サインアップのUIを表示し、認証状態を管理する"""
     st.title("Firebase認証")
+    
     # 認証情報をセッションステートで管理
     if "user_info" not in st.session_state:
         st.session_state.user_info = None
-
+    if "user_email" not in st.session_state:
+        st.session_state.user_email = None
+    
     if st.session_state.user_info is None:
         choice = st.selectbox("選択してください", ["ログイン", "新規登録"])
         
         if choice == "新規登録":
             new_email = st.text_input("新しいメールアドレス", key="signup_email")
             new_password = st.text_input("新しいパスワード", type="password", key="signup_password")
+            
             if st.button("新規登録"):
                 if new_email and new_password:
-                    try:
-                        user = auth.create_user(email=new_email, password=new_password)
-                        st.success(f"ユーザー {user.uid} の新規登録が完了しました。ログインしてください。")
-                    except Exception as e:
-                        st.error(f"新規登録に失敗しました: {e}")
+                    result = create_user_account(new_email, new_password)
+                    if result["success"]:
+                        st.success(f"ユーザー {result['user_id']} の新規登録が完了しました。ログインしてください。")
+                    else:
+                        st.error(f"新規登録に失敗しました: {result['error']}")
                 else:
                     st.warning("メールアドレスとパスワードを入力してください。")
-        else: # ログイン
+        
+        else:  # ログイン
             email = st.text_input("メールアドレス", key="login_email")
             password = st.text_input("パスワード", type="password", key="login_password")
+            
             if st.button("ログイン"):
                 if email and password:
-                    try:
-                        user = auth.get_user_by_email(email)
-                        st.session_state.user_info = user.uid
-                        st.session_state.user_email = email
+                    result = authenticate_user(email, password)
+                    if result["success"]:
+                        st.session_state.user_info = result["user_id"]
+                        st.session_state.user_email = result["email"]
+                        st.session_state.id_token = result["id_token"]
                         st.success("ログインしました！")
                         st.rerun()
-                    except auth.UserNotFoundError:
-                        st.error("ユーザーが見つかりません。")
-                    except Exception as e:
-                        st.error(f"ログインに失敗しました: {e}")
+                    else:
+                        st.error(f"ログインに失敗しました: {result['error']}")
                 else:
                     st.warning("メールアドレスとパスワードを入力してください。")
+    
     else:
         st.success(f"ログイン済みユーザー: {st.session_state.user_email}")
         if st.button("ログアウト"):
             st.session_state.user_info = None
             st.session_state.user_email = None
+            if 'id_token' in st.session_state:
+                del st.session_state.id_token
             if 'credentials' in st.session_state:
                 del st.session_state.credentials
             st.info("ログアウトしました。")
@@ -87,6 +167,14 @@ def get_firebase_user_id():
     """現在の認証済みユーザーIDを返す"""
     return st.session_state.get("user_info")
 
-def get_firebase_user_id():
-    """現在の認証済みユーザーIDを返す"""
-    return st.session_state.get("user_info")
+def get_firebase_user_email():
+    """現在の認証済みユーザーのメールアドレスを返す"""
+    return st.session_state.get("user_email")
+
+def get_firebase_id_token():
+    """現在の認証済みユーザーのIDトークンを返す"""
+    return st.session_state.get("id_token")
+
+def is_user_authenticated():
+    """ユーザーが認証済みかどうかを確認"""
+    return st.session_state.get("user_info") is not None
