@@ -86,6 +86,3 @@ def firebase_auth_form():
 def get_firebase_user_id():
     """現在の認証済みユーザーIDを返す"""
     return st.session_state.get("user_info")
-def get_firebase_user_id():
-    """現在の認証済みユーザーIDを返す"""
-    return st.session_state.get("user_info")
