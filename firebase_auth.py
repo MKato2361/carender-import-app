@@ -43,20 +43,22 @@ def firebase_auth_form():
 
     if st.session_state.user_info is None:
         choice = st.selectbox("選択してください", ["ログイン", "新規登録"])
-        email = st.text_input("メールアドレス")
-        password = st.text_input("パスワード", type="password")
         
         if choice == "新規登録":
+            new_email = st.text_input("新しいメールアドレス", key="signup_email")
+            new_password = st.text_input("新しいパスワード", type="password", key="signup_password")
             if st.button("新規登録"):
-                if email and password:
+                if new_email and new_password:
                     try:
-                        user = auth.create_user(email=email, password=password)
+                        user = auth.create_user(email=new_email, password=new_password)
                         st.success(f"ユーザー {user.uid} の新規登録が完了しました。ログインしてください。")
                     except Exception as e:
                         st.error(f"新規登録に失敗しました: {e}")
                 else:
                     st.warning("メールアドレスとパスワードを入力してください。")
         else: # ログイン
+            email = st.text_input("メールアドレス", key="login_email")
+            password = st.text_input("パスワード", type="password", key="login_password")
             if st.button("ログイン"):
                 if email and password:
                     try:
@@ -81,6 +83,9 @@ def firebase_auth_form():
             st.info("ログアウトしました。")
             st.rerun()
 
+def get_firebase_user_id():
+    """現在の認証済みユーザーIDを返す"""
+    return st.session_state.get("user_info")
 def get_firebase_user_id():
     """現在の認証済みユーザーIDを返す"""
     return st.session_state.get("user_info")
