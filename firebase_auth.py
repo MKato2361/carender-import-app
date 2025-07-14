@@ -1,6 +1,6 @@
 import streamlit as st
 import firebase_admin
-from firebase_admin import credentials, auth
+from firebase_admin import credentials, auth, firestore
 import requests
 import json
 
@@ -178,3 +178,134 @@ def get_firebase_id_token():
 def is_user_authenticated():
     """ユーザーが認証済みかどうかを確認"""
     return st.session_state.get("user_info") is not None
+
+# Firestore関連の関数
+def safe_load_tokens_from_firestore(user_id):
+    """Firestoreからトークンを安全に読み込む"""
+    try:
+        db = firestore.client()
+        doc_ref = db.collection('users').document(user_id)
+        doc = doc_ref.get()
+        
+        if not doc.exists:
+            st.warning("ユーザードキュメントが見つかりません。")
+            return {}
+        
+        # トークンデータを取得
+        token_data = doc.get('tokens') or doc.get('token') or doc.get('credentials')
+        
+        if token_data is None:
+            st.info("トークンデータがありません。")
+            return {}
+        
+        # デバッグ情報を表示
+        st.write(f"トークンデータの型: {type(token_data)}")
+        
+        # 型に応じて処理を分岐
+        if isinstance(token_data, dict):
+            # 既に辞書の場合はそのまま返す
+            return token_data
+        
+        elif isinstance(token_data, str):
+            # 文字列の場合はJSONとしてパースを試行
+            try:
+                parsed_data = json.loads(token_data)
+                if isinstance(parsed_data, dict):
+                    return parsed_data
+                else:
+                    st.error("パースされたデータが辞書ではありません。")
+                    return {}
+            except json.JSONDecodeError as e:
+                st.error(f"JSONパースエラー: {e}")
+                # JSONパースに失敗した場合、文字列をそのまま返す
+                return {"raw_token": token_data}
+        
+        elif isinstance(token_data, list):
+            # リストの場合（複数のトークンがある場合）
+            return {"tokens": token_data}
+        
+        else:
+            st.error(f"未対応のデータ型: {type(token_data)}")
+            return {}
+            
+    except Exception as e:
+        st.error(f"Firestoreからのトークン読み込みに失敗しました: {e}")
+        return {}
+
+def save_tokens_to_firestore(user_id, tokens):
+    """トークンをFirestoreに保存する"""
+    try:
+        db = firestore.client()
+        doc_ref = db.collection('users').document(user_id)
+        
+        # トークンデータを辞書として保存
+        doc_ref.set({
+            'tokens': tokens,
+            'updated_at': firestore.SERVER_TIMESTAMP
+        }, merge=True)
+        
+        st.success("トークンが正常に保存されました。")
+        return True
+        
+    except Exception as e:
+        st.error(f"トークンの保存に失敗しました: {e}")
+        return False
+
+def process_tokens_safely(user_id):
+    """トークンを安全に処理する関数"""
+    tokens = safe_load_tokens_from_firestore(user_id)
+    
+    if not tokens:
+        st.info("利用可能なトークンがありません。")
+        return
+    
+    # トークンデータを処理
+    st.write("取得したトークン:")
+    
+    # 安全に.items()を使用
+    try:
+        if isinstance(tokens, dict):
+            for key, value in tokens.items():
+                st.write(f"- {key}: {value}")
+        else:
+            st.write(f"トークンデータ: {tokens}")
+    except AttributeError as e:
+        st.error(f"トークンデータの処理でエラーが発生しました: {e}")
+        st.write(f"データの型: {type(tokens)}")
+        st.write(f"データの内容: {tokens}")
+
+def main():
+    """メイン関数"""
+    st.title("Firebase認証 & Firestoreトークン管理")
+    
+    # Firebase初期化
+    if not initialize_firebase():
+        st.stop()
+    
+    # 認証フォーム
+    firebase_auth_form()
+    
+    # 認証済みユーザーの場合のみFirestore操作を表示
+    if is_user_authenticated():
+        st.divider()
+        st.subheader("Firestoreトークン管理")
+        
+        user_id = get_firebase_user_id()
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            if st.button("トークンを読み込む"):
+                process_tokens_safely(user_id)
+        
+        with col2:
+            if st.button("テストトークンを保存"):
+                test_tokens = {
+                    "access_token": "test_access_token_123",
+                    "refresh_token": "test_refresh_token_456",
+                    "expires_at": "2025-07-15T12:00:00Z"
+                }
+                save_tokens_to_firestore(user_id, test_tokens)
+
+if __name__ == "__main__":
+    main()
