@@ -199,8 +199,14 @@ def process_tokens_safely(user_id):
     tokens = normalize_token_data(raw_tokens)
 
     st.write("取得したトークン:")
-    for key, value in tokens.items():
-        st.write(f"- {key}: {value}")
+
+    if isinstance(tokens, dict):
+        for key, value in tokens.items():
+            st.write(f"- {key}: {value}")
+    else:
+        st.warning("トークンの形式が想定外です。内容を直接表示します。")
+        st.write(tokens)
+
 
 def save_tokens_to_firestore(user_id, tokens):
     try:
