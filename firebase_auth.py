@@ -3,18 +3,14 @@ import firebase_admin
 from firebase_admin import credentials, auth
 from google.oauth2.credentials import Credentials
 
-# streamlit-firebase-auth をインポート
-from streamlit_firebase_auth import with_firebase_auth
-import json
-
 # StreamlitのシークレットからFirebaseのサービスアカウント情報を取得
 FIREBASE_SECRETS = st.secrets["firebase"]
 
-# Firebase Admin SDKの初期化
 def initialize_firebase():
     """Firebase Admin SDKの初期化"""
     if not firebase_admin._apps:
         try:
+            # 辞書を再構成
             cred_dict = {
                 "type": FIREBASE_SECRETS["type"],
                 "project_id": FIREBASE_SECRETS["project_id"],
@@ -29,6 +25,7 @@ def initialize_firebase():
                 "universe_domain": FIREBASE_SECRETS["universe_domain"]
             }
             
+            # 辞書を使って認証情報を初期化
             cred = credentials.Certificate(cred_dict)
             firebase_admin.initialize_app(cred)
             return True
@@ -38,43 +35,60 @@ def initialize_firebase():
     return True
 
 # FirebaseのAdmin SDKを初期化
-if initialize_firebase():
-    
-    # with_firebase_auth を使用して認証フォームとセッション管理を統合
-    firebase_config = {
-        "apiKey": st.secrets["firebase"]["api_key"],
-        "authDomain": st.secrets["firebase"]["auth_domain"],
-        "projectId": st.secrets["firebase"]["project_id"],
-        "storageBucket": st.secrets["firebase"]["storage_bucket"],
-        "messagingSenderId": st.secrets["firebase"]["messaging_sender_id"],
-        "appId": st.secrets["firebase"]["app_id"]
-    }
-    
-    # 認証状態とユーザー情報を取得
-    st.session_state.auth_state, st.session_state.user = with_firebase_auth(firebase_config)
+initialize_firebase()
 
-    # 認証状態に応じたUIを表示
-    if st.session_state.auth_state["status"] == "signed_in":
-        st.success(f"ログイン済みユーザー: {st.session_state.user['email']}")
-        if st.button("ログアウト"):
-            st.session_state.auth_state["status"] = "signed_out"
-            st.rerun()
-
-    elif st.session_state.auth_state["status"] == "signed_out":
-        st.info("ログインまたは新規登録してください。")
-
-    elif st.session_state.auth_state["status"] == "not_signed_in":
-        st.info("ログインしてください。")
-        
-    elif st.session_state.auth_state["status"] == "loading":
-        st.info("認証情報を確認中です...")
-        
-    elif st.session_state.auth_state["status"] == "not_authenticated":
-        st.error("認証に失敗しました。")
-
-# calendar_utils.pyとの互換性のために関数を再追加
+# 認証済みユーザーのIDを返す関数（calendar_utils.pyから呼び出されることを想定）
 def get_firebase_user_id():
     """認証済みユーザーのIDを返す"""
-    if "user" in st.session_state and st.session_state.user:
-        return st.session_state.user["uid"]
+    if "user_info" in st.session_state and st.session_state.user_info:
+        return st.session_state.user_info
     return None
+
+def firebase_auth_form():
+    """Firebase Authenticationのフォームを表示"""
+    st.subheader("ログイン / 新規登録")
+    st.write("---")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.header("既存アカウントでログイン")
+        email = st.text_input("メールアドレス")
+        password = st.text_input("パスワード", type="password")
+        if st.button("ログイン"):
+            if email and password:
+                try:
+                    user = auth.get_user_by_email(email)
+                    st.session_state.user_info = user.uid
+                    st.session_state.user_email = email
+                    st.success("ログインしました！")
+                    st.rerun()
+                except auth.UserNotFoundError:
+                    st.error("ユーザーが見つかりません。")
+                except Exception as e:
+                    st.error(f"ログインに失敗しました: {e}")
+            else:
+                st.warning("メールアドレスとパスワードを入力してください。")
+
+    with col2:
+        st.header("新規アカウントを作成")
+        new_email = st.text_input("新しいメールアドレス")
+        new_password = st.text_input("新しいパスワード", type="password")
+        if st.button("新規登録"):
+            if new_email and new_password:
+                try:
+                    user = auth.create_user(email=new_email, password=new_password)
+                    st.success(f"ユーザー {user.uid} の新規登録が完了しました。ログインしてください。")
+                except Exception as e:
+                    st.error(f"新規登録に失敗しました: {e}")
+            else:
+                st.warning("メールアドレスとパスワードを入力してください。")
+
+if "user_info" in st.session_state and st.session_state.user_info:
+    st.success(f"ログイン済みユーザー: {st.session_state.user_email}")
+    if st.button("ログアウト"):
+        st.session_state.user_info = None
+        st.session_state.user_email = None
+        st.info("ログアウトしました。")
+        st.rerun()
+else:
+    firebase_auth_form()
