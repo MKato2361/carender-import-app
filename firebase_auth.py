@@ -3,9 +3,14 @@ import firebase_admin
 from firebase_admin import credentials, auth
 from google.oauth2.credentials import Credentials
 
+# streamlit-firebase-auth をインポート
+from streamlit_firebase_auth import with_firebase_auth
+import json
+
 # StreamlitのシークレットからFirebaseのサービスアカウント情報を取得
 FIREBASE_SECRETS = st.secrets["firebase"]
 
+# Firebase Admin SDKの初期化
 def initialize_firebase():
     """Firebase Admin SDKの初期化"""
     if not firebase_admin._apps:
@@ -34,53 +39,50 @@ def initialize_firebase():
             return False
     return True
 
-def firebase_auth_form():
-    """ログイン/サインアップのUIを表示し、認証状態を管理する"""
-    st.title("Firebase認証")
-    # 認証情報をセッションステートで管理
-    if "user_info" not in st.session_state:
-        st.session_state.user_info = None
+# FirebaseのAdmin SDKを初期化
+if initialize_firebase():
+    
+    # with_firebase_auth を使用して認証フォームとセッション管理を統合
+    # FirebaseのAPIキーはStreamlitのsecrets.tomlに追加してください
+    # firebase_config = {"apiKey": "YOUR_API_KEY", ...}
+    firebase_config = {
+        "apiKey": st.secrets["firebase"]["api_key"],
+        "authDomain": st.secrets["firebase"]["auth_domain"],
+        "projectId": st.secrets["firebase"]["project_id"],
+        "storageBucket": st.secrets["firebase"]["storage_bucket"],
+        "messagingSenderId": st.secrets["firebase"]["messaging_sender_id"],
+        "appId": st.secrets["firebase"]["app_id"]
+    }
+    
+    auth_state, user = with_firebase_auth(firebase_config)
 
-    if st.session_state.user_info is None:
-        choice = st.selectbox("選択してください", ["ログイン", "新規登録"])
-        email = st.text_input("メールアドレス")
-        password = st.text_input("パスワード", type="password")
-        
-        if choice == "新規登録":
-            if st.button("新規登録"):
-                if email and password:
-                    try:
-                        user = auth.create_user(email=email, password=password)
-                        st.success(f"ユーザー {user.uid} の新規登録が完了しました。ログインしてください。")
-                    except Exception as e:
-                        st.error(f"新規登録に失敗しました: {e}")
-                else:
-                    st.warning("メールアドレスとパスワードを入力してください。")
-        else: # ログイン
-            if st.button("ログイン"):
-                if email and password:
-                    try:
-                        user = auth.get_user_by_email(email)
-                        st.session_state.user_info = user.uid
-                        st.session_state.user_email = email
-                        st.success("ログインしました！")
-                        st.rerun()
-                    except auth.UserNotFoundError:
-                        st.error("ユーザーが見つかりません。")
-                    except Exception as e:
-                        st.error(f"ログインに失敗しました: {e}")
-                else:
-                    st.warning("メールアドレスとパスワードを入力してください。")
-    else:
-        st.success(f"ログイン済みユーザー: {st.session_state.user_email}")
+    if auth_state["status"] == "signed_in":
+        # ログイン済みの場合の処理
+        st.success(f"ログイン済みユーザー: {user['email']}")
+        st.write("認証が永続化されました。ページをリロードしてもログイン状態は維持されます。")
         if st.button("ログアウト"):
-            st.session_state.user_info = None
-            st.session_state.user_email = None
-            if 'credentials' in st.session_state:
-                del st.session_state.credentials
+            # ライブラリのログアウト機能を使用
+            auth_state["status"] = "signed_out"
             st.info("ログアウトしました。")
             st.rerun()
 
-def get_firebase_user_id():
-    """現在の認証済みユーザーIDを返す"""
-    return st.session_state.get("user_info")
+    elif auth_state["status"] == "signed_out":
+        # ログアウト状態の場合、ライブラリが自動的にログイン/新規登録UIを表示します
+        st.info("ログインまたは新規登録してください。")
+
+    elif auth_state["status"] == "not_signed_in":
+        # 認証されていない状態
+        st.info("ログインしてください。")
+        
+    elif auth_state["status"] == "loading":
+        st.info("認証情報を確認中です...")
+        
+    elif auth_state["status"] == "not_authenticated":
+        st.error("認証に失敗しました。")
+        
+    # ライブラリはセッションステートを内部で管理し、永続化します
+    # ユーザー情報は auth_state["user"] で取得できます
+    if user:
+        st.write("---")
+        st.subheader("ユーザー情報（デバッグ用）")
+        st.json(user)
