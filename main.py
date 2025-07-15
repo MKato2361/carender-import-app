@@ -20,7 +20,7 @@ from calendar_utils import (
 )
 from firebase_auth import initialize_firebase, firebase_auth_form, get_firebase_user_id
 from googleapiclient.discovery import build
-from googleapiclient.errors import HttpError # ここを修正しました: googleapiciapient -> googleapiclient
+from googleapiclient.errors import HttpError
 
 st.set_page_config(page_title="Googleカレンダー一括イベント登録・削除", layout="wide")
 st.title("📅 Googleカレンダー一括イベント登録・削除")
@@ -90,7 +90,6 @@ def initialize_tasks_service_wrapper():
         
         # デフォルトのタスクリストを探す
         for task_list in task_lists.get('items', []):
-            # 'My Tasks' は英語環境でのデフォルト名。日本語環境では 'My Tasks' とは限らない場合があるため注意
             if task_list.get('title') == 'My Tasks': # これはGoogle Tasksのデフォルトリスト名
                 default_task_list_id = task_list['id']
                 break
@@ -150,6 +149,13 @@ if 'uploaded_files' not in st.session_state:
 
 with tabs[0]:
     st.header("ファイルをアップロード")
+    # ここに新しい説明文を追加
+    st.info("""
+    作業指示書一覧をアップロードすると管理番号+物件名をイベント名としてカレンダーに登録します。
+    イベントの説明欄に含めたい情報はドロップダウンリストから選択（複数選択可）してください。
+    イベントに住所を追加したい場合は、物件一覧のファイルをアップロードしてください。
+    作業外予定の一覧をアップロードすると、イベント名を選択することができます。備考を選ぶとわかりやすいと思います。
+    """)
     uploaded_files = st.file_uploader("Excelファイルを選択（複数可）", type=["xlsx"], accept_multiple_files=True)
 
     if uploaded_files:
@@ -465,184 +471,3 @@ with tabs[2]:
                             st.error(f"イベント '{event_summary}' (ID: {event_id}) の削除に失敗しました: {e}")
                         
                         progress_bar.progress((i + 1) / total_events)
-                    
-                    status_text.empty() # 処理完了後にステータステキストをクリア
-
-                    if deleted_events_count > 0:
-                        st.success(f"✅ {deleted_events_count} 件のイベントが削除されました。")
-                        if delete_related_todos:
-                            if deleted_todos_count > 0:
-                                st.success(f"✅ {deleted_todos_count} 件の関連ToDoタスクが削除されました。")
-                            else:
-                                st.info("関連するToDoタスクは見つからなかったか、すでに削除されていました。")
-                    else:
-                        st.info("指定期間内に削除するイベントはありませんでした。")
-                else:
-                    st.info("指定期間内に削除するイベントはありませんでした。")
-
-
-with tabs[3]:
-    st.header("イベントを更新")
-
-    if not st.session_state.get('uploaded_files') or st.session_state['merged_df_for_selector'].empty:
-        st.info("先に「1. ファイルのアップロード」タブでExcelファイルをアップロードしてください。")
-    else:
-        # 更新タブでの設定も、登録タブと同様に名称と挙動を統一
-        all_day_event_override_update = st.checkbox("終日イベントとして扱う", value=False, key="update_all_day")
-        private_event_update = st.checkbox("非公開イベントとして扱う", value=True, key="update_private")
-        
-        description_columns_update = st.multiselect(
-            "説明欄に含める列", 
-            st.session_state['description_columns_pool'], 
-            default=[col for col in ["内容", "詳細"] if col in st.session_state.get('description_columns_pool', [])],
-            key="update_desc_cols"
-        )
-
-        # イベント名の代替列選択UIをここに配置 (更新タブ用)
-        fallback_event_name_column_update = None
-        has_mng_data_update, has_name_data_update = check_event_name_columns(st.session_state['merged_df_for_selector'])
-        
-        if not (has_mng_data_update and has_name_data_update):
-            st.subheader("更新時のイベント名の設定")
-            st.info("Excelデータからのイベント名生成に、以下の列を代替として使用できます。")
-
-            available_event_name_cols_update = get_available_columns_for_event_name(st.session_state['merged_df_for_selector'])
-            event_name_options_update = ["選択しない"] + available_event_name_cols_update
-            
-            selected_event_name_col_update = st.selectbox(
-                "イベント名として使用する代替列を選択してください:",
-                options=event_name_options_update,
-                index=0,
-                key="event_name_selector_update"
-            )
-            if selected_event_name_col_update != "選択しない":
-                fallback_event_name_column_update = selected_event_name_col_update
-        else:
-            st.info("「管理番号」と「物件名」のデータが存在するため、それらがイベント名として使用されます。")
-
-
-        if not st.session_state['editable_calendar_options']:
-            st.error("更新可能なカレンダーが見つかりません。")
-        else:
-            selected_calendar_name_upd = st.selectbox("更新対象カレンダーを選択", list(st.session_state['editable_calendar_options'].keys()), key="update_calendar_select")
-            calendar_id_upd = st.session_state['editable_calendar_options'][selected_calendar_name_upd]
-
-            if st.button("イベントを照合・更新"):
-                with st.spinner("イベントを処理中..."):
-                    try:
-                        # process_excel_data_for_calendar を呼び出す
-                        df = process_excel_data_for_calendar(
-                            st.session_state['uploaded_files'], 
-                            description_columns_update, # 更新タブ用の列
-                            all_day_event_override_update, # 更新タブ用の設定
-                            private_event_update,         # 更新タブ用の設定
-                            fallback_event_name_column_update # 新しい引数
-                        )
-                    except (ValueError, IOError) as e:
-                        st.error(f"Excelデータ処理中にエラーが発生しました: {e}")
-                        df = pd.DataFrame() # エラー時は空のDFにする
-
-                    if df.empty:
-                        st.warning("有効なイベントデータがありません。更新を中断しました。")
-                        st.stop()
-
-                    # 検索期間を広げる。作業指示書での紐付けなので、ある程度の期間をカバーする必要がある
-                    today_for_update = datetime.now()
-                    # 現在から過去2年、未来2年の範囲で検索
-                    time_min = (today_for_update - timedelta(days=365*2)).isoformat() + 'Z'
-                    time_max = (today_for_update + timedelta(days=365*2)).isoformat() + 'Z'
-                    events = fetch_all_events(service, calendar_id_upd, time_min, time_max)
-
-                    worksheet_to_event = {}
-                    for event in events:
-                        desc = event.get('description', '')
-                        # 作業指示書は数値型で抽出される場合があるので、\d+ に変更し、厳密に数値部分を捉える
-                        match = re.search(r"作業指示書[：:]\s*(\d+)", desc) # 半角・全角コロン、スペースに対応
-                        if match:
-                            worksheet_id = match.group(1)
-                            # 同じ作業指示書IDのイベントが複数ある場合、古いものを上書きしないようにリスト化するか、
-                            # 最新のものだけを保持するかなどのロジックを検討する必要があるが、
-                            # 今回は単純に最新（fetch_all_eventsで取得順序に依存）を保持。
-                            worksheet_to_event[worksheet_id] = event
-
-                    update_count = 0
-                    progress_bar = st.progress(0)
-                    for i, row in df.iterrows():
-                        # process_excel_data_for_calendar で生成された 'Description' 列から作業指示書IDを抽出
-                        # ここもformat_worksheet_valueで整形された文字列を想定
-                        match = re.search(r"作業指示書[：:]\s*(\d+)", row['Description'])
-                        if not match:
-                            progress_bar.progress((i + 1) / len(df)) # 進捗バーを更新
-                            continue # 作業指示書IDが見つからない行はスキップ
-                        
-                        worksheet_id = match.group(1)
-                        matched_event = worksheet_to_event.get(worksheet_id)
-                        if not matched_event:
-                            progress_bar.progress((i + 1) / len(df)) # 進捗バーを更新
-                            continue # マッチする既存イベントがない場合はスキップ
-
-                        # カレンダーイベントのデータ構造を構築
-                        event_data = {
-                            'summary': row['Subject'],
-                            'location': row['Location'],
-                            'description': row['Description'],
-                            'transparency': 'transparent' if row['Private'] == "True" else 'opaque'
-                        }
-                        
-                        # 日時の設定
-                        if row['All Day Event'] == "True":
-                            start_date_obj = datetime.strptime(row['Start Date'], "%Y/%m/%d").date()
-                            end_date_obj = datetime.strptime(row['End Date'], "%Y/%m/%d").date()
-                            
-                            start_date_str = start_date_obj.strftime("%Y-%m-%d")
-                            # Google Calendar APIの終日イベントの終了日は排他的なため、Outlook CSV形式の終了日+1が必要
-                            end_date_for_api = (end_date_obj + timedelta(days=1)).strftime("%Y-%m-%d")
-                            
-                            event_data['start'] = {'date': start_date_str}
-                            event_data['end'] = {'date': end_date_for_api}
-                        else:
-                            start_dt_obj = datetime.strptime(f"{row['Start Date']} {row['Start Time']}", "%Y/%m/%d %H:%M")
-                            end_dt_obj = datetime.strptime(f"{row['End Date']} {row['End Time']}", "%Y/%m/%d %H:%M")
-                            
-                            event_data['start'] = {'dateTime': start_dt_obj.isoformat(), 'timeZone': 'Asia/Tokyo'}
-                            event_data['end'] = {'dateTime': end_dt_obj.isoformat(), 'timeZone': 'Asia/Tokyo'}
-
-                        try:
-                            # update_event_if_neededは既存のeventオブジェクトと更新データを受け取る
-                            if update_event_if_needed(service, calendar_id_upd, matched_event, event_data):
-                                update_count += 1
-                        except Exception as e:
-                            st.error(f"イベント '{row['Subject']}' (作業指示書: {worksheet_id}) の更新に失敗しました: {e}")
-                        
-                        progress_bar.progress((i + 1) / len(df))
-
-                    st.success(f"✅ {update_count} 件のイベントを更新しました。")
-
-
-# サイドバーに認証情報表示
-with st.sidebar:
-    st.header("🔐 認証状態")
-    st.success("✅ Firebase認証済み")
-    
-    if st.session_state.get('calendar_service'):
-        st.success("✅ Googleカレンダー認証済み")
-    else:
-        st.warning("⚠️ Googleカレンダー認証が未完了です")
-    
-    if st.session_state.get('tasks_service'):
-        st.success("✅ ToDoリスト利用可能")
-    else:
-        st.warning("⚠️ ToDoリスト利用不可")
-    
-    st.header("📊 統計情報")
-    uploaded_count = len(st.session_state.get('uploaded_files', []))
-    st.metric("アップロード済みファイル", uploaded_count)
-    
-    # ログアウトボタン
-    if st.button("🚪 ログアウト", type="secondary"):
-        # セッション状態をクリア
-        for key in list(st.session_state.keys()):
-            # 全てのセッション情報をクリアして完全にログアウトする
-            del st.session_state[key]
-        st.success("ログアウトしました")
-        st.rerun()
