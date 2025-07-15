@@ -435,8 +435,8 @@ with tabs[2]:
                 default_task_list_id = st.session_state.get('default_task_list_id')
 
                 # まず期間内のイベントを取得
-                start_dt_utc = datetime.combine(delete_start_date, datetime.min.time(), tzinfo=datetime.now().astimezone().tzinfo).astimezone(datetime.timezone.utc)
-                end_dt_utc = datetime.combine(delete_end_date, datetime.max.time(), tzinfo=datetime.now().astimezone().tzinfo).astimezone(datetime.timezone.utc)
+                start_dt_utc = datetime.combine(delete_start_date, datetime.min.time(), tzinfo=datetime.now().astimezone().tzinfo).astimezone(timezone.utc) # <-- 修正済み
+                end_dt_utc = datetime.combine(delete_end_date, datetime.max.time(), tzinfo=datetime.now().astimezone().tzinfo).astimezone(timezone.utc)   # <-- 修正済み
                 
                 time_min_utc = start_dt_utc.isoformat(timespec='microseconds').replace('+00:00', 'Z')
                 time_max_utc = end_dt_utc.isoformat(timespec='microseconds').replace('+00:00', 'Z')
