@@ -49,7 +49,7 @@ def process_excel_files(uploaded_files, description_columns, all_day_event, priv
 
     if not uploaded_files:
         st.warning("Excelファイルをアップロードしてください。")
-        return pd.DataFrame(), []
+        return pd.DataFrame()
 
     for uploaded_file in uploaded_files:
         try:
@@ -59,15 +59,15 @@ def process_excel_files(uploaded_files, description_columns, all_day_event, priv
             if mng_col:
                 df["管理番号"] = df[mng_col].apply(clean_mng_num)
             else:
-                st.warning(f"ファイル '{uploaded_file.name}' に '管理番号' が見つかりません。")
+                st.info(f"ファイル '{uploaded_file.name}' に '管理番号' が見つかりません。代替のイベント名を使用します。")
                 df["管理番号"] = ""  # 空の管理番号列を作成
             dataframes.append(df)
         except Exception as e:
             st.error(f"ファイル '{uploaded_file.name}' の読み込みに失敗しました: {e}")
-            return pd.DataFrame(), []
+            continue  # エラーが発生したファイルはスキップして続行
 
     if not dataframes:
-        return pd.DataFrame(), []
+        return pd.DataFrame()
 
     # --- 修正箇所：複数のファイルで同一名称の列がある場合の統合処理 ---
     # まず、すべてのDataFrameの管理番号列を文字列に変換
@@ -108,7 +108,7 @@ def process_excel_files(uploaded_files, description_columns, all_day_event, priv
     # 必要な列（日時）が見つからない場合はエラー
     if not all([start_col, end_col]):
         st.error("必要な列（日時関連）が見つかりません。予定開始・予定終了、または開始日時・終了日時が必要です。")
-        return pd.DataFrame(), []
+        return pd.DataFrame()
 
     # イベント名に使用可能な列を取得
     available_columns = get_available_columns_for_event_name(merged_df)
@@ -170,10 +170,29 @@ def process_excel_files(uploaded_files, description_columns, all_day_event, priv
             "Private": "True" if private_event else "False"
         })
 
-    return pd.DataFrame(output), available_columns
+    return pd.DataFrame(output)
 
-def create_event_name_selector(available_columns):
+def get_available_columns_for_event_name(merged_df):
+    """イベント名に使用可能な列を取得"""
+    # 日時系の列を除外
+    exclude_keywords = ["日時", "開始", "終了", "予定", "時間", "date", "time", "start", "end"]
+    available_columns = []
+    
+    for col in merged_df.columns:
+        col_lower = str(col).lower()
+        if not any(keyword in col_lower for keyword in exclude_keywords):
+            available_columns.append(col)
+    
+    return available_columns
+
+def create_event_name_selector(df):
     """イベント名選択用のUI要素を作成"""
+    if df.empty:
+        return None
+        
+    # データフレームから利用可能な列を取得
+    available_columns = get_available_columns_for_event_name(df)
+    
     if not available_columns:
         st.warning("イベント名に使用可能な列がありません。")
         return None
