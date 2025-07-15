@@ -20,7 +20,7 @@ from calendar_utils import (
 )
 from firebase_auth import initialize_firebase, firebase_auth_form, get_firebase_user_id
 from googleapiclient.discovery import build
-from googleapiclient.errors import HttpError
+from googleapiciapient.errors import HttpError
 
 st.set_page_config(page_title="Googleカレンダー一括イベント登録・削除", layout="wide")
 st.title("📅 Googleカレンダー一括イベント登録・削除")
@@ -185,6 +185,13 @@ with tabs[0]:
         if not st.session_state['merged_df_for_selector'].empty:
              st.info(f"読み込まれたデータには {len(st.session_state['merged_df_for_selector'].columns)} 列 {len(st.session_state['merged_df_for_selector'])} 行のデータがあります。")
 
+        # ファイル削除機能の追加
+        if st.button("🗑️ アップロード済みファイルをクリア", help="アップロードされたExcelファイルの情報をアプリケーションから削除します。"):
+            st.session_state['uploaded_files'] = []
+            st.session_state['description_columns_pool'] = []
+            st.session_state['merged_df_for_selector'] = pd.DataFrame()
+            st.success("アップロードされたExcelファイルがクリアされました。")
+            st.rerun() # 変更を反映するために再実行
 
 with tabs[1]:
     st.header("イベントを登録")
@@ -398,7 +405,7 @@ with tabs[2]:
     st.header("イベントを削除")
 
     if 'editable_calendar_options' not in st.session_state or not st.session_state['editable_calendar_options']:
-        st.error("削除可能なカレンダーが見つかりませんでした。")
+        st.error("削除可能なカレンダーが見つかりませんでした。Googleカレンダーの設定を確認してください。")
     else:
         selected_calendar_name_del = st.selectbox("削除対象カレンダーを選択", list(st.session_state['editable_calendar_options'].keys()), key="del_calendar_select")
         calendar_id_del = st.session_state['editable_calendar_options'][selected_calendar_name_del]
