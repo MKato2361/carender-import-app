@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, date, timedelta
 import re
-# 変更: excel_parser から必要な関数を個別にインポート
+# excel_parser から必要な関数を個別にインポート
 from excel_parser import (
     process_excel_data_for_calendar, # 新しいメイン処理関数
     _load_and_merge_dataframes,      # ファイルロード＆マージのヘルパー関数
@@ -20,7 +20,7 @@ from calendar_utils import (
 )
 from firebase_auth import initialize_firebase, firebase_auth_form, get_firebase_user_id
 from googleapiclient.discovery import build
-from googleapiciapient.errors import HttpError
+from googleapiclient.errors import HttpError # ここを修正しました: googleapiciapient -> googleapiclient
 
 st.set_page_config(page_title="Googleカレンダー一括イベント登録・削除", layout="wide")
 st.title("📅 Googleカレンダー一括イベント登録・削除")
@@ -78,7 +78,7 @@ def initialize_calendar_service():
         return None, None
 
 # タスクサービスの初期化
-def initialize_tasks_service_wrapper(): # 名前を衝突しないように変更
+def initialize_tasks_service_wrapper():
     """タスクサービスを初期化する"""
     try:
         tasks_service = build_tasks_service(creds)
@@ -91,8 +91,6 @@ def initialize_tasks_service_wrapper(): # 名前を衝突しないように変�
         # デフォルトのタスクリストを探す
         for task_list in task_lists.get('items', []):
             # 'My Tasks' は英語環境でのデフォルト名。日本語環境では 'My Tasks' とは限らない場合があるため注意
-            # 'My Tasks' に相当するものを厳密に判断するには、Google Tasks APIのドキュメントを確認するか、
-            # ユーザーに選択させるUIを用意するのがより堅牢
             if task_list.get('title') == 'My Tasks': # これはGoogle Tasksのデフォルトリスト名
                 default_task_list_id = task_list['id']
                 break
@@ -121,16 +119,12 @@ if 'calendar_service' not in st.session_state or not st.session_state['calendar_
     st.session_state['editable_calendar_options'] = editable_calendar_options
 else:
     service = st.session_state['calendar_service']
-    # 既にサービスが存在する場合でも、カレンダーオプションを再度読み込むことで最新の状態を反映
-    # initialize_calendar_serviceが毎回呼び出されるべきか、セッション間でキャッシュすべきかはユースケースによる
-    # 現状は毎回認証するが、もしパフォーマンスが問題ならキャッシュ検討
-    # ここでは、initialize_calendar_service()はすでにcredsに依存しているため、再度実行しても問題ない
     _, st.session_state['editable_calendar_options'] = initialize_calendar_service()
 
 
 # タスクサービスの初期化または取得
 if 'tasks_service' not in st.session_state or not st.session_state.get('tasks_service'): # Noneチェックを追加
-    tasks_service, default_task_list_id = initialize_tasks_service_wrapper() # ラッパー関数を呼び出す
+    tasks_service, default_task_list_id = initialize_tasks_service_wrapper()
     
     st.session_state['tasks_service'] = tasks_service
     st.session_state['default_task_list_id'] = default_task_list_id
@@ -163,7 +157,6 @@ with tabs[0]:
         
         try:
             # 選択肢表示のために、アップロードされたファイルを統合
-            # _load_and_merge_dataframes はエラーをスローする可能性があるのでtry-except
             st.session_state['merged_df_for_selector'] = _load_and_merge_dataframes(uploaded_files)
             
             # 説明文の列プールの更新
@@ -199,7 +192,7 @@ with tabs[1]:
         st.info("先に「1. ファイルのアップロード」タブでExcelファイルをアップロードすると、イベント登録機能が利用可能になります。")
     else:
         st.subheader("📝 イベント設定")
-        all_day_event_override = st.checkbox("終日イベントとして登録", value=False) # 名称変更を反映
+        all_day_event_override = st.checkbox("終日イベントとして登録", value=False)
         private_event = st.checkbox("非公開イベントとして登録", value=True)
 
         # 説明文に含める列の選択
@@ -282,14 +275,14 @@ with tabs[1]:
             st.subheader("➡️ イベント登録")
             if st.button("Googleカレンダーに登録する"):
                 with st.spinner("イベントデータを処理中..."):
-                    # 変更: process_excel_data_for_calendar を呼び出す
+                    # process_excel_data_for_calendar を呼び出す
                     try:
                         df = process_excel_data_for_calendar(
                             st.session_state['uploaded_files'], 
                             description_columns, 
-                            all_day_event_override, # 名称変更
+                            all_day_event_override,
                             private_event, 
-                            fallback_event_name_column # 新しい引数
+                            fallback_event_name_column
                         )
                     except (ValueError, IOError) as e:
                         st.error(f"Excelデータ処理中にエラーが発生しました: {e}")
@@ -411,7 +404,7 @@ with tabs[2]:
         calendar_id_del = st.session_state['editable_calendar_options'][selected_calendar_name_del]
 
         st.subheader("🗓️ 削除期間の選択")
-        today_date = date.today() # datetime.today()ではなくdate.today()を使用
+        today_date = date.today()
         delete_start_date = st.date_input("削除開始日", value=today_date - timedelta(days=30))
         delete_end_date = st.date_input("削除終了日", value=today_date)
         
@@ -429,8 +422,6 @@ with tabs[2]:
                 default_task_list_id = st.session_state.get('default_task_list_id')
 
                 # まず期間内のイベントを取得
-                # JST_OFFSET = timedelta(hours=9) # calendar_utilsで処理しているので不要
-                # time_minとtime_maxはUTCでなければならない
                 start_dt_utc = datetime.combine(delete_start_date, datetime.min.time(), tzinfo=datetime.now().astimezone().tzinfo).astimezone(datetime.timezone.utc)
                 end_dt_utc = datetime.combine(delete_end_date, datetime.max.time(), tzinfo=datetime.now().astimezone().tzinfo).astimezone(datetime.timezone.utc)
                 
@@ -442,8 +433,6 @@ with tabs[2]:
                 
                 if not events_to_delete:
                     st.info("指定期間内に削除するイベントはありませんでした。")
-                    # st.stop() # ここでstopすると、その後のログアウトボタンなどが動作しない
-                    # continue # forループではないのでこれも不要。単純にリターンまたはメッセージ表示でOK
 
                 deleted_events_count = 0
                 deleted_todos_count = 0 # ToDoの削除数をカウント
@@ -541,7 +530,7 @@ with tabs[3]:
             if st.button("イベントを照合・更新"):
                 with st.spinner("イベントを処理中..."):
                     try:
-                        # 変更: process_excel_data_for_calendar を呼び出す
+                        # process_excel_data_for_calendar を呼び出す
                         df = process_excel_data_for_calendar(
                             st.session_state['uploaded_files'], 
                             description_columns_update, # 更新タブ用の列
@@ -654,7 +643,6 @@ with st.sidebar:
         # セッション状態をクリア
         for key in list(st.session_state.keys()):
             # 全てのセッション情報をクリアして完全にログアウトする
-            # 'user_id' や 'creds' など、ログインセッションを維持したいものは残すことも検討
             del st.session_state[key]
         st.success("ログアウトしました")
         st.rerun()
