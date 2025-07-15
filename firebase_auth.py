@@ -324,3 +324,29 @@ def main():
 
 if __name__ == "__main__":
     main()
+def save_user_description_columns(user_id, selected_columns):
+    """ユーザーごとの説明欄列設定をFirestoreに保存"""
+    try:
+        db = firestore.client()
+        doc_ref = db.collection('users').document(user_id)
+        doc_ref.set({
+            'description_columns': selected_columns,
+            'updated_at': firestore.SERVER_TIMESTAMP
+        }, merge=True)
+        return True
+    except Exception as e:
+        st.error(f"説明欄列の保存に失敗しました: {e}")
+        return False
+
+def load_user_description_columns(user_id):
+    """Firestoreからユーザーの説明欄列設定を取得"""
+    try:
+        db = firestore.client()
+        doc_ref = db.collection('users').document(user_id)
+        doc = doc_ref.get()
+        if doc.exists:
+            return doc.to_dict().get('description_columns', [])
+        return []
+    except Exception as e:
+        st.error(f"説明欄列の取得に失敗しました: {e}")
+        return []
