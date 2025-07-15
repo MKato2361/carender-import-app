@@ -87,7 +87,10 @@ def process_excel_files(uploaded_files, description_columns, all_day_event, priv
 
     # 管理番号の重複を削除し、一意なエントリのみにする
     merged_df["管理番号"] = merged_df["管理番号"].apply(clean_mng_num)
-    merged_df.drop_duplicates(subset="管理番号", inplace=True)
+    
+    # 管理番号が空の場合は重複削除をスキップ
+    if not merged_df["管理番号"].str.strip().eq("").all():
+        merged_df.drop_duplicates(subset="管理番号", inplace=True)
     # --- 修正ここまで ---
 
     # 列の検索（既存の処理）
@@ -175,30 +178,53 @@ def process_excel_files(uploaded_files, description_columns, all_day_event, priv
 def get_available_columns_for_event_name(merged_df):
     """イベント名に使用可能な列を取得"""
     # 日時系の列を除外
-    exclude_keywords = ["日時", "開始", "終了", "予定", "時間", "date", "time", "start", "end"]
+    exclude_keywords = ["日時", "開始", "終了", "予定", "時間", "date", "time", "start", "end", "管理番号"]
     available_columns = []
     
     for col in merged_df.columns:
         col_lower = str(col).lower()
-        if not any(keyword in col_lower for keyword in exclude_keywords):
+        if not any(keyword in col_lower for keyword in exclude_keywords) and col != "管理番号":
             available_columns.append(col)
     
     return available_columns
 
-def create_event_name_selector(df):
+def check_missing_columns(merged_df):
+    """管理番号と物件名の有無をチェック"""
+    mng_col = find_closest_column(merged_df.columns, ["管理番号"])
+    name_col = find_closest_column(merged_df.columns, ["物件名"])
+    
+    has_mng = mng_col is not None and not merged_df[mng_col].fillna("").astype(str).str.strip().eq("").all()
+    has_name = name_col is not None and not merged_df[name_col].fillna("").astype(str).str.strip().eq("").all()
+    
+    return has_mng, has_name
+
+def create_event_name_selector(merged_df):
     """イベント名選択用のUI要素を作成"""
-    if df.empty:
+    if merged_df.empty:
+        return None
+    
+    # 管理番号と物件名の存在チェック
+    has_mng, has_name = check_missing_columns(merged_df)
+    
+    # 管理番号と物件名の両方がある場合はドロップダウンを表示しない
+    if has_mng and has_name:
         return None
         
     # データフレームから利用可能な列を取得
-    available_columns = get_available_columns_for_event_name(df)
+    available_columns = get_available_columns_for_event_name(merged_df)
     
     if not available_columns:
         st.warning("イベント名に使用可能な列がありません。")
         return None
     
     st.write("### イベント名の設定")
-    st.write("管理番号や物件名が見つからない場合、以下の列をイベント名として使用できます：")
+    
+    if not has_mng and not has_name:
+        st.write("管理番号と物件名が見つからないため、以下の列をイベント名として使用できます：")
+    elif not has_mng:
+        st.write("管理番号が見つからないため、以下の列を追加のイベント名として使用できます：")
+    elif not has_name:
+        st.write("物件名が見つからないため、以下の列を追加のイベント名として使用できます：")
     
     selected_column = st.selectbox(
         "イベント名に使用する列を選択してください：",
