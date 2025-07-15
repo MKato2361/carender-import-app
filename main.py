@@ -18,7 +18,13 @@ from calendar_utils import (
     add_task_to_todo_list,
     find_and_delete_tasks_by_event_id
 )
-from firebase_auth import initialize_firebase, firebase_auth_form, get_firebase_user_id
+from firebase_auth import (
+    initialize_firebase,
+    firebase_auth_form,
+    get_firebase_user_id,
+    save_user_description_columns, # <-- 追加
+    load_user_description_columns  # <-- 追加
+)
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
@@ -40,6 +46,17 @@ if not user_id:
     st.stop()
 
 # --- ここから下の処理は、Firebase認証が完了した場合にのみ実行されます ---
+
+# ユーザーログイン後、説明欄の列のユーザー設定を読み込む
+if 'user_description_columns_preference' not in st.session_state:
+    st.session_state['user_description_columns_preference'] = load_user_description_columns(user_id)
+    # 初回ロード時にデフォルト値（例えば'内容', '詳細'）を優先的に設定
+    # もしFirestoreに設定がなく、description_columns_poolに'内容'か'詳細'があればそれをデフォルトにする
+    if not st.session_state['user_description_columns_preference'] and st.session_state.get('description_columns_pool'):
+        default_cols_from_pool = [col for col in ["内容", "詳細"] if col in st.session_state['description_columns_pool']]
+        if default_cols_from_pool:
+            st.session_state['user_description_columns_preference'] = default_cols_from_pool
+
 
 google_auth_placeholder = st.empty()
 
@@ -170,6 +187,14 @@ with tabs[0]:
             
             # 説明文の列プールの更新
             st.session_state['description_columns_pool'] = st.session_state['merged_df_for_selector'].columns.tolist()
+            
+            # ファイルアップロード時に、まだユーザー設定がロードされていない、かつデフォルト列が存在する場合、
+            # セッションステートのデフォルトを更新する。
+            if not st.session_state['user_description_columns_preference'] and st.session_state.get('description_columns_pool'):
+                default_cols_from_pool = [col for col in ["内容", "詳細"] if col in st.session_state['description_columns_pool']]
+                if default_cols_from_pool:
+                    st.session_state['user_description_columns_preference'] = default_cols_from_pool
+
 
             if st.session_state['merged_df_for_selector'].empty:
                 st.warning("アップロードされたファイルに有効なデータがありませんでした。")
@@ -205,12 +230,28 @@ with tabs[1]:
         private_event = st.checkbox("非公開イベントとして登録", value=True)
 
         # 説明文に含める列の選択
+        # user_description_columns_preference を default に設定
         description_columns = st.multiselect(
             "説明欄に含める列（複数選択可）",
             st.session_state.get('description_columns_pool', []),
-            default=[col for col in ["内容", "詳細"] if col in st.session_state.get('description_columns_pool', [])]
+            default=st.session_state.get('user_description_columns_preference', []), # <-- ユーザー設定をデフォルトに
+            key="description_columns_selector" # <-- セッションステートで値を取得するためのキー
         )
         
+        # 説明欄の列設定を保存するボタン
+        if st.button("説明欄の列設定を保存"):
+            if user_id:
+                # st.session_state から現在の multiselect の値を取得
+                current_selection = st.session_state.get("description_columns_selector", [])
+                if save_user_description_columns(user_id, current_selection):
+                    st.success("説明欄の列設定を保存しました！")
+                    # 保存した設定をセッションステートにも反映 (次回ページロード時のデフォルトになる)
+                    st.session_state['user_description_columns_preference'] = current_selection
+                else:
+                    st.error("設定の保存に失敗しました。")
+            else:
+                st.warning("ユーザーがログインしていません。設定を保存するにはログインしてください。")
+
         # イベント名の代替列選択UIをここに配置
         fallback_event_name_column = None
         has_mng_data, has_name_data = check_event_name_columns(st.session_state['merged_df_for_selector'])
@@ -233,7 +274,7 @@ with tabs[1]:
                 index=0, # デフォルトは「選択しない」
                 key="event_name_selector_register" # Keyをユニークにする
             )
-            if selected_event_name_col != "備考":
+            if selected_event_name_col != "選択しない":
                 fallback_event_name_column = selected_event_name_col
         else:
             st.info("「管理番号」と「物件名」のデータが両方存在するため、それらがイベント名として使用されます。")
@@ -288,7 +329,7 @@ with tabs[1]:
                     try:
                         df = process_excel_data_for_calendar(
                             st.session_state['uploaded_files'], 
-                            description_columns, 
+                            description_columns, # <-- 現在選択されている description_columns を渡す
                             all_day_event_override,
                             private_event, 
                             fallback_event_name_column
@@ -431,8 +472,8 @@ with tabs[2]:
                 default_task_list_id = st.session_state.get('default_task_list_id')
 
                 # まず期間内のイベントを取得
-                start_dt_utc = datetime.combine(delete_start_date, datetime.min.time(), tzinfo=datetime.now().astimezone().tzinfo).astimezone(timezone.utc) # <-- 修正済み
-                end_dt_utc = datetime.combine(delete_end_date, datetime.max.time(), tzinfo=datetime.now().astimezone().tzinfo).astimezone(timezone.utc)   # <-- 修正済み
+                start_dt_utc = datetime.combine(delete_start_date, datetime.min.time(), tzinfo=datetime.now().astimezone().tzinfo).astimezone(timezone.utc)
+                end_dt_utc = datetime.combine(delete_end_date, datetime.max.time(), tzinfo=datetime.now().astimezone().tzinfo).astimezone(timezone.utc)
                 
                 time_min_utc = start_dt_utc.isoformat(timespec='microseconds').replace('+00:00', 'Z')
                 time_max_utc = end_dt_utc.isoformat(timespec='microseconds').replace('+00:00', 'Z')
@@ -503,7 +544,7 @@ with tabs[3]:
         description_columns_update = st.multiselect(
             "説明欄に含める列", 
             st.session_state['description_columns_pool'], 
-            default=[col for col in ["内容", "詳細"] if col in st.session_state.get('description_columns_pool', [])],
+            default=st.session_state.get('user_description_columns_preference', []), # <-- ユーザー設定をデフォルトに
             key="update_desc_cols"
         )
 
