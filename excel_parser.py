@@ -1,16 +1,24 @@
-# excel_parser.py
-
 import pandas as pd
 import re
 import datetime
-import streamlit as st
+
+# UI要素（streamlit）はここから削除。純粋なデータ処理ロジックのみに特化。
 
 def clean_mng_num(value):
+    """
+    管理番号から特定の文字を除去し、クリーンな文字列を返します。
+    例: 'ABC-123HK' -> 'ABC123'
+    """
     if pd.isna(value):
         return ""
+    # 数字とアルファベット以外の文字を除去し、"HK"を削除
     return re.sub(r"[^0-9A-Za-z]", "", str(value)).replace("HK", "")
 
 def find_closest_column(columns, keywords):
+    """
+    指定されたキーワードに最も近い列名を検索します（大文字小文字を区別しない）。
+    見つからない場合はNoneを返します。
+    """
     for kw in keywords:
         for col in columns:
             if kw.lower() in str(col).lower():
@@ -18,317 +26,232 @@ def find_closest_column(columns, keywords):
     return None
 
 def format_description_value(val):
+    """
+    説明文用の値をフォーマットします。
+    NaNは空文字列、浮動小数点数は整数または小数点以下2桁の文字列に変換します。
+    """
     if pd.isna(val):
         return ""
     if isinstance(val, float):
+        # 整数であれば整数として、そうでなければ小数点以下2桁に丸めて文字列化
         return str(int(val)) if val.is_integer() else str(round(val, 2))
     return str(val)
 
 def format_worksheet_value(val):
+    """
+    作業指示書用の値をフォーマットします。
+    NaNは空文字列、浮動小数点数は整数として文字列に変換します。
+    """
     if pd.isna(val):
         return ""
     if isinstance(val, float):
-        return str(int(val)) if val.is_integer() else str(int(val))
+        # 浮動小数点数であっても整数として表示（例: 123.0 -> "123"）
+        return str(int(val))
     return str(val)
 
-def get_available_columns_for_event_name(merged_df):
-    """イベント名に使用可能な列を取得"""
-    # 日時系の列を除外
-    exclude_keywords = ["日時", "開始", "終了", "予定", "時間", "date", "time", "start", "end"]
-    available_columns = []
-    
-    for col in merged_df.columns:
-        col_lower = str(col).lower()
-        if not any(keyword in col_lower for keyword in exclude_keywords):
-            available_columns.append(col)
-    
-    return available_columns
-
-def process_excel_files(uploaded_files, description_columns, all_day_event, private_event, fallback_event_name_column=None, show_selector=True):
+def _load_and_merge_dataframes(uploaded_files):
+    """
+    アップロードされたExcelファイルを読み込み、'管理番号'をキーに統合します。
+    """
     dataframes = []
-
+    
     if not uploaded_files:
-        st.warning("Excelファイルをアップロードしてください。")
-        return pd.DataFrame()
+        raise ValueError("Excelファイルがアップロードされていません。")
 
     for uploaded_file in uploaded_files:
         try:
             df = pd.read_excel(uploaded_file, engine="openpyxl")
+            # 列名をクリーニング（前後の空白除去）
             df.columns = [str(c).strip() for c in df.columns]
+            
             mng_col = find_closest_column(df.columns, ["管理番号"])
             if mng_col:
                 df["管理番号"] = df[mng_col].apply(clean_mng_num)
             else:
-                st.info(f"ファイル '{uploaded_file.name}' に '管理番号' が見つかりません。代替のイベント名を使用します。")
-                df["管理番号"] = ""  # 空の管理番号列を作成
+                # 管理番号が見つからない場合でも処理を続行できるよう空の列を作成
+                df["管理番号"] = ""
             dataframes.append(df)
         except Exception as e:
-            st.error(f"ファイル '{uploaded_file.name}' の読み込みに失敗しました: {e}")
-            continue  # エラーが発生したファイルはスキップして続行
+            raise IOError(f"ファイル '{uploaded_file.name}' の読み込みに失敗しました: {e}")
 
     if not dataframes:
-        return pd.DataFrame()
-
-    # --- 修正箇所：複数のファイルで同一名称の列がある場合の統合処理 ---
-    # まず、すべてのDataFrameの管理番号列を文字列に変換
-    for df in dataframes:
-        df['管理番号'] = df['管理番号'].astype(str)
+        raise ValueError("処理できる有効なデータがありません。")
 
     # 最初のDataFrameを結合のベースとする
-    merged_df = dataframes[0]
+    merged_df = dataframes[0].copy() # copy()でSettingWithCopyWarningを避ける
+    merged_df['管理番号'] = merged_df['管理番号'].astype(str)
     
     # 2つ目以降のDataFrameを結合
-    for i, df in enumerate(dataframes[1:], 2):
+    for df in dataframes[1:]:
+        df_copy = df.copy() # copy()でSettingWithCopyWarningを避ける
+        df_copy['管理番号'] = df_copy['管理番号'].astype(str)
         # 共通の列を見つけ、管理番号以外は結合しない
-        cols_to_merge = [col for col in df.columns if col == "管理番号" or col not in merged_df.columns]
-        
-        # 結合対象の列を抽出し、管理番号をキーに結合
-        merged_df = pd.merge(merged_df, df[cols_to_merge], on="管理番号", how="outer")
+        # 注意: pd.mergeはデフォルトで共通の列を自動で結合しますが、
+        # ここでは'管理番号'をキーに、それ以外の固有の列を追加する動作を意図しています。
+        # 厳密には、同名で内容が異なる列の扱いには注意が必要ですが、このコードでは'outer'結合で対応。
+        cols_to_merge = [col for col in df_copy.columns if col == "管理番号" or col not in merged_df.columns]
+        merged_df = pd.merge(merged_df, df_copy[cols_to_merge], on="管理番号", how="outer")
 
-    # 管理番号の重複を削除し、一意なエントリのみにする
-    merged_df["管理番号"] = merged_df["管理番号"].apply(clean_mng_num)
-    
-    # 管理番号が空の場合は重複削除をスキップ
+    # 管理番号が空でない場合に重複を削除
     if not merged_df["管理番号"].str.strip().eq("").all():
         merged_df.drop_duplicates(subset="管理番号", inplace=True)
-    # --- 修正ここまで ---
+        
+    return merged_df
 
-    # 列の検索（既存の処理）
+def get_available_columns_for_event_name(df):
+    """
+    イベント名に使用可能な列名を取得します。
+    日時関連や特定の除外キーワードを含む列、および'管理番号'を除外します。
+    """
+    exclude_keywords = ["日時", "開始", "終了", "予定", "時間", "date", "time", "start", "end", "all day", "private", "subject", "description", "location"]
+    available_columns = []
+    
+    for col in df.columns:
+        col_lower = str(col).lower()
+        # 除外キーワードを含まず、かつ「管理番号」列でないもの
+        if not any(keyword in col_lower for keyword in exclude_keywords) and col != "管理番号":
+            available_columns.append(col)
+            
+    return available_columns
+
+def check_event_name_columns(merged_df):
+    """
+    統合されたDataFrameに'管理番号'と'物件名'の列が存在し、かつデータが空でないかをチェックします。
+    """
+    mng_col = find_closest_column(merged_df.columns, ["管理番号"])
     name_col = find_closest_column(merged_df.columns, ["物件名"])
     
-    # 日時列の検索（代替処理を追加）
-    start_col = find_closest_column(merged_df.columns, ["予定開始"])
-    if not start_col:
-        start_col = find_closest_column(merged_df.columns, ["開始日時", "開始時間", "開始"])
+    has_mng_data = (mng_col is not None and 
+                    not merged_df[mng_col].fillna("").astype(str).str.strip().eq("").all())
+    has_name_data = (name_col is not None and 
+                     not merged_df[name_col].fillna("").astype(str).str.strip().eq("").all())
     
-    end_col = find_closest_column(merged_df.columns, ["予定終了"])
-    if not end_col:
-        end_col = find_closest_column(merged_df.columns, ["終了日時", "終了時間", "終了"])
+    return has_mng_data, has_name_data
+
+def process_excel_data_for_calendar(
+    uploaded_files, 
+    description_columns, 
+    all_day_event_override, # all_day_eventから名称変更し、上書き設定であることを明確に
+    private_event, 
+    fallback_event_name_column=None
+):
+    """
+    アップロードされたExcelファイルを処理し、Outlookカレンダーインポート用のDataFrameを生成します。
+
+    Args:
+        uploaded_files (list): アップロードされたファイルのリスト。
+        description_columns (list): 説明文として結合する列名のリスト。
+        all_day_event_override (bool): Trueの場合、すべてのイベントを終日イベントとして扱う。
+                                       Falseの場合、開始時刻と終了時刻が00:00:00の場合に終日と判断。
+        private_event (bool): Trueの場合、すべてのイベントをプライベートとしてマーク。
+        fallback_event_name_column (str, optional): '管理番号'や'物件名'がない場合の
+                                                    代替イベント名に使用する列名。Defaults to None.
+
+    Returns:
+        pandas.DataFrame: カレンダーインポート用の整形されたデータ。
     
+    Raises:
+        ValueError: 必須の列が見つからない場合や、ファイルの読み込みに失敗した場合。
+    """
+    
+    merged_df = _load_and_merge_dataframes(uploaded_files)
+
+    # 必要な列の検索
+    name_col = find_closest_column(merged_df.columns, ["物件名"])
+    start_col = find_closest_column(merged_df.columns, ["予定開始", "開始日時", "開始時間", "開始"])
+    end_col = find_closest_column(merged_df.columns, ["予定終了", "終了日時", "終了時間", "終了"])
     addr_col = find_closest_column(merged_df.columns, ["住所", "所在地"])
     worksheet_col = find_closest_column(merged_df.columns, ["作業指示書"])
 
-    # 必要な列（日時）が見つからない場合はエラー
     if not all([start_col, end_col]):
-        st.error("必要な列（日時関連）が見つかりません。予定開始・予定終了、または開始日時・終了日時が必要です。")
-        return pd.DataFrame()
+        raise ValueError("必須の時刻列（'予定開始'/'予定終了'、または'開始日時'/'終了日時'など）が見つかりません。")
 
-    # イベント名選択が必要かチェック
-    if show_selector:
-        has_mng, has_name = check_missing_columns(merged_df)
-        if not (has_mng and has_name):
-            # イベント名選択が必要な場合は、処理を中断してUIを表示
-            return "SHOW_SELECTOR"
+    # NaNの行を削除（日時列がNaNの行は処理しない）
+    processed_df = merged_df.dropna(subset=[start_col, end_col]).copy()
 
-    merged_df = merged_df.dropna(subset=[start_col, end_col])
-
-    output = []
-    for _, row in merged_df.iterrows():
+    output_records = []
+    for index, row in processed_df.iterrows():
         mng = clean_mng_num(row["管理番号"])
-        name = row.get(name_col, "")
+        name = row.get(name_col, "") if name_col else ""
         
-        # イベント名の決定処理
-        if mng and name:
-            # 管理番号と物件名がある場合（既存の処理）
-            subj = f"{mng}{name}"
-        elif name:
-            # 物件名のみがある場合
-            subj = name
-        elif mng:
-            # 管理番号のみがある場合
-            subj = mng
-        elif fallback_event_name_column and fallback_event_name_column in row:
-            # 代替列が指定されている場合
+        # イベント名の決定ロジック
+        subj = ""
+        if mng and str(mng).strip(): # 管理番号にデータがある場合
+            subj += str(mng).strip()
+        if name and str(name).strip(): # 物件名にデータがある場合
+            if subj: # 管理番号がある場合は間にスペース
+                subj += " " 
+            subj += str(name).strip()
+        
+        # 管理番号も物件名も空で、代替列が指定されている場合
+        if not subj and fallback_event_name_column and fallback_event_name_column in row:
             fallback_value = row.get(fallback_event_name_column, "")
             subj = format_description_value(fallback_value)
-        else:
-            # どれもない場合はデフォルト値
+        
+        # 最終的にイベント名が空の場合はデフォルト値
+        if not subj:
             subj = "イベント"
 
         try:
             start = pd.to_datetime(row[start_col])
             end = pd.to_datetime(row[end_col])
             
-            # 時間が00:00:00の場合は全日イベントとして処理
-            if start.time() == datetime.time(0, 0, 0) and end.time() == datetime.time(0, 0, 0):
-                # 終了日を1日前に調整（Outlookの全日イベント形式）
-                end = end - datetime.timedelta(days=1)
-                
+            # 終了日時が開始日時より前の場合は調整 (任意: エラーにするか、1日追加するかなど)
+            if end < start:
+                # 例: 終了日時を開始日時に合わせる、あるいはログに警告を出力するなど
+                # ここでは、処理をスキップするか、またはエラーとして扱うか検討
+                # 今回はログに警告を出して、次の行に進む
+                print(f"Warning: 開始日時({start})が終了日時({end})より後です。行をスキップします。")
+                continue 
+            
+            # 全日イベントの判定
+            # all_day_event_override が True の場合は常に True
+            # そうでない場合は、開始と終了の時間が00:00:00の場合にTrue
+            is_all_day = all_day_event_override or (start.time() == datetime.time(0, 0, 0) and end.time() == datetime.time(0, 0, 0))
+
+            if is_all_day:
+                # Outlookの全日イベントは終了日を1日前に設定する必要がある
+                end_display = end - datetime.timedelta(days=1)
+                start_time_display = ""
+                end_time_display = ""
+            else:
+                end_display = end
+                start_time_display = start.strftime("%H:%M")
+                end_time_display = end.strftime("%H:%M")
+
         except Exception as e:
-            st.warning(f"日時の変換に失敗しました: {row[start_col]} - {row[end_col]}")
+            # 日時変換エラーが発生した場合、その行をスキップ
+            print(f"Warning: 日時の変換に失敗しました（行データ: {row.to_dict()}）: {e}")
             continue
 
-        location = row.get(addr_col, "")
+        location = row.get(addr_col, "") if addr_col else ""
         if isinstance(location, str) and "北海道札幌市" in location:
             location = location.replace("北海道札幌市", "")
 
-        description = " / ".join(
-            [format_description_value(row.get(col)) for col in description_columns if col in row]
-        )
+        # 説明文の生成
+        description_parts = []
+        for col in description_columns:
+            if col in row:
+                description_parts.append(format_description_value(row.get(col)))
+        description = " / ".join(filter(None, description_parts)) # 空文字列を除外して結合
 
-        # 作業指示書を先頭に追加（整数化して表示）
+        # 作業指示書を先頭に追加（存在する場合のみ）
         worksheet_value = row.get(worksheet_col, "") if worksheet_col else ""
         if pd.notna(worksheet_value) and str(worksheet_value).strip():
             formatted_ws = format_worksheet_value(worksheet_value)
-            description = f"作業指示書：{formatted_ws}/ " + description
+            description = f"作業指示書：{formatted_ws}/ " + description if description else f"作業指示書：{formatted_ws}"
 
-        output.append({
+
+        output_records.append({
             "Subject": subj,
             "Start Date": start.strftime("%Y/%m/%d"),
-            "Start Time": start.strftime("%H:%M") if start.time() != datetime.time(0, 0, 0) else "",
-            "End Date": end.strftime("%Y/%m/%d"),
-            "End Time": end.strftime("%H:%M") if end.time() != datetime.time(0, 0, 0) else "",
-            "All Day Event": "True" if (start.time() == datetime.time(0, 0, 0) and end.time() == datetime.time(0, 0, 0)) or all_day_event else "False",
+            "Start Time": start_time_display,
+            "End Date": end_display.strftime("%Y/%m/%d"),
+            "End Time": end_time_display,
+            "All Day Event": "True" if is_all_day else "False",
             "Description": description,
             "Location": location,
             "Private": "True" if private_event else "False"
         })
 
-    return pd.DataFrame(output)
-
-def get_available_columns_for_event_name(merged_df):
-    """イベント名に使用可能な列を取得"""
-    # 日時系の列を除外
-    exclude_keywords = ["日時", "開始", "終了", "予定", "時間", "date", "time", "start", "end", "管理番号"]
-    available_columns = []
-    
-    for col in merged_df.columns:
-        col_lower = str(col).lower()
-        if not any(keyword in col_lower for keyword in exclude_keywords) and col != "管理番号":
-            available_columns.append(col)
-    
-    return available_columns
-
-def check_missing_columns(merged_df):
-    """管理番号と物件名の有無をチェック"""
-    mng_col = find_closest_column(merged_df.columns, ["管理番号"])
-    name_col = find_closest_column(merged_df.columns, ["物件名"])
-    
-    has_mng = mng_col is not None and not merged_df[mng_col].fillna("").astype(str).str.strip().eq("").all()
-    has_name = name_col is not None and not merged_df[name_col].fillna("").astype(str).str.strip().eq("").all()
-    
-    return has_mng, has_name
-
-def create_event_name_selector(merged_df):
-    """イベント名選択用のUI要素を作成"""
-    if merged_df.empty:
-        return None
-    
-    # 管理番号と物件名の存在チェック
-    has_mng, has_name = check_missing_columns(merged_df)
-    
-    # 管理番号と物件名の両方がある場合はドロップダウンを表示しない
-    if has_mng and has_name:
-        return None
-        
-    # データフレームから利用可能な列を取得
-    available_columns = get_available_columns_for_event_name(merged_df)
-    
-    if not available_columns:
-        st.warning("イベント名に使用可能な列がありません。")
-        return None
-    
-    st.write("### イベント名の設定")
-    
-    if not has_mng and not has_name:
-        st.write("管理番号と物件名が見つからないため、以下の列をイベント名として使用できます：")
-    elif not has_mng:
-        st.write("管理番号が見つからないため、以下の列を追加のイベント名として使用できます：")
-    elif not has_name:
-        st.write("物件名が見つからないため、以下の列を追加のイベント名として使用できます：")
-    
-    selected_column = st.selectbox(
-        "イベント名に使用する列を選択してください：",
-        options=["使用しない"] + available_columns,
-        index=0,
-        key="event_name_selector"
-    )
-    
-    return selected_column if selected_column != "使用しない" else None
-
-def should_show_event_name_selector(uploaded_files):
-    """イベント名選択UIを表示すべきかどうかを判定"""
-    if not uploaded_files:
-        return False
-    
-    merged_df = get_merged_dataframe(uploaded_files)
-    if merged_df.empty:
-        return False
-    
-    has_mng, has_name = check_missing_columns(merged_df)
-    return not (has_mng and has_name)
-
-def process_with_event_name_selection(uploaded_files, description_columns, all_day_event, private_event):
-    """イベント名選択を含む完全な処理フロー"""
-    
-    # 1. イベント名選択が必要かチェック
-    if should_show_event_name_selector(uploaded_files):
-        merged_df = get_merged_dataframe(uploaded_files)
-        
-        # 2. イベント名選択UIを表示
-        selected_column = create_event_name_selector(merged_df)
-        
-        # 3. 選択された列で処理実行
-        if st.button("イベント登録を実行", key="execute_import"):
-            result_df = process_excel_files(
-                uploaded_files, 
-                description_columns, 
-                all_day_event, 
-                private_event, 
-                selected_column,
-                show_selector=False
-            )
-            return result_df
-        else:
-            # まだボタンが押されていない場合は空のDataFrameを返す
-            return pd.DataFrame()
-    else:
-        # 4. イベント名選択が不要な場合は直接処理
-        return process_excel_files(
-            uploaded_files, 
-            description_columns, 
-            all_day_event, 
-            private_event, 
-            show_selector=False
-        )
-
-def get_merged_dataframe(uploaded_files):
-    """アップロードされたファイルを統合したDataFrameを返す（列選択用）"""
-    dataframes = []
-
-    if not uploaded_files:
-        return pd.DataFrame()
-
-    for uploaded_file in uploaded_files:
-        try:
-            df = pd.read_excel(uploaded_file, engine="openpyxl")
-            df.columns = [str(c).strip() for c in df.columns]
-            mng_col = find_closest_column(df.columns, ["管理番号"])
-            if mng_col:
-                df["管理番号"] = df[mng_col].apply(clean_mng_num)
-            else:
-                df["管理番号"] = ""
-            dataframes.append(df)
-        except Exception as e:
-            st.error(f"ファイル '{uploaded_file.name}' の読み込みに失敗しました: {e}")
-            continue
-
-    if not dataframes:
-        return pd.DataFrame()
-
-    # DataFrameの統合
-    for df in dataframes:
-        df['管理番号'] = df['管理番号'].astype(str)
-
-    merged_df = dataframes[0]
-    
-    for i, df in enumerate(dataframes[1:], 2):
-        cols_to_merge = [col for col in df.columns if col == "管理番号" or col not in merged_df.columns]
-        merged_df = pd.merge(merged_df, df[cols_to_merge], on="管理番号", how="outer")
-
-    merged_df["管理番号"] = merged_df["管理番号"].apply(clean_mng_num)
-    
-    if not merged_df["管理番号"].str.strip().eq("").all():
-        merged_df.drop_duplicates(subset="管理番号", inplace=True)
-    
-    return merged_df
+    return pd.DataFrame(output_records) if output_records else pd.DataFrame()
