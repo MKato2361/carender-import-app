@@ -233,7 +233,7 @@ with tabs[1]:
                 index=0, # デフォルトは「選択しない」
                 key="event_name_selector_register" # Keyをユニークにする
             )
-            if selected_event_name_col != "選択しない":
+            if selected_event_name_col != "備考":
                 fallback_event_name_column = selected_event_name_col
         else:
             st.info("「管理番号」と「物件名」のデータが両方存在するため、それらがイベント名として使用されます。")
