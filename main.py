@@ -205,11 +205,17 @@ with tabs[1]:
         private_event = st.checkbox("非公開イベントとして登録", value=True)
 
         # 説明文に含める列の選択
-        description_columns = st.multiselect(
-            "説明欄に含める列（複数選択可）",
-            st.session_state.get('description_columns_pool', []),
-            default=[col for col in ["内容", "詳細"] if col in st.session_state.get('description_columns_pool', [])]
-        )
+       description_columns = st.multiselect(
+           "説明欄に含める列（複数選択可）",
+           st.session_state.get('description_columns_pool', []),
+           default=previous_columns if previous_columns else [col for col in ["内容", "詳細"] if col in st.session_state.get('description_columns_pool', [])]
+       )
+
+
+    from firebase_auth import load_user_description_columns, save_user_description_columns
+
+    # 保存済みの列設定を読み込み
+    previous_columns = load_user_description_columns(user_id)
         
         # イベント名の代替列選択UIをここに配置
         fallback_event_name_column = None
@@ -402,6 +408,7 @@ with tabs[1]:
                         st.success(f"✅ {successful_registrations} 件のイベント登録が完了しました！")
                         if create_todo:
                             st.success(f"✅ {successful_todo_creations} 件のToDoリストが作成されました！")
+    save_user_description_columns(user_id, description_columns)
 
 with tabs[2]:
     st.header("イベントを削除")
