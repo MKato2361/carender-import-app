@@ -144,7 +144,14 @@ def process_excel_files(uploaded_files, description_columns, all_day_event, priv
         try:
             start = pd.to_datetime(row[start_col])
             end = pd.to_datetime(row[end_col])
-        except Exception:
+            
+            # 時間が00:00:00の場合は全日イベントとして処理
+            if start.time() == datetime.time(0, 0, 0) and end.time() == datetime.time(0, 0, 0):
+                # 終了日を1日前に調整（Outlookの全日イベント形式）
+                end = end - datetime.timedelta(days=1)
+                
+        except Exception as e:
+            st.warning(f"日時の変換に失敗しました: {row[start_col]} - {row[end_col]}")
             continue
 
         location = row.get(addr_col, "")
@@ -164,10 +171,10 @@ def process_excel_files(uploaded_files, description_columns, all_day_event, priv
         output.append({
             "Subject": subj,
             "Start Date": start.strftime("%Y/%m/%d"),
-            "Start Time": start.strftime("%H:%M"),
+            "Start Time": start.strftime("%H:%M") if start.time() != datetime.time(0, 0, 0) else "",
             "End Date": end.strftime("%Y/%m/%d"),
-            "End Time": end.strftime("%H:%M"),
-            "All Day Event": "True" if all_day_event else "False",
+            "End Time": end.strftime("%H:%M") if end.time() != datetime.time(0, 0, 0) else "",
+            "All Day Event": "True" if (start.time() == datetime.time(0, 0, 0) and end.time() == datetime.time(0, 0, 0)) or all_day_event else "False",
             "Description": description,
             "Location": location,
             "Private": "True" if private_event else "False"
@@ -226,10 +233,58 @@ def create_event_name_selector(merged_df):
     elif not has_name:
         st.write("物件名が見つからないため、以下の列を追加のイベント名として使用できます：")
     
+    # セッションステートを使用して選択状態を保持
+    if 'event_name_column' not in st.session_state:
+        st.session_state.event_name_column = "使用しない"
+    
     selected_column = st.selectbox(
         "イベント名に使用する列を選択してください：",
         options=["使用しない"] + available_columns,
-        index=0
+        index=0 if st.session_state.event_name_column == "使用しない" else available_columns.index(st.session_state.event_name_column) + 1 if st.session_state.event_name_column in available_columns else 0,
+        key="event_name_selector"
     )
     
+    st.session_state.event_name_column = selected_column
+    
     return selected_column if selected_column != "使用しない" else None
+
+def get_merged_dataframe(uploaded_files):
+    """アップロードされたファイルを統合したDataFrameを返す（列選択用）"""
+    dataframes = []
+
+    if not uploaded_files:
+        return pd.DataFrame()
+
+    for uploaded_file in uploaded_files:
+        try:
+            df = pd.read_excel(uploaded_file, engine="openpyxl")
+            df.columns = [str(c).strip() for c in df.columns]
+            mng_col = find_closest_column(df.columns, ["管理番号"])
+            if mng_col:
+                df["管理番号"] = df[mng_col].apply(clean_mng_num)
+            else:
+                df["管理番号"] = ""
+            dataframes.append(df)
+        except Exception as e:
+            st.error(f"ファイル '{uploaded_file.name}' の読み込みに失敗しました: {e}")
+            continue
+
+    if not dataframes:
+        return pd.DataFrame()
+
+    # DataFrameの統合
+    for df in dataframes:
+        df['管理番号'] = df['管理番号'].astype(str)
+
+    merged_df = dataframes[0]
+    
+    for i, df in enumerate(dataframes[1:], 2):
+        cols_to_merge = [col for col in df.columns if col == "管理番号" or col not in merged_df.columns]
+        merged_df = pd.merge(merged_df, df[cols_to_merge], on="管理番号", how="outer")
+
+    merged_df["管理番号"] = merged_df["管理番号"].apply(clean_mng_num)
+    
+    if not merged_df["管理番号"].str.strip().eq("").all():
+        merged_df.drop_duplicates(subset="管理番号", inplace=True)
+    
+    return merged_df
