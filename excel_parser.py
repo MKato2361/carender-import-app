@@ -71,13 +71,14 @@ def process_excel_files(uploaded_files, description_columns, all_day_event, priv
     merged_df.drop_duplicates(subset="管理番号", inplace=True)
 
     name_col = find_closest_column(merged_df.columns, ["物件名"])
-    start_col = find_closest_column(merged_df.columns, ["予定開始"])
-    end_col = find_closest_column(merged_df.columns, ["予定終了"])
+    # 🔽 ここを修正（代替候補を追加）
+    start_col = find_closest_column(merged_df.columns, ["予定開始", "開始日時"])
+    end_col = find_closest_column(merged_df.columns, ["予定終了", "終了日時"])
     addr_col = find_closest_column(merged_df.columns, ["住所", "所在地"])
     worksheet_col = find_closest_column(merged_df.columns, ["作業指示書"])
 
     if not all([start_col, end_col]):
-        st.error("必要な列（予定開始・予定終了）が見つかりません。")
+        st.error("必要な列（予定開始 / 開始日時・予定終了 / 終了日時）が見つかりません。")
         return pd.DataFrame()
 
     # 管理番号と物件名がどちらも空文字列の場合のみ、代替列を選択させる
@@ -143,3 +144,4 @@ def process_excel_files(uploaded_files, description_columns, all_day_event, priv
         })
 
     return pd.DataFrame(output)
+
