@@ -1,5 +1,3 @@
-# main.py（抜粋不要・全体）
-
 import streamlit as st
 import pandas as pd
 from datetime import datetime, date, timedelta
@@ -18,19 +16,111 @@ from firebase_auth import initialize_firebase, firebase_auth_form, get_firebase_
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
-# --- Firebase & Google 認証処理（省略せず） ---
+st.set_page_config(page_title="Googleカレンダー一括イベント登録・削除", layout="wide")
+st.title("\U0001F4C5 Googleカレンダー一括イベント登録・削除")
 
-# ...（省略せず、認証処理ここに含む）...
+# Firebase初期化
+if not initialize_firebase():
+    st.error("Firebaseの初期化に失敗しました。")
+    st.stop()
 
-# -------------------------
-# 🎯 イベント登録タブ
-# -------------------------
+# Firebase認証フォーム
+user_id = get_firebase_user_id()
+if not user_id:
+    firebase_auth_form()
+    st.stop()
+
+# Google認証
+google_auth_placeholder = st.empty()
+with google_auth_placeholder.container():
+    st.subheader("\U0001F510 Googleカレンダー認証")
+    creds = authenticate_google()
+    if not creds:
+        st.warning("Googleカレンダー認証を完了してください。")
+        st.stop()
+    else:
+        google_auth_placeholder.empty()
+        st.sidebar.success("✅ Googleカレンダーに認証済みです！")
+
+# Google Calendar サービス初期化
+def initialize_calendar_service():
+    try:
+        service = build("calendar", "v3", credentials=creds)
+        calendar_list = service.calendarList().list().execute()
+        editable_calendar_options = {
+            cal['summary']: cal['id']
+            for cal in calendar_list['items']
+            if cal.get('accessRole') != 'reader'
+        }
+        return service, editable_calendar_options
+    except:
+        return None, None
+
+# Tasks サービス初期化
+def initialize_tasks_service():
+    try:
+        tasks_service = build_tasks_service(creds)
+        if not tasks_service:
+            return None, None
+        task_lists = tasks_service.tasklists().list().execute()
+        default_task_list_id = None
+        for task_list in task_lists.get('items', []):
+            if task_list.get('title') == 'My Tasks':
+                default_task_list_id = task_list['id']
+                break
+        if not default_task_list_id and task_lists.get('items'):
+            default_task_list_id = task_lists['items'][0]['id']
+        return tasks_service, default_task_list_id
+    except:
+        return None, None
+
+# セッションステートでサービス初期化
+if 'calendar_service' not in st.session_state:
+    service, editable_calendar_options = initialize_calendar_service()
+    st.session_state['calendar_service'] = service
+    st.session_state['editable_calendar_options'] = editable_calendar_options
+else:
+    service = st.session_state['calendar_service']
+
+if 'tasks_service' not in st.session_state:
+    tasks_service, default_task_list_id = initialize_tasks_service()
+    st.session_state['tasks_service'] = tasks_service
+    st.session_state['default_task_list_id'] = default_task_list_id
+else:
+    tasks_service = st.session_state['tasks_service']
+
+# タブ定義（ここが重要！）
+tabs = st.tabs([
+    "1. ファイルのアップロード",
+    "2. イベントの登録",
+    "3. イベントの削除",
+    "4. イベントの更新"
+])
+
+with tabs[0]:
+    st.header("ファイルをアップロード")
+    uploaded_files = st.file_uploader("Excelファイルを選択（複数可）", type=["xlsx"], accept_multiple_files=True)
+
+    if uploaded_files:
+        st.session_state['uploaded_files'] = uploaded_files
+        description_columns_pool = set()
+        for file in uploaded_files:
+            try:
+                df_temp = pd.read_excel(file, engine="openpyxl")
+                df_temp.columns = [str(c).strip() for c in df_temp.columns]
+                description_columns_pool.update(df_temp.columns)
+            except Exception as e:
+                st.warning(f"{file.name} の読み込みに失敗しました: {e}")
+        st.session_state['description_columns_pool'] = list(description_columns_pool)
+    elif 'uploaded_files' not in st.session_state:
+        st.session_state['uploaded_files'] = []
+        st.session_state['description_columns_pool'] = []
+
 with tabs[1]:
     st.header("イベントを登録")
     if not st.session_state.get('uploaded_files'):
-        st.info("先に「1. ファイルのアップロード」タブでExcelファイルをアップロードすると、イベント登録機能が利用可能になります。")
+        st.info("先に「1. ファイルのアップロード」タブでExcelファイルをアップロードしてください。")
     else:
-        st.subheader("📝 イベント設定")
         all_day_event = st.checkbox("終日イベントとして登録", value=False)
         private_event = st.checkbox("非公開イベントとして登録", value=True)
 
@@ -39,8 +129,8 @@ with tabs[1]:
             st.session_state.get('description_columns_pool', [])
         )
 
-        # 🔽 イベントデータの事前読み込み（selectbox を事前表示）
-        with st.spinner("イベントデータを解析中..."):
+        # ボタンの前に preview_df を生成（これによりドロップダウンが表示される）
+        with st.spinner("イベントデータを読み込み中..."):
             preview_df = process_excel_files(
                 st.session_state['uploaded_files'],
                 description_columns,
@@ -49,63 +139,14 @@ with tabs[1]:
             )
 
         if not st.session_state['editable_calendar_options']:
-            st.error("登録可能なカレンダーが見つかりませんでした。Googleカレンダーの設定を確認してください。")
+            st.error("登録可能なカレンダーが見つかりません。")
         else:
-            selected_calendar_name = st.selectbox(
-                "登録先カレンダーを選択",
-                list(st.session_state['editable_calendar_options'].keys()),
-                key="reg_calendar_select"
-            )
+            selected_calendar_name = st.selectbox("登録先カレンダーを選択", list(st.session_state['editable_calendar_options'].keys()))
             calendar_id = st.session_state['editable_calendar_options'][selected_calendar_name]
 
-            st.subheader("✅ ToDoリスト連携設定 (オプション)")
-            create_todo = st.checkbox("このイベントに対応するToDoリストを作成する", value=False, key="create_todo_checkbox")
-
-            fixed_todo_types = ["点検通知"]
-            st.markdown(f"以下のToDoが**常にすべて**作成されます: {', '.join(fixed_todo_types)}")
-
-            deadline_offset_options = {
-                "2週間前": 14,
-                "10日前": 10,
-                "1週間前": 7,
-                "カスタム日数前": None
-            }
-            selected_offset_key = st.selectbox(
-                "ToDoリストの期限をイベント開始日の何日前に設定しますか？",
-                list(deadline_offset_options.keys()),
-                disabled=not create_todo,
-                key="deadline_offset_select"
-            )
-
-            custom_offset_days = None
-            if selected_offset_key == "カスタム日数前":
-                custom_offset_days = st.number_input(
-                    "何日前に設定しますか？ (日数)",
-                    min_value=0,
-                    value=3,
-                    disabled=not create_todo,
-                    key="custom_offset_input"
-                )
-
-            st.subheader("➡️ イベント登録")
             if st.button("Googleカレンダーに登録する"):
-                with st.spinner("イベントデータを処理中..."):
-                    if preview_df.empty:
-                        st.warning("有効なイベントデータがありません。")
-                    else:
-                        st.info(f"{len(preview_df)} 件のイベントを登録します。")
-                        progress = st.progress(0)
-                        successful_registrations = 0
-                        successful_todo_creations = 0
-
-                        for i, row in preview_df.iterrows():
-                            # 省略せず：イベント登録処理 + ToDo 作成処理
-                            # 例：
-                            # created_event = add_event_to_calendar(service, calendar_id, event_data)
-                            # add_task_to_todo_list(...) など
-
-                            progress.progress((i + 1) / len(preview_df))
-
-                        st.success(f"✅ {successful_registrations} 件のイベント登録が完了しました！")
-                        if create_todo:
-                            st.success(f"✅ {successful_todo_creations} 件のToDoリストが作成されました！")
+                if preview_df.empty:
+                    st.warning("有効なイベントデータがありません。")
+                else:
+                    st.success(f"{len(preview_df)} 件のイベントを登録できます（ここに登録処理を追加）")
+                    # 実際の登録処理は add_event_to_calendar をループで呼び出す形で実装してください
