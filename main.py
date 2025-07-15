@@ -230,7 +230,7 @@ with tabs[1]:
             selected_event_name_col = st.selectbox(
                 "イベント名として使用する代替列を選択してください:",
                 options=event_name_options,
-                index=6, # デフォルトは「選択しない」
+                index=4, # デフォルトは「選択しない」
                 key="event_name_selector_register" # Keyをユニークにする
             )
             if selected_event_name_col != "備考":
