@@ -78,19 +78,30 @@ def process_excel_files(uploaded_files, description_columns, all_day_event, priv
         st.error("必要な列（予定開始・予定終了）が見つかりません。")
         return pd.DataFrame()
 
-    # イベント名代替列の選択（物件名がない場合のみ）
-    alt_name_col = None
-    if not name_col:
-        st.warning("物件名列が見つかりません。代わりにイベント名に使用する列を選択してください。")
-        alt_name_col = st.selectbox("イベント名として使用する列を選んでください：", merged_df.columns)
+    # 管理番号と物件名の両方がない場合、代替列を選ばせる
+    alt_subject_col = None
+    mng_col_exists = "管理番号" in merged_df.columns and merged_df["管理番号"].notna().any()
+    name_col_exists = name_col is not None and merged_df[name_col].notna().any()
+
+    if not mng_col_exists and not name_col_exists:
+        st.warning("管理番号と物件名の両方が見つかりません。代わりにイベント名として使用する列を選択してください。")
+        alt_subject_col = st.selectbox("イベント名として使用する列を選んでください：", merged_df.columns)
 
     merged_df = merged_df.dropna(subset=[start_col, end_col])
 
     output = []
     for _, row in merged_df.iterrows():
         mng = clean_mng_num(row.get("管理番号", ""))
-        name = row.get(name_col) if name_col else row.get(alt_name_col, "")
-        subj = f"{mng}{name}" if mng or name else "イベント"
+        name = row.get(name_col) if name_col else ""
+        alt = row.get(alt_subject_col, "") if alt_subject_col else ""
+
+        # イベント名の生成
+        if mng or name:
+            subj = f"{mng}{name}"
+        elif alt:
+            subj = str(alt)
+        else:
+            subj = "イベント"
 
         try:
             start = pd.to_datetime(row[start_col])
