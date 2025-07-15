@@ -44,7 +44,7 @@ def get_available_columns_for_event_name(merged_df):
     
     return available_columns
 
-def process_excel_files(uploaded_files, description_columns, all_day_event, private_event, fallback_event_name_column=None):
+def process_excel_files(uploaded_files, description_columns, all_day_event, private_event, fallback_event_name_column=None, show_selector=True):
     dataframes = []
 
     if not uploaded_files:
@@ -113,8 +113,12 @@ def process_excel_files(uploaded_files, description_columns, all_day_event, priv
         st.error("必要な列（日時関連）が見つかりません。予定開始・予定終了、または開始日時・終了日時が必要です。")
         return pd.DataFrame()
 
-    # イベント名に使用可能な列を取得
-    available_columns = get_available_columns_for_event_name(merged_df)
+    # イベント名選択が必要かチェック
+    if show_selector:
+        has_mng, has_name = check_missing_columns(merged_df)
+        if not (has_mng and has_name):
+            # イベント名選択が必要な場合は、処理を中断してUIを表示
+            return "SHOW_SELECTOR"
 
     merged_df = merged_df.dropna(subset=[start_col, end_col])
 
@@ -233,20 +237,60 @@ def create_event_name_selector(merged_df):
     elif not has_name:
         st.write("物件名が見つからないため、以下の列を追加のイベント名として使用できます：")
     
-    # セッションステートを使用して選択状態を保持
-    if 'event_name_column' not in st.session_state:
-        st.session_state.event_name_column = "使用しない"
-    
     selected_column = st.selectbox(
         "イベント名に使用する列を選択してください：",
         options=["使用しない"] + available_columns,
-        index=0 if st.session_state.event_name_column == "使用しない" else available_columns.index(st.session_state.event_name_column) + 1 if st.session_state.event_name_column in available_columns else 0,
+        index=0,
         key="event_name_selector"
     )
     
-    st.session_state.event_name_column = selected_column
-    
     return selected_column if selected_column != "使用しない" else None
+
+def should_show_event_name_selector(uploaded_files):
+    """イベント名選択UIを表示すべきかどうかを判定"""
+    if not uploaded_files:
+        return False
+    
+    merged_df = get_merged_dataframe(uploaded_files)
+    if merged_df.empty:
+        return False
+    
+    has_mng, has_name = check_missing_columns(merged_df)
+    return not (has_mng and has_name)
+
+def process_with_event_name_selection(uploaded_files, description_columns, all_day_event, private_event):
+    """イベント名選択を含む完全な処理フロー"""
+    
+    # 1. イベント名選択が必要かチェック
+    if should_show_event_name_selector(uploaded_files):
+        merged_df = get_merged_dataframe(uploaded_files)
+        
+        # 2. イベント名選択UIを表示
+        selected_column = create_event_name_selector(merged_df)
+        
+        # 3. 選択された列で処理実行
+        if st.button("イベント登録を実行", key="execute_import"):
+            result_df = process_excel_files(
+                uploaded_files, 
+                description_columns, 
+                all_day_event, 
+                private_event, 
+                selected_column,
+                show_selector=False
+            )
+            return result_df
+        else:
+            # まだボタンが押されていない場合は空のDataFrameを返す
+            return pd.DataFrame()
+    else:
+        # 4. イベント名選択が不要な場合は直接処理
+        return process_excel_files(
+            uploaded_files, 
+            description_columns, 
+            all_day_event, 
+            private_event, 
+            show_selector=False
+        )
 
 def get_merged_dataframe(uploaded_files):
     """アップロードされたファイルを統合したDataFrameを返す（列選択用）"""
