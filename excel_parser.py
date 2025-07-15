@@ -42,12 +42,14 @@ def process_excel_files(uploaded_files, description_columns, all_day_event, priv
         try:
             df = pd.read_excel(uploaded_file, engine="openpyxl")
             df.columns = [str(c).strip() for c in df.columns]
+
             mng_col = find_closest_column(df.columns, ["管理番号"])
             if mng_col:
                 df["管理番号"] = df[mng_col].apply(clean_mng_num)
             else:
-                st.warning(f"ファイル '{uploaded_file.name}' に '管理番号' が見つかりません。スキップします。")
-                continue
+                st.warning(f"ファイル '{uploaded_file.name}' に '管理番号' が見つかりません。このファイルでは代替の列を使用します。")
+                df["管理番号"] = ""  # 管理番号がなくても続行できるように空列追加
+
             dataframes.append(df)
         except Exception as e:
             st.error(f"ファイル '{uploaded_file.name}' の読み込みに失敗しました: {e}")
@@ -78,7 +80,7 @@ def process_excel_files(uploaded_files, description_columns, all_day_event, priv
         st.error("必要な列（予定開始・予定終了）が見つかりません。")
         return pd.DataFrame()
 
-    # 管理番号と物件名がどちらも実質空なら代替列選択を表示
+    # 管理番号と物件名がどちらも空文字列の場合のみ、代替列を選択させる
     alt_subject_col = None
     mng_col_exists = (
         "管理番号" in merged_df.columns and
@@ -101,6 +103,7 @@ def process_excel_files(uploaded_files, description_columns, all_day_event, priv
         name = row.get(name_col) if name_col else ""
         alt = row.get(alt_subject_col, "") if alt_subject_col else ""
 
+        # イベント名（Subject）生成
         if mng or name:
             subj = f"{mng}{name}"
         elif alt:
@@ -140,4 +143,3 @@ def process_excel_files(uploaded_files, description_columns, all_day_event, priv
         })
 
     return pd.DataFrame(output)
-
