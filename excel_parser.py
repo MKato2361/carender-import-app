@@ -78,10 +78,16 @@ def process_excel_files(uploaded_files, description_columns, all_day_event, priv
         st.error("必要な列（予定開始・予定終了）が見つかりません。")
         return pd.DataFrame()
 
-    # 管理番号と物件名の両方がない場合、代替列を選ばせる
+    # 管理番号と物件名がどちらも実質空なら代替列選択を表示
     alt_subject_col = None
-    mng_col_exists = "管理番号" in merged_df.columns and merged_df["管理番号"].notna().any()
-    name_col_exists = name_col is not None and merged_df[name_col].notna().any()
+    mng_col_exists = (
+        "管理番号" in merged_df.columns and
+        merged_df["管理番号"].apply(lambda x: bool(str(x).strip())).any()
+    )
+    name_col_exists = (
+        name_col is not None and
+        merged_df[name_col].apply(lambda x: bool(str(x).strip())).any()
+    )
 
     if not mng_col_exists and not name_col_exists:
         st.warning("管理番号と物件名の両方が見つかりません。代わりにイベント名として使用する列を選択してください。")
@@ -95,7 +101,6 @@ def process_excel_files(uploaded_files, description_columns, all_day_event, priv
         name = row.get(name_col) if name_col else ""
         alt = row.get(alt_subject_col, "") if alt_subject_col else ""
 
-        # イベント名の生成
         if mng or name:
             subj = f"{mng}{name}"
         elif alt:
@@ -135,3 +140,4 @@ def process_excel_files(uploaded_files, description_columns, all_day_event, priv
         })
 
     return pd.DataFrame(output)
+
