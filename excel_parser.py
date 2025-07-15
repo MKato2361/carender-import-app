@@ -42,14 +42,12 @@ def process_excel_files(uploaded_files, description_columns, all_day_event, priv
         try:
             df = pd.read_excel(uploaded_file, engine="openpyxl")
             df.columns = [str(c).strip() for c in df.columns]
-
             mng_col = find_closest_column(df.columns, ["管理番号"])
             if mng_col:
                 df["管理番号"] = df[mng_col].apply(clean_mng_num)
             else:
-                st.warning(f"ファイル '{uploaded_file.name}' に '管理番号' が見つかりません。このファイルでは代替の列を使用します。")
-                df["管理番号"] = ""  # 管理番号がなくても続行できるように空列追加
-
+                st.warning(f"ファイル '{uploaded_file.name}' に '管理番号' が見つかりません。スキップします。")
+                continue
             dataframes.append(df)
         except Exception as e:
             st.error(f"ファイル '{uploaded_file.name}' の読み込みに失敗しました: {e}")
@@ -58,59 +56,44 @@ def process_excel_files(uploaded_files, description_columns, all_day_event, priv
     if not dataframes:
         return pd.DataFrame()
 
+    # --- 修正箇所：複数のファイルで同一名称の列がある場合の統合処理 ---
+    # まず、すべてのDataFrameの管理番号列を文字列に変換
     for df in dataframes:
-        df["管理番号"] = df["管理番号"].astype(str)
+        df['管理番号'] = df['管理番号'].astype(str)
 
+    # 最初のDataFrameを結合のベースとする
     merged_df = dataframes[0]
-
+    
+    # 2つ目以降のDataFrameを結合
     for i, df in enumerate(dataframes[1:], 2):
+        # 共通の列を見つけ、管理番号以外は結合しない
         cols_to_merge = [col for col in df.columns if col == "管理番号" or col not in merged_df.columns]
+        
+        # 結合対象の列を抽出し、管理番号をキーに結合
         merged_df = pd.merge(merged_df, df[cols_to_merge], on="管理番号", how="outer")
 
+    # 管理番号の重複を削除し、一意なエントリのみにする
     merged_df["管理番号"] = merged_df["管理番号"].apply(clean_mng_num)
     merged_df.drop_duplicates(subset="管理番号", inplace=True)
+    # --- 修正ここまで ---
 
     name_col = find_closest_column(merged_df.columns, ["物件名"])
-    # 🔽 ここを修正（代替候補を追加）
-    start_col = find_closest_column(merged_df.columns, ["予定開始", "開始日時"])
-    end_col = find_closest_column(merged_df.columns, ["予定終了", "終了日時"])
+    start_col = find_closest_column(merged_df.columns, ["予定開始"])
+    end_col = find_closest_column(merged_df.columns, ["予定終了"])
     addr_col = find_closest_column(merged_df.columns, ["住所", "所在地"])
     worksheet_col = find_closest_column(merged_df.columns, ["作業指示書"])
 
-    if not all([start_col, end_col]):
-        st.error("必要な列（予定開始 / 開始日時・予定終了 / 終了日時）が見つかりません。")
+    if not all([name_col, start_col, end_col]):
+        st.error("必要な列（物件名・予定開始・予定終了）が見つかりません。")
         return pd.DataFrame()
-
-    # 管理番号と物件名がどちらも空文字列の場合のみ、代替列を選択させる
-    alt_subject_col = None
-    mng_col_exists = (
-        "管理番号" in merged_df.columns and
-        merged_df["管理番号"].apply(lambda x: bool(str(x).strip())).any()
-    )
-    name_col_exists = (
-        name_col is not None and
-        merged_df[name_col].apply(lambda x: bool(str(x).strip())).any()
-    )
-
-    if not mng_col_exists and not name_col_exists:
-        st.warning("管理番号と物件名の両方が見つかりません。代わりにイベント名として使用する列を選択してください。")
-        alt_subject_col = st.selectbox("イベント名として使用する列を選んでください：", merged_df.columns)
 
     merged_df = merged_df.dropna(subset=[start_col, end_col])
 
     output = []
     for _, row in merged_df.iterrows():
-        mng = clean_mng_num(row.get("管理番号", ""))
-        name = row.get(name_col) if name_col else ""
-        alt = row.get(alt_subject_col, "") if alt_subject_col else ""
-
-        # イベント名（Subject）生成
-        if mng or name:
-            subj = f"{mng}{name}"
-        elif alt:
-            subj = str(alt)
-        else:
-            subj = "イベント"
+        mng = clean_mng_num(row["管理番号"])
+        name = row.get(name_col, "")
+        subj = f"{mng}{name}"
 
         try:
             start = pd.to_datetime(row[start_col])
@@ -126,6 +109,7 @@ def process_excel_files(uploaded_files, description_columns, all_day_event, priv
             [format_description_value(row.get(col)) for col in description_columns if col in row]
         )
 
+        # 作業指示書を先頭に追加（整数化して表示）
         worksheet_value = row.get(worksheet_col, "") if worksheet_col else ""
         if pd.notna(worksheet_value) and str(worksheet_value).strip():
             formatted_ws = format_worksheet_value(worksheet_value)
@@ -144,4 +128,3 @@ def process_excel_files(uploaded_files, description_columns, all_day_event, priv
         })
 
     return pd.DataFrame(output)
-
