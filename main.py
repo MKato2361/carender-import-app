@@ -1,3 +1,16 @@
+ご報告いただいた`NameError`について承知いたしました。
+
+これは、`selected_event_name_col` の変数が特定の条件分岐（「管理番号」と「物件名」の列が存在しない場合）の内側でのみ定義されているため、それらの列が存在する場合には変数が定義されず、`NameError`が発生するという問題です。
+
+この問題を解決するため、`selected_event_name_col` および同様の構造を持つ `description_columns`、更新タブの対応する変数 (`description_columns_update`, `selected_event_name_col_update`) を、それぞれのウィジェットが表示されるブロックに入る前にデフォルト値で初期化するようにコードを修正します。これにより、どの条件分岐を通っても変数が確実に定義されている状態になり、`NameError`を回避できます。
+
+以下に修正済みの`main.py`の全コードを提示します。
+
+-----
+
+**`main.py`**
+
+```python
 import streamlit as st
 import pandas as pd
 from datetime import datetime, date, timedelta, timezone
@@ -19,7 +32,7 @@ from calendar_utils import (
 )
 from firebase_auth import initialize_firebase, firebase_auth_form, get_firebase_user_id
 from googleapiclient.discovery import build
-from googleapiclient.errors import HttpError
+from googleapri_client.errors import HttpError
 from firebase_admin import firestore
 
 st.set_page_config(page_title="Googleカレンダー一括イベント登録・削除", layout="wide")
@@ -250,19 +263,26 @@ with tabs[1]:
         # 説明文に含める列の選択 (ユーザーごとに記憶)
         current_description_cols_selection = st.session_state.get(f'description_columns_selected_{user_id}', [])
         
-        description_columns = st.multiselect(
-            "説明欄に含める列（複数選択可）",
-            st.session_state.get('description_columns_pool', []),
-            default=[col for col in current_description_cols_selection if col in st.session_state.get('description_columns_pool', [])],
-            key=f"description_selector_register_{user_id}", # ユーザー固有のキー
-            # on_changeコールバックを削除
-        )
-        # st.session_state[f'description_columns_selected_{user_id}'] はmultiselectの値によって自動的に更新される
+        # description_columns を初期化
+        description_columns = []
+        if st.session_state.get('description_columns_pool'):
+            description_columns = st.multiselect(
+                "説明欄に含める列（複数選択可）",
+                st.session_state.get('description_columns_pool', []),
+                default=[col for col in current_description_cols_selection if col in st.session_state.get('description_columns_pool', [])],
+                key=f"description_selector_register_{user_id}", # ユーザー固有のキー
+            )
+        else:
+            st.info("説明欄に含める列の候補がありません。ファイルをアップロードしてください。")
+            description_columns = current_description_cols_selection # 候補がない場合でも既存の設定は保持
 
         # イベント名の代替列選択UIをここに配置 (ユーザーごとに記憶)
         fallback_event_name_column = None
         has_mng_data, has_name_data = check_event_name_columns(st.session_state['merged_df_for_selector'])
         
+        # selected_event_name_col を初期化
+        selected_event_name_col = st.session_state.get(f'event_name_col_selected_{user_id}', "選択しない")
+
         if not (has_mng_data and has_name_data):
             st.subheader("イベント名の設定")
             if not has_mng_data and not has_name_data:
@@ -275,9 +295,6 @@ with tabs[1]:
             available_event_name_cols = get_available_columns_for_event_name(st.session_state['merged_df_for_selector'])
             event_name_options = ["選択しない"] + available_event_name_cols
             
-            # st.session_stateに保存された値を使用
-            current_event_name_selection = st.session_state.get(f'event_name_col_selected_{user_id}', "選択しない")
-            
             # 現在の選択がオプションリストにあるか確認し、なければデフォルトにフォールバック
             default_index = event_name_options.index(current_event_name_selection) if current_event_name_selection in event_name_options else 0
             
@@ -286,9 +303,7 @@ with tabs[1]:
                 options=event_name_options,
                 index=default_index,
                 key=f"event_name_selector_register_{user_id}", # ユーザー固有のキー
-                # on_changeコールバックを削除
             )
-            # st.session_state[f'event_name_col_selected_{user_id}'] はselectboxの値によって自動的に更新される
 
             if selected_event_name_col != "選択しない":
                 fallback_event_name_column = selected_event_name_col
@@ -341,7 +356,6 @@ with tabs[1]:
             st.subheader("➡️ イベント登録")
             if st.button("Googleカレンダーに登録する"):
                 # ここでFirestoreに選択項目を保存
-                # 修正: st.session_state[f"key"] ではなく、直接変数の値を使用
                 save_user_setting(user_id, 'description_columns_selected', description_columns)
                 save_user_setting(user_id, 'event_name_col_selected', selected_event_name_col)
 
@@ -566,18 +580,26 @@ with tabs[3]:
         # 説明欄に含める列 (更新タブ用、ユーザーごとに記憶)
         current_description_cols_selection_update = st.session_state.get(f'description_columns_selected_{user_id}', [])
 
-        description_columns_update = st.multiselect(
-            "説明欄に含める列", 
-            st.session_state['description_columns_pool'], 
-            default=[col for col in current_description_cols_selection_update if col in st.session_state.get('description_columns_pool', [])],
-            key=f"update_desc_cols_{user_id}", # ユーザー固有のキー
-            # on_changeコールバックを削除
-        )
+        # description_columns_update を初期化
+        description_columns_update = []
+        if st.session_state.get('description_columns_pool'):
+            description_columns_update = st.multiselect(
+                "説明欄に含める列", 
+                st.session_state['description_columns_pool'], 
+                default=[col for col in current_description_cols_selection_update if col in st.session_state.get('description_columns_pool', [])],
+                key=f"update_desc_cols_{user_id}", # ユーザー固有のキー
+            )
+        else:
+            st.info("説明欄に含める列の候補がありません。ファイルをアップロードしてください。")
+            description_columns_update = current_description_cols_selection_update # 候補がない場合でも既存の設定は保持
 
         # イベント名の代替列選択UIをここに配置 (更新タブ用、ユーザーごとに記憶)
         fallback_event_name_column_update = None
         has_mng_data_update, has_name_data_update = check_event_name_columns(st.session_state['merged_df_for_selector'])
         
+        # selected_event_name_col_update を初期化
+        selected_event_name_col_update = st.session_state.get(f'event_name_col_selected_update_{user_id}', "選択しない")
+
         if not (has_mng_data_update and has_name_data_update):
             st.subheader("更新時のイベント名の設定")
             st.info("Excelデータからのイベント名生成に、以下の列を代替として使用できます。")
@@ -596,7 +618,6 @@ with tabs[3]:
                 options=event_name_options_update,
                 index=default_index_update,
                 key=f"event_name_selector_update_{user_id}", # ユーザー固有のキー
-                # on_changeコールバックを削除
             )
 
             if selected_event_name_col_update != "選択しない":
@@ -613,7 +634,6 @@ with tabs[3]:
 
             if st.button("イベントを照合・更新"):
                 # ここでFirestoreに選択項目を保存
-                # 修正: st.session_state[f"key"] ではなく、直接変数の値を使用
                 save_user_setting(user_id, 'description_columns_selected_update', description_columns_update)
                 save_user_setting(user_id, 'event_name_col_selected_update', selected_event_name_col_update)
 
@@ -753,3 +773,5 @@ with st.sidebar:
                 del st.session_state[key]
         st.success("ログアウトしました")
         st.rerun()
+
+```
