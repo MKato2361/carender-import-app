@@ -1,26 +1,25 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime, date, timedelta, timezone # <-- timezone を追加
+from datetime import datetime, date, timedelta, timezone
 import re
-# excel_parser から必要な関数を個別にインポート
 from excel_parser import (
-    process_excel_data_for_calendar, # 新しいメイン処理関数
-    _load_and_merge_dataframes,      # ファイルロード＆マージのヘルパー関数
-    get_available_columns_for_event_name, # イベント名選択用列取得
-    check_event_name_columns         # イベント名列の有無チェック
+    process_excel_data_for_calendar,
+    _load_and_merge_dataframes,
+    get_available_columns_for_event_name,
+    check_event_name_columns
 )
 from calendar_utils import (
     authenticate_google,
     add_event_to_calendar,
     fetch_all_events,
     update_event_if_needed,
-    build_tasks_service, # tasks_serviceを返す関数を直接インポート
+    build_tasks_service,
     add_task_to_todo_list,
     find_and_delete_tasks_by_event_id
 )
 from firebase_auth import initialize_firebase, firebase_auth_form, get_firebase_user_id
 from googleapiclient.discovery import build
-from googleapiclient.errors import HttpError
+from googleapapi.errors import HttpError
 
 st.set_page_config(page_title="Googleカレンダー一括イベント登録・削除", layout="wide")
 st.title("📅 Googleカレンダー一括イベント登録・削除")
@@ -147,6 +146,17 @@ if 'uploaded_files' not in st.session_state:
     st.session_state['description_columns_pool'] = []
     st.session_state['merged_df_for_selector'] = pd.DataFrame() # 新しくマージ済みDFを保持
 
+# ユーザー固有のセッション状態キーを定義
+# user_idがNoneの場合は認証が完了していないため、これらのキーは設定しない
+if user_id:
+    if f'description_columns_selected_{user_id}' not in st.session_state:
+        st.session_state[f'description_columns_selected_{user_id}'] = ["内容", "詳細"] # デフォルト値
+    if f'event_name_col_selected_{user_id}' not in st.session_state:
+        st.session_state[f'event_name_col_selected_{user_id}'] = "選択しない" # デフォルト値
+    if f'event_name_col_selected_update_{user_id}' not in st.session_state:
+        st.session_state[f'event_name_col_selected_update_{user_id}'] = "選択しない" # デフォルト値 (更新タブ用)
+
+
 with tabs[0]:
     st.header("ファイルをアップロード")
     # 説明文を改行を反映させるように修正
@@ -192,6 +202,9 @@ with tabs[0]:
             st.session_state['uploaded_files'] = []
             st.session_state['description_columns_pool'] = []
             st.session_state['merged_df_for_selector'] = pd.DataFrame()
+            
+            # ファイルクリア時に、ユーザー固有の設定もクリアするかどうかは要検討
+            # ここでは残しておく（ファイル再アップロードで設定が変わる可能性があるため）
             st.success("アップロードされたExcelファイルがクリアされました。")
             st.rerun() # 変更を反映するために再実行
 
@@ -204,14 +217,20 @@ with tabs[1]:
         all_day_event_override = st.checkbox("終日イベントとして登録", value=False)
         private_event = st.checkbox("非公開イベントとして登録", value=True)
 
-        # 説明文に含める列の選択
+        # 説明文に含める列の選択 (ユーザーごとに記憶)
+        # st.session_stateに保存された値を使用し、変更があればセッション状態を更新
+        current_description_cols_selection = st.session_state.get(f'description_columns_selected_{user_id}', [])
+        
         description_columns = st.multiselect(
             "説明欄に含める列（複数選択可）",
             st.session_state.get('description_columns_pool', []),
-            default=[col for col in ["内容", "詳細"] if col in st.session_state.get('description_columns_pool', [])]
+            default=[col for col in current_description_cols_selection if col in st.session_state.get('description_columns_pool', [])], # 選択済みの列がプールにある場合のみデフォルトに含める
+            key=f"description_selector_register_{user_id}" # ユーザー固有のキー
         )
-        
-        # イベント名の代替列選択UIをここに配置
+        # ユーザーの選択をセッション状態に保存
+        st.session_state[f'description_columns_selected_{user_id}'] = description_columns
+
+        # イベント名の代替列選択UIをここに配置 (ユーザーごとに記憶)
         fallback_event_name_column = None
         has_mng_data, has_name_data = check_event_name_columns(st.session_state['merged_df_for_selector'])
         
@@ -227,13 +246,22 @@ with tabs[1]:
             available_event_name_cols = get_available_columns_for_event_name(st.session_state['merged_df_for_selector'])
             event_name_options = ["選択しない"] + available_event_name_cols
             
+            # st.session_stateに保存された値を使用
+            current_event_name_selection = st.session_state.get(f'event_name_col_selected_{user_id}', "選択しない")
+            
+            # 現在の選択がオプションリストにあるか確認し、なければデフォルトにフォールバック
+            default_index = event_name_options.index(current_event_name_selection) if current_event_name_selection in event_name_options else 0 # "選択しない"のインデックス
+            
             selected_event_name_col = st.selectbox(
                 "イベント名として使用する代替列を選択してください:",
                 options=event_name_options,
-                index=4, # デフォルトは「選択しない」
-                key="event_name_selector_register" # Keyをユニークにする
+                index=default_index,
+                key=f"event_name_selector_register_{user_id}" # ユーザー固有のキー
             )
-            if selected_event_name_col != "備考":
+            # ユーザーの選択をセッション状態に保存
+            st.session_state[f'event_name_col_selected_{user_id}'] = selected_event_name_col
+
+            if selected_event_name_col != "選択しない": # '備考'ではなく'選択しない'に変更
                 fallback_event_name_column = selected_event_name_col
         else:
             st.info("「管理番号」と「物件名」のデータが両方存在するため、それらがイベント名として使用されます。")
@@ -431,8 +459,8 @@ with tabs[2]:
                 default_task_list_id = st.session_state.get('default_task_list_id')
 
                 # まず期間内のイベントを取得
-                start_dt_utc = datetime.combine(delete_start_date, datetime.min.time(), tzinfo=datetime.now().astimezone().tzinfo).astimezone(timezone.utc) # <-- 修正済み
-                end_dt_utc = datetime.combine(delete_end_date, datetime.max.time(), tzinfo=datetime.now().astimezone().tzinfo).astimezone(timezone.utc)   # <-- 修正済み
+                start_dt_utc = datetime.combine(delete_start_date, datetime.min.time(), tzinfo=datetime.now().astimezone().tzinfo).astimezone(timezone.utc)
+                end_dt_utc = datetime.combine(delete_end_date, datetime.max.time(), tzinfo=datetime.now().astimezone().tzinfo).astimezone(timezone.utc)
                 
                 time_min_utc = start_dt_utc.isoformat(timespec='microseconds').replace('+00:00', 'Z')
                 time_max_utc = end_dt_utc.isoformat(timespec='microseconds').replace('+00:00', 'Z')
@@ -500,14 +528,20 @@ with tabs[3]:
         all_day_event_override_update = st.checkbox("終日イベントとして扱う", value=False, key="update_all_day")
         private_event_update = st.checkbox("非公開イベントとして扱う", value=True, key="update_private")
         
+        # 説明欄に含める列 (更新タブ用、ユーザーごとに記憶)
+        current_description_cols_selection_update = st.session_state.get(f'description_columns_selected_{user_id}', [])
+
         description_columns_update = st.multiselect(
             "説明欄に含める列", 
             st.session_state['description_columns_pool'], 
-            default=[col for col in ["内容", "詳細"] if col in st.session_state.get('description_columns_pool', [])],
-            key="update_desc_cols"
+            default=[col for col in current_description_cols_selection_update if col in st.session_state.get('description_columns_pool', [])],
+            key=f"update_desc_cols_{user_id}" # ユーザー固有のキー
         )
+        # ユーザーの選択をセッション状態に保存
+        st.session_state[f'description_columns_selected_{user_id}'] = description_columns_update
 
-        # イベント名の代替列選択UIをここに配置 (更新タブ用)
+
+        # イベント名の代替列選択UIをここに配置 (更新タブ用、ユーザーごとに記憶)
         fallback_event_name_column_update = None
         has_mng_data_update, has_name_data_update = check_event_name_columns(st.session_state['merged_df_for_selector'])
         
@@ -518,12 +552,21 @@ with tabs[3]:
             available_event_name_cols_update = get_available_columns_for_event_name(st.session_state['merged_df_for_selector'])
             event_name_options_update = ["選択しない"] + available_event_name_cols_update
             
+            # st.session_stateに保存された値を使用
+            current_event_name_selection_update = st.session_state.get(f'event_name_col_selected_update_{user_id}', "選択しない")
+            
+            # 現在の選択がオプションリストにあるか確認し、なければデフォルトにフォールバック
+            default_index_update = event_name_options_update.index(current_event_name_selection_update) if current_event_name_selection_update in event_name_options_update else 0 # "選択しない"のインデックス
+
             selected_event_name_col_update = st.selectbox(
                 "イベント名として使用する代替列を選択してください:",
                 options=event_name_options_update,
-                index=0,
-                key="event_name_selector_update"
+                index=default_index_update,
+                key=f"event_name_selector_update_{user_id}" # ユーザー固有のキー
             )
+            # ユーザーの選択をセッション状態に保存
+            st.session_state[f'event_name_col_selected_update_{user_id}'] = selected_event_name_col_update
+
             if selected_event_name_col_update != "選択しない":
                 fallback_event_name_column_update = selected_event_name_col_update
         else:
@@ -650,7 +693,19 @@ with st.sidebar:
     # ログアウトボタン
     if st.button("🚪 ログアウト", type="secondary"):
         # セッション状態をクリア
+        # ユーザー固有の設定もクリア
+        if user_id:
+            if f'description_columns_selected_{user_id}' in st.session_state:
+                del st.session_state[f'description_columns_selected_{user_id}']
+            if f'event_name_col_selected_{user_id}' in st.session_state:
+                del st.session_state[f'event_name_col_selected_{user_id}']
+            if f'event_name_col_selected_update_{user_id}' in st.session_state:
+                del st.session_state[f'event_name_col_selected_update_{user_id}']
+
+        # その他のセッション状態をクリア
         for key in list(st.session_state.keys()):
-            del st.session_state[key]
+            # 認証関連のキーは残すか、Firebase認証ロジックと連携して適切に処理
+            if not key.startswith("google_auth") and not key.startswith("firebase_"):
+                del st.session_state[key]
         st.success("ログアウトしました")
         st.rerun()
