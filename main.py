@@ -19,7 +19,7 @@ from calendar_utils import (
 )
 from firebase_auth import initialize_firebase, firebase_auth_form, get_firebase_user_id
 from googleapiclient.discovery import build
-from googleapiclient.errors import HttpError # ここを修正
+from googleapiclient.errors import HttpError
 from firebase_admin import firestore
 
 st.set_page_config(page_title="Googleカレンダー一括イベント登録・削除", layout="wide")
@@ -195,11 +195,13 @@ with tabs[0]:
     st.info("""
     ☐作業指示書一覧をアップロードすると管理番号+物件名をイベント名として任意のカレンダーに登録します。
     
-    ☐イベントの説明欄に含めたい情報はドロップダウンリストから選択してください。（複数選択可能、次回から同じ項目が選択されます）
+    ☐イベントの説明欄に含めたい情報はドロップダウンリストから選択してください。（複数選択可能,次回から同じ項目が選択されます）
     
     ☐イベントに住所を追加したい場合は、物件一覧のファイルを作業指示書一覧と一緒にアップロードしてください。
     
     ☐作業外予定の一覧をアップロードすると、イベント名を選択することができます。
+
+    ☐ToDoリストを作成すると、点検通知のリマインドが可能です（ToDoとしてイベント登録されます）
     """)
     uploaded_files = st.file_uploader("Excelファイルを選択（複数可）", type=["xlsx"], accept_multiple_files=True)
 
@@ -282,8 +284,8 @@ with tabs[1]:
             available_event_name_cols = get_available_columns_for_event_name(st.session_state['merged_df_for_selector'])
             event_name_options = ["選択しない"] + available_event_name_cols
             
-            # 現在の選択がオプションリストにあるか確認し、なければデフォルトにフォールバック
-            default_index = event_name_options.index(current_event_name_selection) if current_event_name_selection in event_name_options else 4
+            # current_event_name_selection の代わりに selected_event_name_col を使用
+            default_index = event_name_options.index(selected_event_name_col) if selected_event_name_col in event_name_options else 0
             
             selected_event_name_col = st.selectbox(
                 "イベント名として使用する代替列を選択してください:",
@@ -744,7 +746,7 @@ with st.sidebar:
             #     db.collection('user_settings').document(user_id).delete()
             #     st.info("ユーザー設定をFirestoreから削除しました。")
             # except Exception as e:
-            #     st.error(f"ユーザー設定の削除に失敗しました: {e}")
+            #     st.error(f"ユーザー設定の削除に失敗しました。")
 
             if f'description_columns_selected_{user_id}' in st.session_state:
                 del st.session_state[f'description_columns_selected_{user_id}']
