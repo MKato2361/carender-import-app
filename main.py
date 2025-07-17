@@ -19,7 +19,7 @@ from calendar_utils import (
 )
 from firebase_auth import initialize_firebase, firebase_auth_form, get_firebase_user_id
 from googleapiclient.discovery import build
-from googleapri_client.errors import HttpError
+from googleapiclient.errors import HttpError # ここを修正
 from firebase_admin import firestore
 
 st.set_page_config(page_title="Googleカレンダー一括イベント登録・削除", layout="wide")
