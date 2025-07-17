@@ -341,8 +341,9 @@ with tabs[1]:
             st.subheader("➡️ イベント登録")
             if st.button("Googleカレンダーに登録する"):
                 # ここでFirestoreに選択項目を保存
-                save_user_setting(user_id, 'description_columns_selected', st.session_state[f"description_selector_register_{user_id}"])
-                save_user_setting(user_id, 'event_name_col_selected', st.session_state[f"event_name_selector_register_{user_id}"])
+                # 修正: st.session_state[f"key"] ではなく、直接変数の値を使用
+                save_user_setting(user_id, 'description_columns_selected', description_columns)
+                save_user_setting(user_id, 'event_name_col_selected', selected_event_name_col)
 
 
                 with st.spinner("イベントデータを処理中..."):
@@ -612,8 +613,9 @@ with tabs[3]:
 
             if st.button("イベントを照合・更新"):
                 # ここでFirestoreに選択項目を保存
-                save_user_setting(user_id, 'description_columns_selected_update', st.session_state[f"update_desc_cols_{user_id}"])
-                save_user_setting(user_id, 'event_name_col_selected_update', st.session_state[f"event_name_selector_update_{user_id}"])
+                # 修正: st.session_state[f"key"] ではなく、直接変数の値を使用
+                save_user_setting(user_id, 'description_columns_selected_update', description_columns_update)
+                save_user_setting(user_id, 'event_name_col_selected_update', selected_event_name_col_update)
 
                 with st.spinner("イベントを処理中..."):
                     try:
