@@ -1,16 +1,3 @@
-ご報告いただいた`NameError`について承知いたしました。
-
-これは、`selected_event_name_col` の変数が特定の条件分岐（「管理番号」と「物件名」の列が存在しない場合）の内側でのみ定義されているため、それらの列が存在する場合には変数が定義されず、`NameError`が発生するという問題です。
-
-この問題を解決するため、`selected_event_name_col` および同様の構造を持つ `description_columns`、更新タブの対応する変数 (`description_columns_update`, `selected_event_name_col_update`) を、それぞれのウィジェットが表示されるブロックに入る前にデフォルト値で初期化するようにコードを修正します。これにより、どの条件分岐を通っても変数が確実に定義されている状態になり、`NameError`を回避できます。
-
-以下に修正済みの`main.py`の全コードを提示します。
-
------
-
-**`main.py`**
-
-```python
 import streamlit as st
 import pandas as pd
 from datetime import datetime, date, timedelta, timezone
@@ -773,5 +760,3 @@ with st.sidebar:
                 del st.session_state[key]
         st.success("ログアウトしました")
         st.rerun()
-
-```
