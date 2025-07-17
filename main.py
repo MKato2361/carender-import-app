@@ -20,7 +20,7 @@ from calendar_utils import (
 from firebase_auth import initialize_firebase, firebase_auth_form, get_firebase_user_id
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
-from firebase_admin import firestore # <-- ここを追加
+from firebase_admin import firestore
 
 st.set_page_config(page_title="Googleカレンダー一括イベント登録・削除", layout="wide")
 st.title("📅 Googleカレンダー一括イベント登録・削除")
@@ -32,7 +32,7 @@ if not initialize_firebase():
     st.stop()
 
 # Firestoreクライアントの取得
-db = firestore.client() # <-- ここを追加
+db = firestore.client()
 
 # Firebase認証フォームの表示とユーザーIDの取得
 user_id = get_firebase_user_id()
@@ -53,17 +53,18 @@ def load_user_settings(user_id):
 
     if doc.exists:
         settings = doc.to_dict()
+        # 各選択項目のキーがユーザーIDに紐付くように修正
         if 'description_columns_selected' in settings:
             st.session_state[f'description_columns_selected_{user_id}'] = settings['description_columns_selected']
         if 'event_name_col_selected' in settings:
             st.session_state[f'event_name_col_selected_{user_id}'] = settings['event_name_col_selected']
-        if 'event_name_col_selected_update' in settings:
+        if 'event_name_col_selected_update' in settings: # 更新タブ用の設定も考慮
             st.session_state[f'event_name_col_selected_update_{user_id}'] = settings['event_name_col_selected_update']
     else:
         # ドキュメントがない場合はデフォルト値を設定
         st.session_state[f'description_columns_selected_{user_id}'] = ["内容", "詳細"]
         st.session_state[f'event_name_col_selected_{user_id}'] = "選択しない"
-        st.session_state[f'event_name_col_selected_update_{user_id}'] = "選択しない"
+        st.session_state[f'event_name_col_selected_update_{user_id}'] = "選択しない" # 更新タブ用デフォルト
 
 def save_user_setting(user_id, setting_key, setting_value):
     """ユーザー設定をFirestoreに保存する"""
@@ -76,7 +77,7 @@ def save_user_setting(user_id, setting_key, setting_value):
     except Exception as e:
         st.error(f"設定の保存に失敗しました: {e}")
 
-load_user_settings(user_id) # <-- ここで設定を読み込む
+load_user_settings(user_id)
 
 
 # --- ここから下の処理は、Firebase認証が完了した場合にのみ実行されます ---
@@ -194,11 +195,11 @@ with tabs[0]:
     st.info("""
     ☐作業指示書一覧をアップロードすると管理番号+物件名をイベント名として任意のカレンダーに登録します。
     
-    ☐イベントの説明欄に含めたい情報はドロップダウンリストから選択してください。（複数選択可能,次回から同じ項目が選択されます）
+    ☐イベントの説明欄に含めたい情報はドロップダウンリストから選択してください。（複数選択可能）
     
     ☐イベントに住所を追加したい場合は、物件一覧のファイルを作業指示書一覧と一緒にアップロードしてください。
     
-    ☐作業外予定の一覧をアップロードすると、イベント名を選択することができます。
+    ☐作業外予定の一覧をアップロードすると、イベント名を選択することができます。デフォルトは［備考］です。
     """)
     uploaded_files = st.file_uploader("Excelファイルを選択（複数可）", type=["xlsx"], accept_multiple_files=True)
 
@@ -234,8 +235,6 @@ with tabs[0]:
             st.session_state['description_columns_pool'] = []
             st.session_state['merged_df_for_selector'] = pd.DataFrame()
             
-            # ファイルクリア時に、ユーザー固有の設定もクリアするかどうかは要検討
-            # ここでは残しておく（ファイル再アップロードで設定が変わる可能性があるため）
             st.success("アップロードされたExcelファイルがクリアされました。")
             st.rerun() # 変更を反映するために再実行
 
@@ -249,23 +248,16 @@ with tabs[1]:
         private_event = st.checkbox("非公開イベントとして登録", value=True)
 
         # 説明文に含める列の選択 (ユーザーごとに記憶)
-        # st.session_stateに保存された値を使用し、変更があればセッション状態を更新
         current_description_cols_selection = st.session_state.get(f'description_columns_selected_{user_id}', [])
         
-        # 保存関数をコールバックに指定
-        def on_description_columns_change():
-            save_user_setting(user_id, 'description_columns_selected', st.session_state[f"description_selector_register_{user_id}"])
-
         description_columns = st.multiselect(
             "説明欄に含める列（複数選択可）",
             st.session_state.get('description_columns_pool', []),
-            default=[col for col in current_description_cols_selection if col in st.session_state.get('description_columns_pool', [])], # 選択済みの列がプールにある場合のみデフォルトに含める
+            default=[col for col in current_description_cols_selection if col in st.session_state.get('description_columns_pool', [])],
             key=f"description_selector_register_{user_id}", # ユーザー固有のキー
-            on_change=on_description_columns_change # <-- ここを追加
+            # on_changeコールバックを削除
         )
-        # ユーザーの選択をセッション状態に保存 (on_changeで保存されるため、この行は厳密には不要になるが、明示的に記述しても問題はない)
-        # st.session_state[f'description_columns_selected_{user_id}'] = description_columns
-
+        # st.session_state[f'description_columns_selected_{user_id}'] はmultiselectの値によって自動的に更新される
 
         # イベント名の代替列選択UIをここに配置 (ユーザーごとに記憶)
         fallback_event_name_column = None
@@ -287,23 +279,18 @@ with tabs[1]:
             current_event_name_selection = st.session_state.get(f'event_name_col_selected_{user_id}', "選択しない")
             
             # 現在の選択がオプションリストにあるか確認し、なければデフォルトにフォールバック
-            default_index = event_name_options.index(current_event_name_selection) if current_event_name_selection in event_name_options else 0 # "選択しない"のインデックス
+            default_index = event_name_options.index(current_event_name_selection) if current_event_name_selection in event_name_options else 0
             
-            # 保存関数をコールバックに指定
-            def on_event_name_col_change():
-                save_user_setting(user_id, 'event_name_col_selected', st.session_state[f"event_name_selector_register_{user_id}"])
-
             selected_event_name_col = st.selectbox(
                 "イベント名として使用する代替列を選択してください:",
                 options=event_name_options,
                 index=default_index,
                 key=f"event_name_selector_register_{user_id}", # ユーザー固有のキー
-                on_change=on_event_name_col_change # <-- ここを追加
+                # on_changeコールバックを削除
             )
-            # ユーザーの選択をセッション状態に保存 (on_changeで保存されるため、この行は厳密には不要になるが、明示的に記述しても問題はない)
-            # st.session_state[f'event_name_col_selected_{user_id}'] = selected_event_name_col
+            # st.session_state[f'event_name_col_selected_{user_id}'] はselectboxの値によって自動的に更新される
 
-            if selected_event_name_col != "選択しない": # '備考'ではなく'選択しない'に変更
+            if selected_event_name_col != "選択しない":
                 fallback_event_name_column = selected_event_name_col
         else:
             st.info("「管理番号」と「物件名」のデータが両方存在するため、それらがイベント名として使用されます。")
@@ -319,7 +306,7 @@ with tabs[1]:
             create_todo = st.checkbox("このイベントに対応するToDoリストを作成する", value=False, key="create_todo_checkbox")
 
             # ToDoの選択肢を「点検通知」のみに固定
-            fixed_todo_types = ["点検通知"] # 今後増える可能性を考慮しリスト形式で維持
+            fixed_todo_types = ["点検通知"]
             
             if create_todo:
                 st.markdown(f"以下のToDoが**常にすべて**作成されます: `{', '.join(fixed_todo_types)}`")
@@ -353,6 +340,11 @@ with tabs[1]:
 
             st.subheader("➡️ イベント登録")
             if st.button("Googleカレンダーに登録する"):
+                # ここでFirestoreに選択項目を保存
+                save_user_setting(user_id, 'description_columns_selected', st.session_state[f"description_selector_register_{user_id}"])
+                save_user_setting(user_id, 'event_name_col_selected', st.session_state[f"event_name_selector_register_{user_id}"])
+
+
                 with st.spinner("イベントデータを処理中..."):
                     # process_excel_data_for_calendar を呼び出す
                     try:
@@ -573,20 +565,13 @@ with tabs[3]:
         # 説明欄に含める列 (更新タブ用、ユーザーごとに記憶)
         current_description_cols_selection_update = st.session_state.get(f'description_columns_selected_{user_id}', [])
 
-        # 保存関数をコールバックに指定
-        def on_description_columns_update_change():
-            save_user_setting(user_id, 'description_columns_selected_update', st.session_state[f"update_desc_cols_{user_id}"])
-
-
         description_columns_update = st.multiselect(
             "説明欄に含める列", 
             st.session_state['description_columns_pool'], 
             default=[col for col in current_description_cols_selection_update if col in st.session_state.get('description_columns_pool', [])],
             key=f"update_desc_cols_{user_id}", # ユーザー固有のキー
-            on_change=on_description_columns_update_change # <-- ここを追加
+            # on_changeコールバックを削除
         )
-        # st.session_state[f'description_columns_selected_{user_id}'] = description_columns_update # on_changeで保存されるためコメントアウト
-
 
         # イベント名の代替列選択UIをここに配置 (更新タブ用、ユーザーごとに記憶)
         fallback_event_name_column_update = None
@@ -603,20 +588,15 @@ with tabs[3]:
             current_event_name_selection_update = st.session_state.get(f'event_name_col_selected_update_{user_id}', "選択しない")
             
             # 現在の選択がオプションリストにあるか確認し、なければデフォルトにフォールバック
-            default_index_update = event_name_options_update.index(current_event_name_selection_update) if current_event_name_selection_update in event_name_options_update else 0 # "選択しない"のインデックス
-
-            # 保存関数をコールバックに指定
-            def on_event_name_col_update_change():
-                save_user_setting(user_id, 'event_name_col_selected_update', st.session_state[f"event_name_selector_update_{user_id}"])
+            default_index_update = event_name_options_update.index(current_event_name_selection_update) if current_event_name_selection_update in event_name_options_update else 0
 
             selected_event_name_col_update = st.selectbox(
                 "イベント名として使用する代替列を選択してください:",
                 options=event_name_options_update,
                 index=default_index_update,
                 key=f"event_name_selector_update_{user_id}", # ユーザー固有のキー
-                on_change=on_event_name_col_update_change # <-- ここを追加
+                # on_changeコールバックを削除
             )
-            # st.session_state[f'event_name_col_selected_update_{user_id}'] = selected_event_name_col_update # on_changeで保存されるためコメントアウト
 
             if selected_event_name_col_update != "選択しない":
                 fallback_event_name_column_update = selected_event_name_col_update
@@ -631,6 +611,10 @@ with tabs[3]:
             calendar_id_upd = st.session_state['editable_calendar_options'][selected_calendar_name_upd]
 
             if st.button("イベントを照合・更新"):
+                # ここでFirestoreに選択項目を保存
+                save_user_setting(user_id, 'description_columns_selected_update', st.session_state[f"update_desc_cols_{user_id}"])
+                save_user_setting(user_id, 'event_name_col_selected_update', st.session_state[f"event_name_selector_update_{user_id}"])
+
                 with st.spinner("イベントを処理中..."):
                     try:
                         # process_excel_data_for_calendar を呼び出す
