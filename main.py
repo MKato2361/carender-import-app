@@ -20,6 +20,7 @@ from calendar_utils import (
 from firebase_auth import initialize_firebase, firebase_auth_form, get_firebase_user_id
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
+from firebase_admin import firestore # <-- ここを追加
 
 st.set_page_config(page_title="Googleカレンダー一括イベント登録・削除", layout="wide")
 st.title("📅 Googleカレンダー一括イベント登録・削除")
@@ -30,6 +31,9 @@ if not initialize_firebase():
     st.error("Firebaseの初期化に失敗しました。")
     st.stop()
 
+# Firestoreクライアントの取得
+db = firestore.client() # <-- ここを追加
+
 # Firebase認証フォームの表示とユーザーIDの取得
 user_id = get_firebase_user_id()
 
@@ -37,6 +41,43 @@ if not user_id:
     # ユーザーがログインしていない場合、認証フォームを表示して停止
     firebase_auth_form()
     st.stop()
+
+# ユーザー固有の設定をFirestoreから読み込む
+def load_user_settings(user_id):
+    """Firestoreからユーザー設定を読み込み、st.session_stateに設定する"""
+    if not user_id:
+        return
+
+    doc_ref = db.collection('user_settings').document(user_id)
+    doc = doc_ref.get()
+
+    if doc.exists:
+        settings = doc.to_dict()
+        if 'description_columns_selected' in settings:
+            st.session_state[f'description_columns_selected_{user_id}'] = settings['description_columns_selected']
+        if 'event_name_col_selected' in settings:
+            st.session_state[f'event_name_col_selected_{user_id}'] = settings['event_name_col_selected']
+        if 'event_name_col_selected_update' in settings:
+            st.session_state[f'event_name_col_selected_update_{user_id}'] = settings['event_name_col_selected_update']
+    else:
+        # ドキュメントがない場合はデフォルト値を設定
+        st.session_state[f'description_columns_selected_{user_id}'] = ["内容", "詳細"]
+        st.session_state[f'event_name_col_selected_{user_id}'] = "選択しない"
+        st.session_state[f'event_name_col_selected_update_{user_id}'] = "選択しない"
+
+def save_user_setting(user_id, setting_key, setting_value):
+    """ユーザー設定をFirestoreに保存する"""
+    if not user_id:
+        return
+
+    doc_ref = db.collection('user_settings').document(user_id)
+    try:
+        doc_ref.set({setting_key: setting_value}, merge=True) # merge=True で既存のフィールドを上書きせず更新
+    except Exception as e:
+        st.error(f"設定の保存に失敗しました: {e}")
+
+load_user_settings(user_id) # <-- ここで設定を読み込む
+
 
 # --- ここから下の処理は、Firebase認証が完了した場合にのみ実行されます ---
 
@@ -146,16 +187,6 @@ if 'uploaded_files' not in st.session_state:
     st.session_state['description_columns_pool'] = []
     st.session_state['merged_df_for_selector'] = pd.DataFrame() # 新しくマージ済みDFを保持
 
-# ユーザー固有のセッション状態キーを定義
-# user_idがNoneの場合は認証が完了していないため、これらのキーは設定しない
-if user_id:
-    if f'description_columns_selected_{user_id}' not in st.session_state:
-        st.session_state[f'description_columns_selected_{user_id}'] = ["内容", "詳細"] # デフォルト値
-    if f'event_name_col_selected_{user_id}' not in st.session_state:
-        st.session_state[f'event_name_col_selected_{user_id}'] = "選択しない" # デフォルト値
-    if f'event_name_col_selected_update_{user_id}' not in st.session_state:
-        st.session_state[f'event_name_col_selected_update_{user_id}'] = "選択しない" # デフォルト値 (更新タブ用)
-
 
 with tabs[0]:
     st.header("ファイルをアップロード")
@@ -221,14 +252,20 @@ with tabs[1]:
         # st.session_stateに保存された値を使用し、変更があればセッション状態を更新
         current_description_cols_selection = st.session_state.get(f'description_columns_selected_{user_id}', [])
         
+        # 保存関数をコールバックに指定
+        def on_description_columns_change():
+            save_user_setting(user_id, 'description_columns_selected', st.session_state[f"description_selector_register_{user_id}"])
+
         description_columns = st.multiselect(
             "説明欄に含める列（複数選択可）",
             st.session_state.get('description_columns_pool', []),
             default=[col for col in current_description_cols_selection if col in st.session_state.get('description_columns_pool', [])], # 選択済みの列がプールにある場合のみデフォルトに含める
-            key=f"description_selector_register_{user_id}" # ユーザー固有のキー
+            key=f"description_selector_register_{user_id}", # ユーザー固有のキー
+            on_change=on_description_columns_change # <-- ここを追加
         )
-        # ユーザーの選択をセッション状態に保存
-        st.session_state[f'description_columns_selected_{user_id}'] = description_columns
+        # ユーザーの選択をセッション状態に保存 (on_changeで保存されるため、この行は厳密には不要になるが、明示的に記述しても問題はない)
+        # st.session_state[f'description_columns_selected_{user_id}'] = description_columns
+
 
         # イベント名の代替列選択UIをここに配置 (ユーザーごとに記憶)
         fallback_event_name_column = None
@@ -252,14 +289,19 @@ with tabs[1]:
             # 現在の選択がオプションリストにあるか確認し、なければデフォルトにフォールバック
             default_index = event_name_options.index(current_event_name_selection) if current_event_name_selection in event_name_options else 0 # "選択しない"のインデックス
             
+            # 保存関数をコールバックに指定
+            def on_event_name_col_change():
+                save_user_setting(user_id, 'event_name_col_selected', st.session_state[f"event_name_selector_register_{user_id}"])
+
             selected_event_name_col = st.selectbox(
                 "イベント名として使用する代替列を選択してください:",
                 options=event_name_options,
                 index=default_index,
-                key=f"event_name_selector_register_{user_id}" # ユーザー固有のキー
+                key=f"event_name_selector_register_{user_id}", # ユーザー固有のキー
+                on_change=on_event_name_col_change # <-- ここを追加
             )
-            # ユーザーの選択をセッション状態に保存
-            st.session_state[f'event_name_col_selected_{user_id}'] = selected_event_name_col
+            # ユーザーの選択をセッション状態に保存 (on_changeで保存されるため、この行は厳密には不要になるが、明示的に記述しても問題はない)
+            # st.session_state[f'event_name_col_selected_{user_id}'] = selected_event_name_col
 
             if selected_event_name_col != "選択しない": # '備考'ではなく'選択しない'に変更
                 fallback_event_name_column = selected_event_name_col
@@ -531,14 +573,19 @@ with tabs[3]:
         # 説明欄に含める列 (更新タブ用、ユーザーごとに記憶)
         current_description_cols_selection_update = st.session_state.get(f'description_columns_selected_{user_id}', [])
 
+        # 保存関数をコールバックに指定
+        def on_description_columns_update_change():
+            save_user_setting(user_id, 'description_columns_selected_update', st.session_state[f"update_desc_cols_{user_id}"])
+
+
         description_columns_update = st.multiselect(
             "説明欄に含める列", 
             st.session_state['description_columns_pool'], 
             default=[col for col in current_description_cols_selection_update if col in st.session_state.get('description_columns_pool', [])],
-            key=f"update_desc_cols_{user_id}" # ユーザー固有のキー
+            key=f"update_desc_cols_{user_id}", # ユーザー固有のキー
+            on_change=on_description_columns_update_change # <-- ここを追加
         )
-        # ユーザーの選択をセッション状態に保存
-        st.session_state[f'description_columns_selected_{user_id}'] = description_columns_update
+        # st.session_state[f'description_columns_selected_{user_id}'] = description_columns_update # on_changeで保存されるためコメントアウト
 
 
         # イベント名の代替列選択UIをここに配置 (更新タブ用、ユーザーごとに記憶)
@@ -558,14 +605,18 @@ with tabs[3]:
             # 現在の選択がオプションリストにあるか確認し、なければデフォルトにフォールバック
             default_index_update = event_name_options_update.index(current_event_name_selection_update) if current_event_name_selection_update in event_name_options_update else 0 # "選択しない"のインデックス
 
+            # 保存関数をコールバックに指定
+            def on_event_name_col_update_change():
+                save_user_setting(user_id, 'event_name_col_selected_update', st.session_state[f"event_name_selector_update_{user_id}"])
+
             selected_event_name_col_update = st.selectbox(
                 "イベント名として使用する代替列を選択してください:",
                 options=event_name_options_update,
                 index=default_index_update,
-                key=f"event_name_selector_update_{user_id}" # ユーザー固有のキー
+                key=f"event_name_selector_update_{user_id}", # ユーザー固有のキー
+                on_change=on_event_name_col_update_change # <-- ここを追加
             )
-            # ユーザーの選択をセッション状態に保存
-            st.session_state[f'event_name_col_selected_update_{user_id}'] = selected_event_name_col_update
+            # st.session_state[f'event_name_col_selected_update_{user_id}'] = selected_event_name_col_update # on_changeで保存されるためコメントアウト
 
             if selected_event_name_col_update != "選択しない":
                 fallback_event_name_column_update = selected_event_name_col_update
@@ -695,6 +746,13 @@ with st.sidebar:
         # セッション状態をクリア
         # ユーザー固有の設定もクリア
         if user_id:
+            # Firestoreからユーザー設定を削除する（オプション、通常は残します）
+            # try:
+            #     db.collection('user_settings').document(user_id).delete()
+            #     st.info("ユーザー設定をFirestoreから削除しました。")
+            # except Exception as e:
+            #     st.error(f"ユーザー設定の削除に失敗しました: {e}")
+
             if f'description_columns_selected_{user_id}' in st.session_state:
                 del st.session_state[f'description_columns_selected_{user_id}']
             if f'event_name_col_selected_{user_id}' in st.session_state:
