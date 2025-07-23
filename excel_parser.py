@@ -1,6 +1,6 @@
 import pandas as pd
 import re
-import datetime
+import datetime # datetimeモジュールからtimedeltaとdatetimeを直接インポートするために残す
 
 # UI要素（streamlit）はここから削除。純粋なデータ処理ロジックのみに特化。
 
@@ -163,14 +163,12 @@ def process_excel_data_for_calendar(
     addr_col = find_closest_column(merged_df.columns, ["住所", "所在地"])
     worksheet_col = find_closest_column(merged_df.columns, ["作業指示書"])
 
-    if not all([start_col, end_col]):
-        raise ValueError("必須の時刻列（'予定開始'/'予定終了'、または'開始日時'/'終了日時'など）が見つかりません。")
-
-    # NaNの行を削除（日時列がNaNの行は処理しない）
-    processed_df = merged_df.dropna(subset=[start_col, end_col]).copy()
+    if not start_col: # 'end_col' がなくても1時間イベントとして処理するので、'start_col'のみを必須とする
+        raise ValueError("必須の時刻列（'予定開始'、または'開始日時'など）が見つかりません。")
 
     output_records = []
-    for index, row in processed_df.iterrows():
+    # 既存のdropnaを削除し、すべての行を処理する
+    for index, row in merged_df.iterrows(): 
         mng = clean_mng_num(row["管理番号"])
         name = row.get(name_col, "") if name_col else ""
         
@@ -193,21 +191,43 @@ def process_excel_data_for_calendar(
             subj = "イベント"
 
         try:
+            # 予定開始時刻の解析は必須
             start = pd.to_datetime(row[start_col])
-            end = pd.to_datetime(row[end_col])
             
-            # 終了日時が開始日時より前の場合は調整 (任意: エラーにするか、1日追加するかなど)
+            # 予定終了時刻の解析を試みる
+            end = None
+            if end_col and pd.notna(row.get(end_col)):
+                try:
+                    end = pd.to_datetime(row[end_col])
+                except Exception:
+                    # 予定終了の形式が不正な場合は、1時間イベントとして処理
+                    pass # end は None のままにする
+            
+            # 予定終了がNoneの場合（データがない、または解析失敗）、開始時刻から1時間後を設定
+            if end is None:
+                if start.time() == datetime.time(0, 0, 0): # 時刻情報がないと判断できる場合 (00:00:00)
+                     # 終日イベントとしたい場合
+                    end = start + datetime.timedelta(days=1) # 終日イベントは翌日0時まで
+                    print(f"Info: 行 {index+2} の「予定終了」が空または無効なため、終日イベントとして設定されました。")
+                else: # 時刻情報がある場合
+                    end = start + datetime.timedelta(hours=1)
+                    print(f"Info: 行 {index+2} の「予定終了」が空または無効なため、1時間のイベントとして設定されました。")
+
+
+            # 終了日時が開始日時より前の場合は調整 (重要: ここは調整せず、エラーとしてスキップが安全)
             if end < start:
-                # 例: 終了日時を開始日時に合わせる、あるいはログに警告を出力するなど
-                # ここでは、処理をスキップするか、またはエラーとして扱うか検討
-                # 今回はログに警告を出して、次の行に進む
-                print(f"Warning: 開始日時({start})が終了日時({end})より後です。行をスキップします。")
+                print(f"Warning: 開始日時({start})が終了日時({end})より後です。この行はスキップされます。")
                 continue 
             
             # 全日イベントの判定
             # all_day_event_override が True の場合は常に True
-            # そうでない場合は、開始と終了の時間が00:00:00の場合にTrue
-            is_all_day = all_day_event_override or (start.time() == datetime.time(0, 0, 0) and end.time() == datetime.time(0, 0, 0))
+            # そうでない場合は、開始と終了の時間が00:00:00で、かつ終了日が開始日の翌日である場合にTrue
+            # または、終了日と開始日が同じで、時間が00:00:00の場合（終日イベントとして扱う）
+            is_all_day = all_day_event_override or (
+                start.time() == datetime.time(0, 0, 0) and 
+                end.time() == datetime.time(0, 0, 0) and 
+                (end.date() == start.date() + datetime.timedelta(days=1) or end.date() == start.date()) # 翌日0時まで、または当日0時まで
+            )
 
             if is_all_day:
                 # Outlookの全日イベントは終了日を1日前に設定する必要がある
@@ -221,7 +241,7 @@ def process_excel_data_for_calendar(
 
         except Exception as e:
             # 日時変換エラーが発生した場合、その行をスキップ
-            print(f"Warning: 日時の変換に失敗しました（行データ: {row.to_dict()}）: {e}")
+            print(f"Warning: 日時の変換に失敗しました（行 {index+2} のデータ: {row.to_dict()}）: {e}")
             continue
 
         location = row.get(addr_col, "") if addr_col else ""
