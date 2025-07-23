@@ -707,7 +707,7 @@ with tabs[3]:
 
                         try:
                             # update_event_if_neededは既存のeventオブジェクトと更新データを受け取る
-                            if update_event_if_needed(service, calendar_id_upd, matched_event, event_data):
+                            if update_event_if_needed(service, calendar_id_upd, matched_event['id'], event_data):
                                 update_count += 1
                         except Exception as e:
                             st.error(f"イベント '{row['Subject']}' (作業指示書: {worksheet_id}) の更新に失敗しました: {e}")
