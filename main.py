@@ -6,7 +6,8 @@ from excel_parser import (
     process_excel_data_for_calendar,
     _load_and_merge_dataframes,
     get_available_columns_for_event_name,
-    check_event_name_columns
+    check_event_name_columns,
+    format_worksheet_value # この関数が必要になります
 )
 from calendar_utils import (
     authenticate_google,
@@ -15,7 +16,7 @@ from calendar_utils import (
     update_event_if_needed,
     build_tasks_service,
     add_task_to_todo_list,
-    find_and_delete_tasks_by_event_id
+    find_and_delete_tasks_by_event_id # ToDo関連は今回の変更で複雑になる可能性があるため、一旦イベントのみに焦点を当てる
 )
 from firebase_auth import initialize_firebase, firebase_auth_form, get_firebase_user_id
 from googleapiclient.discovery import build
@@ -177,9 +178,9 @@ else:
 # メインタブの作成
 tabs = st.tabs([
     "1. ファイルのアップロード",
-    "2. イベントの登録",
+    "2. イベントの登録", # このタブでUpsertロジックを実装
     "3. イベントの削除",
-    "4. イベントの更新"
+    "4. イベントの更新" # このタブはそのまま残すか、2と統合するか要検討
 ])
 
 # セッション状態の初期化
@@ -241,7 +242,7 @@ with tabs[0]:
             st.rerun() # 変更を反映するために再実行
 
 with tabs[1]:
-    st.header("イベントを登録")
+    st.header("イベントを登録・更新") # タブ名を変更
     if not st.session_state.get('uploaded_files') or st.session_state['merged_df_for_selector'].empty:
         st.info("先に「1. ファイルのアップロード」タブでExcelファイルをアップロードすると、イベント登録機能が利用可能になります。")
     else:
@@ -342,8 +343,8 @@ with tabs[1]:
                 )
 
 
-            st.subheader("➡️ イベント登録")
-            if st.button("Googleカレンダーに登録する"):
+            st.subheader("➡️ イベント登録・更新実行") # ボタンの表記も変更
+            if st.button("Googleカレンダーに登録・更新する"):
                 # ここでFirestoreに選択項目を保存
                 save_user_setting(user_id, 'description_columns_selected', description_columns)
                 save_user_setting(user_id, 'event_name_col_selected', selected_event_name_col)
@@ -366,35 +367,66 @@ with tabs[1]:
                     if df.empty:
                         st.warning("有効なイベントデータがありません。処理を中断しました。")
                     else:
-                        st.info(f"{len(df)} 件のイベントを登録します。")
+                        st.info(f"{len(df)} 件のイベントを処理します。")
                         progress = st.progress(0)
-                        successful_registrations = 0
+                        successful_operations = 0
                         successful_todo_creations = 0
+
+                        # Googleカレンダーから既存イベントを作業指示書IDで検索するための準備
+                        # 広めの期間で検索（例: 過去1年～未来5年など、実運用に合わせて調整）
+                        now_for_search = datetime.now()
+                        search_time_min = (now_for_search - timedelta(days=365)).isoformat() + 'Z' # 過去1年
+                        search_time_max = (now_for_search + timedelta(days=365*5)).isoformat() + 'Z' # 未来5年
+                        
+                        existing_events = fetch_all_events(service, calendar_id, search_time_min, search_time_max)
+                        
+                        # 作業指示書IDをキーとした既存イベントの辞書を作成
+                        worksheet_id_to_existing_event = {}
+                        for event in existing_events:
+                            desc = event.get('description', '')
+                            # '作業指示書:' の後に続く数値を抽出
+                            match = re.search(r"作業指示書[：:]\s*(\d+)", desc) 
+                            if match:
+                                worksheet_id = match.group(1)
+                                worksheet_id_to_existing_event[worksheet_id] = event
+
 
                         for i, row in df.iterrows():
                             event_start_date_obj = None
                             event_end_date_obj = None
                             event_time_str = "" # ToDo詳細用の時間文字列
-                            event_id = None # ToDoに紐付けるイベントID
+                            event_id_for_todo = None # ToDoに紐付けるイベントID
 
-                            try:
+                            # Excelデータの 'Description' から作業指示書IDを抽出 (format_worksheet_valueで付与されていることを前提)
+                            excel_description = row['Description']
+                            excel_worksheet_match = re.search(r"作業指示書[：:]\s*(\d+)", excel_description)
+                            excel_worksheet_id = excel_worksheet_match.group(1) if excel_worksheet_match else None
+
+                            event_data_to_process = None
+                            operation_type = "新規登録"
+
+                            if excel_worksheet_id and excel_worksheet_id in worksheet_id_to_existing_event:
+                                existing_event = worksheet_id_to_existing_event[excel_worksheet_id]
+                                existing_event_id = existing_event['id']
+                                
+                                # 更新対象イベントのデータ構造を構築
+                                updated_event_data = {
+                                    'summary': row['Subject'],
+                                    'location': row['Location'],
+                                    'description': row['Description'],
+                                    'transparency': 'transparent' if row['Private'] == "True" else 'opaque'
+                                }
+
+                                # 日時の設定
                                 if row['All Day Event'] == "True":
                                     event_start_date_obj = datetime.strptime(row['Start Date'], "%Y/%m/%d").date()
                                     event_end_date_obj = datetime.strptime(row['End Date'], "%Y/%m/%d").date()
                                     
                                     start_date_str = event_start_date_obj.strftime("%Y-%m-%d")
-                                    # Outlook CSV形式に合わせたend_dateなので、Google Calendar APIは+1日が必要
                                     end_date_for_api = (event_end_date_obj + timedelta(days=1)).strftime("%Y-%m-%d") 
-
-                                    event_data = {
-                                        'summary': row['Subject'],
-                                        'location': row['Location'],
-                                        'description': row['Description'],
-                                        'start': {'date': start_date_str},
-                                        'end': {'date': end_date_for_api},
-                                        'transparency': 'transparent' if row['Private'] == "True" else 'opaque'
-                                    }
-                                    # ToDo詳細表示用: イベント日時
+                                    
+                                    updated_event_data['start'] = {'date': start_date_str}
+                                    updated_event_data['end'] = {'date': end_date_for_api}
                                     event_time_str = f"{event_start_date_obj.strftime('%Y/%-m/%-d')}"
                                     if event_start_date_obj != event_end_date_obj:
                                         event_time_str += f"～{event_end_date_obj.strftime('%Y/%-m/%-d')}"
@@ -409,7 +441,55 @@ with tabs[1]:
                                     start_iso = event_start_datetime_obj.isoformat()
                                     end_iso = event_end_datetime_obj.isoformat()
 
-                                    event_data = {
+                                    updated_event_data['start'] = {'dateTime': start_iso, 'timeZone': 'Asia/Tokyo'}
+                                    updated_event_data['end'] = {'dateTime': end_iso, 'timeZone': 'Asia/Tokyo'}
+                                    event_time_str = f"{event_start_datetime_obj.strftime('%Y/%-m/%-d %H:%M')}～{event_end_datetime_obj.strftime('%H:%M')}"
+                                    if event_start_datetime_obj.date() != event_end_datetime_obj.date():
+                                        event_time_str = f"{event_start_datetime_obj.strftime('%Y/%-m/%-d %H:%M')}～{event_end_datetime_obj.strftime('%Y/%-m/%-d %H:%M')}"
+                                
+                                # update_event_if_neededを使って、変更がある場合のみ更新
+                                updated_or_existing_event = update_event_if_needed(service, calendar_id, existing_event_id, updated_event_data)
+                                if updated_or_existing_event and updated_or_existing_event != existing_event:
+                                    successful_operations += 1
+                                    operation_type = "更新"
+                                    event_id_for_todo = updated_or_existing_event.get('id')
+                                else:
+                                    # 変更がない場合はスキップ
+                                    progress.progress((i + 1) / len(df))
+                                    continue
+
+                            else:
+                                # 新規イベントデータ構築
+                                if row['All Day Event'] == "True":
+                                    event_start_date_obj = datetime.strptime(row['Start Date'], "%Y/%m/%d").date()
+                                    event_end_date_obj = datetime.strptime(row['End Date'], "%Y/%m/%d").date()
+                                    
+                                    start_date_str = event_start_date_obj.strftime("%Y-%m-%d")
+                                    end_date_for_api = (event_end_date_obj + timedelta(days=1)).strftime("%Y-%m-%d") 
+
+                                    event_data_to_process = {
+                                        'summary': row['Subject'],
+                                        'location': row['Location'],
+                                        'description': row['Description'],
+                                        'start': {'date': start_date_str},
+                                        'end': {'date': end_date_for_api},
+                                        'transparency': 'transparent' if row['Private'] == "True" else 'opaque'
+                                    }
+                                    event_time_str = f"{event_start_date_obj.strftime('%Y/%-m/%-d')}"
+                                    if event_start_date_obj != event_end_date_obj:
+                                        event_time_str += f"～{event_end_date_obj.strftime('%Y/%-m/%-d')}"
+
+                                else:
+                                    event_start_datetime_obj = datetime.strptime(f"{row['Start Date']} {row['Start Time']}", "%Y/%m/%d %H:%M")
+                                    event_end_datetime_obj = datetime.strptime(f"{row['End Date']} {row['End Time']}", "%Y/%m/%d %H:%M")
+                                    
+                                    event_start_date_obj = event_start_datetime_obj.date()
+                                    event_end_date_obj = event_end_datetime_obj.date()
+
+                                    start_iso = event_start_datetime_obj.isoformat()
+                                    end_iso = event_end_datetime_obj.isoformat()
+
+                                    event_data_to_process = {
                                         'summary': row['Subject'],
                                         'location': row['Location'],
                                         'description': row['Description'],
@@ -417,57 +497,58 @@ with tabs[1]:
                                         'end': {'dateTime': end_iso, 'timeZone': 'Asia/Tokyo'},
                                         'transparency': 'transparent' if row['Private'] == "True" else 'opaque'
                                     }
-                                    # ToDo詳細表示用: イベント日時
                                     event_time_str = f"{event_start_datetime_obj.strftime('%Y/%-m/%-d %H:%M')}～{event_end_datetime_obj.strftime('%H:%M')}"
                                     if event_start_datetime_obj.date() != event_end_datetime_obj.date():
                                         event_time_str = f"{event_start_datetime_obj.strftime('%Y/%-m/%-d %H:%M')}～{event_end_datetime_obj.strftime('%Y/%-m/%-d %H:%M')}"
-
-                                # イベント登録し、イベントIDを取得
-                                created_event = add_event_to_calendar(service, calendar_id, event_data)
+                                
+                                created_event = add_event_to_calendar(service, calendar_id, event_data_to_process)
                                 if created_event:
-                                    successful_registrations += 1
-                                    event_id = created_event.get('id')
+                                    successful_operations += 1
+                                    event_id_for_todo = created_event.get('id')
+                                else:
+                                    progress.progress((i + 1) / len(df))
+                                    continue # イベント登録失敗時はToDoも作成しない
 
-                                # ToDoリストの作成ロジック
-                                if create_todo and tasks_service and st.session_state.get('default_task_list_id') and event_id: # event_idがある場合のみToDo作成
-                                    if event_start_date_obj: # ToDo期限計算の基準となる日付
-                                        offset_days = deadline_offset_options.get(selected_offset_key)
-                                        if selected_offset_key == "カスタム日数前" and custom_offset_days is not None:
-                                            offset_days = custom_offset_days
+                            # ToDoリストの作成ロジック (更新の場合も新規作成される)
+                            if create_todo and tasks_service and st.session_state.get('default_task_list_id') and event_id_for_todo: 
+                                if event_start_date_obj: 
+                                    offset_days = deadline_offset_options.get(selected_offset_key)
+                                    if selected_offset_key == "カスタム日数前" and custom_offset_days is not None:
+                                        offset_days = custom_offset_days
 
-                                        if offset_days is not None:
-                                            todo_due_date = event_start_date_obj - timedelta(days=offset_days)
-                                            
-                                            # 全ての固定ToDoタイプを追加
-                                            for todo_item in fixed_todo_types:
-                                                todo_summary = f"{todo_item} - {row['Subject']}"
-                                                # ToDo詳細にイベントIDを含める
-                                                todo_notes = (
-                                                    f"関連イベントID: {event_id}\n" # イベントIDを保存
-                                                    f"イベント日時: {event_time_str}\n"
-                                                    f"場所: {row['Location']}"
-                                                )
-
-                                                add_task_to_todo_list(
-                                                    tasks_service,
-                                                    st.session_state['default_task_list_id'],
-                                                    todo_summary,
-                                                    todo_due_date,
-                                                    notes=todo_notes
-                                                )
-                                                successful_todo_creations += 1
-                                        else:
-                                            st.warning(f"ToDoの期限が設定されませんでした。カスタム日数が無効です。")
+                                    if offset_days is not None:
+                                        todo_due_date = event_start_date_obj - timedelta(days=offset_days)
+                                        
+                                        # 全ての固定ToDoタイプを追加
+                                        for todo_item in fixed_todo_types:
+                                            todo_summary = f"{todo_item} - {row['Subject']}"
+                                            # ToDo詳細にイベントIDを含める
+                                            todo_notes = (
+                                                f"関連イベントID: {event_id_for_todo}\n" 
+                                                f"イベント日時: {event_time_str}\n"
+                                                f"場所: {row['Location']}"
+                                            )
+                                            # TODO: 既存のToDoタスクがある場合に更新するロジックをここに追加する必要がある
+                                            # 現状のコードでは常に新規作成になる
+                                            add_task_to_todo_list(
+                                                tasks_service,
+                                                st.session_state['default_task_list_id'],
+                                                todo_summary,
+                                                todo_due_date,
+                                                notes=todo_notes
+                                            )
+                                            successful_todo_creations += 1
                                     else:
-                                        st.warning(f"ToDoの期限を設定できませんでした。イベント開始日が不明です。")
-
-                            except Exception as e:
-                                st.error(f"{row['Subject']} の登録またはToDoリスト作成に失敗しました: {e}")
+                                        st.warning(f"ToDoの期限が設定されませんでした。カスタム日数が無効です。")
+                                else:
+                                    st.warning(f"ToDoの期限を設定できませんでした。イベント開始日が不明です。")
+                            
                             progress.progress((i + 1) / len(df))
 
-                        st.success(f"✅ {successful_registrations} 件のイベント登録が完了しました！")
+                        st.success(f"✅ {successful_operations} 件のイベントが処理されました (新規登録/更新)。")
                         if create_todo:
                             st.success(f"✅ {successful_todo_creations} 件のToDoリストが作成されました！")
+
 
 with tabs[2]:
     st.header("イベントを削除")
@@ -558,6 +639,7 @@ with tabs[2]:
 
 with tabs[3]:
     st.header("イベントを更新")
+    st.info("このタブは、主に既存イベントの情報をExcelデータに基づいて**上書き**したい場合に使用します。新規イベントの作成は行いません。")
 
     if not st.session_state.get('uploaded_files') or st.session_state['merged_df_for_selector'].empty:
         st.info("先に「1. ファイルのアップロード」タブでExcelファイルをアップロードしてください。")
@@ -707,7 +789,7 @@ with tabs[3]:
 
                         try:
                             # update_event_if_neededは既存のeventオブジェクトと更新データを受け取る
-                            if update_event_if_needed(service, calendar_id_upd, matched_event['id'], event_data):
+                            if update_event_if_needed(service, calendar_id_upd, matched_event, event_data):
                                 update_count += 1
                         except Exception as e:
                             st.error(f"イベント '{row['Subject']}' (作業指示書: {worksheet_id}) の更新に失敗しました: {e}")
