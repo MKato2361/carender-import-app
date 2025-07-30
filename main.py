@@ -190,9 +190,9 @@ if 'uploaded_files' not in st.session_state:
     st.session_state['merged_df_for_selector'] = pd.DataFrame() # 新しくマージ済みDFを保持
 
 
+
 with tabs[0]:
     st.header("ファイルをアップロード")
-    # 説明文を改行を反映させるように修正
     st.info("""
     ☐作業指示書一覧をアップロードすると管理番号+物件名をイベント名として任意のカレンダーに登録します。
     
@@ -204,43 +204,68 @@ with tabs[0]:
 
     ☐ToDoリストを作成すると、点検通知のリマインドが可能です（ToDoとしてイベント登録されます）
     """)
+
+    import os
+    from pathlib import Path
+    from io import BytesIO
+
+    def get_local_excel_files():
+        current_dir = Path(__file__).parent
+        return [f for f in current_dir.glob("*.xlsx") if f.is_file()]
+
     uploaded_files = st.file_uploader("Excelファイルを選択（複数可）", type=["xlsx"], accept_multiple_files=True)
 
+    local_excel_files = get_local_excel_files()
+    selected_local_files = []
+    if local_excel_files:
+        st.subheader("📁 サーバーにあるExcelファイル")
+        local_file_names = [f.name for f in local_excel_files]
+        selected_names = st.multiselect(
+            "以下のファイルを処理対象に含める（アップロードと同様に扱われます）",
+            local_file_names
+        )
+        for name in selected_names:
+            full_path = next((f for f in local_excel_files if f.name == name), None)
+            if full_path:
+                with open(full_path, "rb") as f:
+                    file_bytes = f.read()
+                    file_obj = BytesIO(file_bytes)
+                    file_obj.name = name
+                    selected_local_files.append(file_obj)
+
+    all_files = []
     if uploaded_files:
-        st.session_state['uploaded_files'] = uploaded_files
-        
+        all_files.extend(uploaded_files)
+    if selected_local_files:
+        all_files.extend(selected_local_files)
+
+    if all_files:
+        st.session_state['uploaded_files'] = all_files
         try:
-            # 選択肢表示のために、アップロードされたファイルを統合
-            st.session_state['merged_df_for_selector'] = _load_and_merge_dataframes(uploaded_files)
-            
-            # 説明文の列プールの更新
+            st.session_state['merged_df_for_selector'] = _load_and_merge_dataframes(all_files)
             st.session_state['description_columns_pool'] = st.session_state['merged_df_for_selector'].columns.tolist()
 
             if st.session_state['merged_df_for_selector'].empty:
-                st.warning("アップロードされたファイルに有効なデータがありませんでした。")
-
+                st.warning("読み込まれたファイルに有効なデータがありませんでした。")
         except (ValueError, IOError) as e:
-            st.error(f"ファイルの読み込みまたは結合に失敗しました: {e}")
+            st.error(f"ファイルの読み込みに失敗しました: {e}")
             st.session_state['uploaded_files'] = []
-            st.session_state['description_columns_pool'] = []
             st.session_state['merged_df_for_selector'] = pd.DataFrame()
-            
+            st.session_state['description_columns_pool'] = []
+
     if st.session_state.get('uploaded_files'):
-        st.subheader("アップロード済みのファイル:")
+        st.subheader("📄 処理対象ファイル一覧")
         for f in st.session_state['uploaded_files']:
             st.write(f"- {f.name}")
         if not st.session_state['merged_df_for_selector'].empty:
-             st.info(f"読み込まれたデータには {len(st.session_state['merged_df_for_selector'].columns)} 列 {len(st.session_state['merged_df_for_selector'])} 行のデータがあります。")
+            st.info(f"📊 データ列数: {len(st.session_state['merged_df_for_selector'].columns)}、行数: {len(st.session_state['merged_df_for_selector'])}")
 
-        # ファイル削除機能の追加
-        if st.button("🗑️ アップロード済みファイルをクリア", help="アップロードされたExcelファイルの情報をアプリケーションから削除します。"):
+        if st.button("🗑️ アップロード済みファイルをクリア", help="選択中のファイルとデータを削除します。"):
             st.session_state['uploaded_files'] = []
-            st.session_state['description_columns_pool'] = []
             st.session_state['merged_df_for_selector'] = pd.DataFrame()
-            
-            st.success("アップロードされたExcelファイルがクリアされました。")
-            st.rerun() # 変更を反映するために再実行
-
+            st.session_state['description_columns_pool'] = []
+            st.success("すべてのファイル情報をクリアしました。")
+            st.rerun()
 with tabs[1]:
     st.header("イベントを登録・更新") # タブ名を変更
     if not st.session_state.get('uploaded_files') or st.session_state['merged_df_for_selector'].empty:
