@@ -274,6 +274,8 @@ with tabs[1]:
         st.subheader("📝 イベント設定")
         all_day_event_override = st.checkbox("終日イベントとして登録", value=False)
         private_event = st.checkbox("非公開イベントとして登録", value=True)
+        # 作業タイプ列をイベント名の先頭に追加するかのチェックボックスを追加
+        prepend_event_type = st.checkbox("イベント名の先頭に作業タイプを追加する", value=False)
 
         # 説明文に含める列の選択 (ユーザーごとに記憶)
         current_description_cols_selection = st.session_state.get(f'description_columns_selected_{user_id}', [])
@@ -417,6 +419,11 @@ with tabs[1]:
 
 
                         for i, row in df.iterrows():
+                            # イベント名の先頭に作業タイプを追加する処理
+                            event_summary = row['Subject']
+                            if prepend_event_type and '作業タイプ' in row and pd.notna(row['作業タイプ']):
+                                event_summary = f"【{row['作業タイプ']}】{event_summary}"
+
                             event_start_date_obj = None
                             event_end_date_obj = None
                             event_time_str = "" # ToDo詳細用の時間文字列
@@ -436,7 +443,7 @@ with tabs[1]:
                                 
                                 # 更新対象イベントのデータ構造を構築
                                 updated_event_data = {
-                                    'summary': row['Subject'],
+                                    'summary': event_summary, # 修正後のイベント名を使用
                                     'location': row['Location'],
                                     'description': row['Description'],
                                     'transparency': 'transparent' if row['Private'] == "True" else 'opaque'
@@ -493,7 +500,7 @@ with tabs[1]:
                                     end_date_for_api = (event_end_date_obj + timedelta(days=1)).strftime("%Y-%m-%d") 
 
                                     event_data_to_process = {
-                                        'summary': row['Subject'],
+                                        'summary': event_summary, # 修正後のイベント名を使用
                                         'location': row['Location'],
                                         'description': row['Description'],
                                         'start': {'date': start_date_str},
@@ -515,7 +522,7 @@ with tabs[1]:
                                     end_iso = event_end_datetime_obj.isoformat()
 
                                     event_data_to_process = {
-                                        'summary': row['Subject'],
+                                        'summary': event_summary, # 修正後のイベント名を使用
                                         'location': row['Location'],
                                         'description': row['Description'],
                                         'start': {'dateTime': start_iso, 'timeZone': 'Asia/Tokyo'},
