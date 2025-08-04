@@ -385,7 +385,8 @@ with tabs[1]:
                             description_columns, 
                             all_day_event_override,
                             private_event, 
-                            fallback_event_name_column
+                            fallback_event_name_column,
+                            prepend_event_type
                         )
                     except (ValueError, IOError) as e:
                         st.error(f"Excelデータ処理中にエラーが発生しました: {e}")
@@ -419,11 +420,7 @@ with tabs[1]:
 
 
                         for i, row in df.iterrows():
-                            # イベント名の先頭に作業タイプを追加する処理
                             event_summary = row['Subject']
-                            if prepend_event_type and '作業タイプ' in row and pd.notna(row['作業タイプ']):
-                                event_summary = f"【{row['作業タイプ']}】{event_summary}"
-
                             event_start_date_obj = None
                             event_end_date_obj = None
                             event_time_str = "" # ToDo詳細用の時間文字列
@@ -443,7 +440,7 @@ with tabs[1]:
                                 
                                 # 更新対象イベントのデータ構造を構築
                                 updated_event_data = {
-                                    'summary': event_summary, # ★修正箇所: ここで`event_summary`を使用
+                                    'summary': event_summary,
                                     'location': row['Location'],
                                     'description': row['Description'],
                                     'transparency': 'transparent' if row['Private'] == "True" else 'opaque'
@@ -500,7 +497,7 @@ with tabs[1]:
                                     end_date_for_api = (event_end_date_obj + timedelta(days=1)).strftime("%Y-%m-%d") 
 
                                     event_data_to_process = {
-                                        'summary': event_summary, # ★修正箇所: ここで`event_summary`を使用
+                                        'summary': event_summary,
                                         'location': row['Location'],
                                         'description': row['Description'],
                                         'start': {'date': start_date_str},
@@ -522,7 +519,7 @@ with tabs[1]:
                                     end_iso = event_end_datetime_obj.isoformat()
 
                                     event_data_to_process = {
-                                        'summary': event_summary, # ★修正箇所: ここで`event_summary`を使用
+                                        'summary': event_summary,
                                         'location': row['Location'],
                                         'description': row['Description'],
                                         'start': {'dateTime': start_iso, 'timeZone': 'Asia/Tokyo'},
@@ -748,7 +745,8 @@ with tabs[3]:
                             description_columns_update, # 更新タブ用の列
                             all_day_event_override_update, # 更新タブ用の設定
                             private_event_update,         # 更新タブ用の設定
-                            fallback_event_name_column_update # 新しい引数
+                            fallback_event_name_column_update, # 新しい引数
+                            prepend_event_type # 登録タブと同じ変数を使用
                         )
                     except (ValueError, IOError) as e:
                         st.error(f"Excelデータ処理中にエラーが発生しました: {e}")
