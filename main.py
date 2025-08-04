@@ -61,11 +61,17 @@ def load_user_settings(user_id):
             st.session_state[f'event_name_col_selected_{user_id}'] = settings['event_name_col_selected']
         if 'event_name_col_selected_update' in settings: # 更新タブ用の設定も考慮
             st.session_state[f'event_name_col_selected_update_{user_id}'] = settings['event_name_col_selected_update']
+        # 新しい設定項目を追加
+        if 'add_task_type_to_event_name' in settings:
+            st.session_state[f'add_task_type_to_event_name_{user_id}'] = settings['add_task_type_to_event_name']
     else:
         # ドキュメントがない場合はデフォルト値を設定
         st.session_state[f'description_columns_selected_{user_id}'] = ["内容", "詳細"]
         st.session_state[f'event_name_col_selected_{user_id}'] = "選択しない"
         st.session_state[f'event_name_col_selected_update_{user_id}'] = "選択しない" # 更新タブ用デフォルト
+        # 新しい設定項目のデフォルト値を設定
+        st.session_state[f'add_task_type_to_event_name_{user_id}'] = False
+
 
 def save_user_setting(user_id, setting_key, setting_value):
     """ユーザー設定をFirestoreに保存する"""
@@ -298,8 +304,17 @@ with tabs[1]:
         # selected_event_name_col を初期化
         selected_event_name_col = st.session_state.get(f'event_name_col_selected_{user_id}', "選択しない")
 
+        st.subheader("イベント名の生成設定")
+        
+        # 新しいチェックボックスを追加
+        current_add_task_type_setting = st.session_state.get(f'add_task_type_to_event_name_{user_id}', False)
+        add_task_type_to_event_name = st.checkbox(
+            "イベント名の先頭に作業タイプを追加する",
+            value=current_add_task_type_setting,
+            key=f"add_task_type_checkbox_{user_id}"
+        )
+
         if not (has_mng_data and has_name_data):
-            st.subheader("イベント名の設定")
             if not has_mng_data and not has_name_data:
                 st.info("ファイルに「管理番号」と「物件名」のデータが見つかりませんでした。イベント名に使用する列を選択してください。")
             elif not has_mng_data:
@@ -373,6 +388,7 @@ with tabs[1]:
                 # ここでFirestoreに選択項目を保存
                 save_user_setting(user_id, 'description_columns_selected', description_columns)
                 save_user_setting(user_id, 'event_name_col_selected', selected_event_name_col)
+                save_user_setting(user_id, 'add_task_type_to_event_name', add_task_type_to_event_name)
 
 
                 with st.spinner("イベントデータを処理中..."):
@@ -383,7 +399,8 @@ with tabs[1]:
                             description_columns, 
                             all_day_event_override,
                             private_event, 
-                            fallback_event_name_column
+                            fallback_event_name_column,
+                            add_task_type_to_event_name # 新しい引数を渡す
                         )
                     except (ValueError, IOError) as e:
                         st.error(f"Excelデータ処理中にエラーが発生しました: {e}")
@@ -695,9 +712,19 @@ with tabs[3]:
         
         # selected_event_name_col_update を初期化
         selected_event_name_col_update = st.session_state.get(f'event_name_col_selected_update_{user_id}', "選択しない")
+        
+        st.subheader("更新時のイベント名の生成設定")
+        
+        # 新しいチェックボックスを追加 (更新タブ用)
+        current_add_task_type_setting_update = st.session_state.get(f'add_task_type_to_event_name_update_{user_id}', False)
+        add_task_type_to_event_name_update = st.checkbox(
+            "イベント名の先頭に作業タイプを追加する",
+            value=current_add_task_type_setting_update,
+            key=f"add_task_type_checkbox_update_{user_id}"
+        )
+
 
         if not (has_mng_data_update and has_name_data_update):
-            st.subheader("更新時のイベント名の設定")
             st.info("Excelデータからのイベント名生成に、以下の列を代替として使用できます。")
 
             available_event_name_cols_update = get_available_columns_for_event_name(st.session_state['merged_df_for_selector'])
@@ -732,6 +759,8 @@ with tabs[3]:
                 # ここでFirestoreに選択項目を保存
                 save_user_setting(user_id, 'description_columns_selected_update', description_columns_update)
                 save_user_setting(user_id, 'event_name_col_selected_update', selected_event_name_col_update)
+                save_user_setting(user_id, 'add_task_type_to_event_name_update', add_task_type_to_event_name_update)
+
 
                 with st.spinner("イベントを処理中..."):
                     try:
@@ -741,7 +770,8 @@ with tabs[3]:
                             description_columns_update, # 更新タブ用の列
                             all_day_event_override_update, # 更新タブ用の設定
                             private_event_update,         # 更新タブ用の設定
-                            fallback_event_name_column_update # 新しい引数
+                            fallback_event_name_column_update, # 新しい引数
+                            add_task_type_to_event_name_update # 新しい引数を渡す
                         )
                     except (ValueError, IOError) as e:
                         st.error(f"Excelデータ処理中にエラーが発生しました: {e}")
@@ -861,6 +891,12 @@ with st.sidebar:
                 del st.session_state[f'event_name_col_selected_{user_id}']
             if f'event_name_col_selected_update_{user_id}' in st.session_state:
                 del st.session_state[f'event_name_col_selected_update_{user_id}']
+            # 新しい設定項目をクリア
+            if f'add_task_type_to_event_name_{user_id}' in st.session_state:
+                del st.session_state[f'add_task_type_to_event_name_{user_id}']
+            if f'add_task_type_to_event_name_update_{user_id}' in st.session_state:
+                del st.session_state[f'add_task_type_to_event_name_update_{user_id}']
+
 
         # その他のセッション状態をクリア
         for key in list(st.session_state.keys()):
