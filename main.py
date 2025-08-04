@@ -443,7 +443,7 @@ with tabs[1]:
                                 
                                 # 更新対象イベントのデータ構造を構築
                                 updated_event_data = {
-                                    'summary': event_summary, # 修正後のイベント名を使用
+                                    'summary': event_summary, # ★修正箇所: ここで`event_summary`を使用
                                     'location': row['Location'],
                                     'description': row['Description'],
                                     'transparency': 'transparent' if row['Private'] == "True" else 'opaque'
@@ -500,7 +500,7 @@ with tabs[1]:
                                     end_date_for_api = (event_end_date_obj + timedelta(days=1)).strftime("%Y-%m-%d") 
 
                                     event_data_to_process = {
-                                        'summary': event_summary, # 修正後のイベント名を使用
+                                        'summary': event_summary, # ★修正箇所: ここで`event_summary`を使用
                                         'location': row['Location'],
                                         'description': row['Description'],
                                         'start': {'date': start_date_str},
@@ -522,7 +522,7 @@ with tabs[1]:
                                     end_iso = event_end_datetime_obj.isoformat()
 
                                     event_data_to_process = {
-                                        'summary': event_summary, # 修正後のイベント名を使用
+                                        'summary': event_summary, # ★修正箇所: ここで`event_summary`を使用
                                         'location': row['Location'],
                                         'description': row['Description'],
                                         'start': {'dateTime': start_iso, 'timeZone': 'Asia/Tokyo'},
