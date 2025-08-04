@@ -103,7 +103,7 @@ def get_available_columns_for_event_name(df):
     イベント名に使用可能な列名を取得します。
     日時関連や特定の除外キーワードを含む列、および'管理番号'を除外します。
     """
-    exclude_keywords = ["日時", "開始", "終了", "予定", "時間", "date", "time", "start", "end", "all day", "private", "subject", "description", "location"]
+    exclude_keywords = ["日時", "開始", "終了", "予定", "時間", "date", "time", "start", "end", "all day", "private", "subject", "description", "location", "作業タイプ"]
     available_columns = []
     
     for col in df.columns:
@@ -133,7 +133,8 @@ def process_excel_data_for_calendar(
     description_columns, 
     all_day_event_override, # all_day_eventから名称変更し、上書き設定であることを明確に
     private_event, 
-    fallback_event_name_column=None
+    fallback_event_name_column=None,
+    add_task_type_to_event_name=False # 新しい引数を追加
 ):
     """
     アップロードされたExcelファイルを処理し、Outlookカレンダーインポート用のDataFrameを生成します。
@@ -146,6 +147,7 @@ def process_excel_data_for_calendar(
         private_event (bool): Trueの場合、すべてのイベントをプライベートとしてマーク。
         fallback_event_name_column (str, optional): '管理番号'や'物件名'がない場合の
                                                     代替イベント名に使用する列名。Defaults to None.
+        add_task_type_to_event_name (bool): Trueの場合、イベント名の先頭に「作業タイプ」列の値を追加する。Defaults to False.
 
     Returns:
         pandas.DataFrame: カレンダーインポート用の整形されたデータ。
@@ -162,6 +164,10 @@ def process_excel_data_for_calendar(
     end_col = find_closest_column(merged_df.columns, ["予定終了", "終了日時", "終了時間", "終了"])
     addr_col = find_closest_column(merged_df.columns, ["住所", "所在地"])
     worksheet_col = find_closest_column(merged_df.columns, ["作業指示書"])
+    
+    # 新しく作業タイプ列を検索
+    task_type_col = find_closest_column(merged_df.columns, ["作業タイプ"])
+
 
     if not start_col: # 'end_col' がなくても1時間イベントとして処理するので、'start_col'のみを必須とする
         raise ValueError("必須の時刻列（'予定開始'、または'開始日時'など）が見つかりません。")
@@ -174,10 +180,17 @@ def process_excel_data_for_calendar(
         
         # イベント名の決定ロジック
         subj = ""
+        
+        # 新しいロジック: 作業タイプを先頭に追加するかどうか
+        if add_task_type_to_event_name and task_type_col and pd.notna(row.get(task_type_col)):
+            task_type = str(row.get(task_type_col)).strip()
+            if task_type:
+                subj += f"【{task_type}】"
+        
         if mng and str(mng).strip(): # 管理番号にデータがある場合
             subj += str(mng).strip()
         if name and str(name).strip(): # 物件名にデータがある場合
-            if subj: # 管理番号がある場合は間にスペース
+            if subj and not subj.endswith("【】"): # 管理番号または作業タイプがある場合は間にスペース
                 subj += " " 
             subj += str(name).strip()
         
