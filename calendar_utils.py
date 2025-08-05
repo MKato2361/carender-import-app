@@ -1,28 +1,3 @@
-import streamlit as st
-import firebase_admin
-from firebase_admin import credentials, auth, firestore
-from google_auth_oauthlib.flow import Flow
-from google.auth.transport.requests import Request
-from google.oauth2.credentials import Credentials
-import json
-import re
-from datetime import datetime, timedelta, timezone
-from googleapiclient.discovery import build
-from googleapiclient.errors import HttpError
-import requests
-
-# ✅ Firebase認証ヘルパーの読み込みと初期化
-from firebase_auth import get_firebase_user_id, initialize_firebase
-
-# 🔧 Firebase初期化（これがないと Firestore クライアントが使えない）
-initialize_firebase()
-
-# 認証スコープ
-SCOPES = [
-    "https://www.googleapis.com/auth/calendar",
-    "https://www.googleapis.com/auth/tasks"
-]
-
 def authenticate_google():
     creds = None
     user_id = get_firebase_user_id()
@@ -33,13 +8,18 @@ def authenticate_google():
     db = firestore.client()
     doc_ref = db.collection('google_tokens').document(user_id)
 
-    # セッションステートから認証情報を確認
+    # セッションから認証情報を取得
     if 'credentials' in st.session_state and st.session_state['credentials']:
         creds = st.session_state['credentials']
         if creds.valid:
             return creds
+        elif creds.expired and creds.refresh_token:
+            creds.refresh(Request())
+            st.session_state['credentials'] = creds
+            doc_ref.set(json.loads(creds.to_json()))
+            return creds
 
-    # Firestoreから読み込む
+    # Firestoreから認証情報を取得
     try:
         doc = doc_ref.get()
         if doc.exists:
@@ -51,49 +31,58 @@ def authenticate_google():
                 creds.refresh(Request())
                 st.session_state['credentials'] = creds
                 doc_ref.set(json.loads(creds.to_json()))
-                st.info("認証トークンを更新しました。")
+                st.info("Google認証トークンを更新しました。")
                 st.rerun()
 
             return creds
     except Exception as e:
-        st.error(f"Firestoreからのトークン読み込みに失敗しました: {e}")
+        st.error(f"Firestoreからトークン取得に失敗しました: {e}")
         creds = None
 
-    # OAuth認証開始
-    if not creds:
-        try:
-            client_config = {
-                "installed": {
-                    "client_id": st.secrets["google"]["client_id"],
-                    "client_secret": st.secrets["google"]["client_secret"],
-                    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-                    "token_uri": "https://oauth2.googleapis.com/token",
-                    "redirect_uris": ["urn:ietf:wg:oauth:2.0:oob"]
-                }
+    # 新しいOAuthフロー（Webリダイレクト型）
+    try:
+        client_config = {
+            "web": {
+                "client_id": st.secrets["google"]["client_id"],
+                "project_id": st.secrets["google"]["project_id"],
+                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                "token_uri": "https://oauth2.googleapis.com/token",
+                "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+                "client_secret": st.secrets["google"]["client_secret"],
+                "redirect_uris": [st.secrets["google"]["redirect_uri"]]
             }
+        }
 
-            flow = Flow.from_client_config(client_config, SCOPES)
-            flow.redirect_uri = "urn:ietf:wg:oauth:2.0:oob"
-            auth_url, _ = flow.authorization_url(prompt='consent')
+        flow = Flow.from_client_config(client_config, SCOPES)
+        flow.redirect_uri = st.secrets["google"]["redirect_uri"]
 
-            st.info("以下のURLをブラウザで開いて、表示されたコードをここに貼り付けてください：")
-            st.write(auth_url)
-            code = st.text_input("認証コードを貼り付けてください:")
+        # URLパラメータから認証コード取得
+        params = st.experimental_get_query_params()
+        if "code" not in params:
+            auth_url, _ = flow.authorization_url(
+                prompt='consent',
+                access_type='offline',
+                include_granted_scopes='true'
+            )
+            st.markdown(f"[Googleでログインする]({auth_url})")
+            st.stop()
+        else:
+            code = params["code"][0]
+            flow.fetch_token(code=code)
+            creds = flow.credentials
+            st.session_state['credentials'] = creds
+            doc_ref.set(json.loads(creds.to_json()))
+            st.success("Google認証が完了しました！")
+            st.experimental_set_query_params()  # 認証コードをURLから消す
+            st.rerun()
 
-            if code:
-                flow.fetch_token(code=code)
-                creds = flow.credentials
-                st.session_state['credentials'] = creds
-                doc_ref.set(json.loads(creds.to_json()))
-                st.success("Google認証が完了しました！")
-                st.rerun()
-
-        except Exception as e:
-            st.error(f"Google認証に失敗しました: {e}")
-            st.session_state['credentials'] = None
-            return None
+    except Exception as e:
+        st.error(f"Google認証に失敗しました: {e}")
+        st.session_state['credentials'] = None
+        return None
 
     return creds
+
 
 def build_tasks_service(creds):
     try:
