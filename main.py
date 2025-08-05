@@ -23,148 +23,169 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from firebase_admin import firestore
 
-st.set_page_config(page_title="Googleカレンダー一括イベント登録・削除", layout="wide")
-st.title("📅 Googleカレンダー一括イベント登録・削除")
+# 修正コードを適用
+import calendar_utils
+import excel_parser
 
-if not initialize_firebase():
-    st.error("Firebaseの初期化に失敗しました。")
-    st.stop()
+from firebase_auth import login_page, get_firebase_user_id
 
-db = firestore.client()
+st.set_page_config(
+    page_title="ExcelからGoogleカレンダーへイベントをインポート",
+    page_icon="📅",
+    layout="wide"
+)
 
-user_id = get_firebase_user_id()
-
-if not user_id:
-    firebase_auth_form()
-    st.stop()
-
-def load_user_settings(user_id):
-    if not user_id:
-        return
-
-    doc_ref = db.collection('user_settings').document(user_id)
-    doc = doc_ref.get()
-
-    if doc.exists:
-        settings = doc.to_dict()
-        if 'description_columns_selected' in settings:
-            st.session_state[f'description_columns_selected_{user_id}'] = settings['description_columns_selected']
-        if 'event_name_col_selected' in settings:
-            st.session_state[f'event_name_col_selected_{user_id}'] = settings['event_name_col_selected']
-        if 'event_name_col_selected_update' in settings:
-            st.session_state[f'event_name_col_selected_update_{user_id}'] = settings['event_name_col_selected_update']
-        if 'add_task_type_to_event_name' in settings:
-            st.session_state[f'add_task_type_to_event_name_{user_id}'] = settings['add_task_type_to_event_name']
-    else:
-        st.session_state[f'description_columns_selected_{user_id}'] = ["内容", "詳細"]
-        st.session_state[f'event_name_col_selected_{user_id}'] = "選択しない"
-        st.session_state[f'event_name_col_selected_update_{user_id}'] = "選択しない"
-        st.session_state[f'add_task_type_to_event_name_{user_id}'] = False
-
-def save_user_setting(user_id, setting_key, setting_value):
-    if not user_id:
-        return
-
-    doc_ref = db.collection('user_settings').document(user_id)
-    try:
-        doc_ref.set({setting_key: setting_value}, merge=True)
-    except Exception as e:
-        st.error(f"設定の保存に失敗しました: {e}")
-
-load_user_settings(user_id)
-
-google_auth_placeholder = st.empty()
-
-with google_auth_placeholder.container():
-    st.subheader("🔐 Googleカレンダー認証")
-    creds = authenticate_google()
-
-    if not creds:
-        st.warning("Googleカレンダー認証を完了してください。")
+def main():
+    """
+    Streamlitアプリケーションのメイン関数
+    """
+    # Firebase初期化をmain関数内で実行
+    if not initialize_firebase():
+        st.error("Firebaseの初期化に失敗しました。")
         st.stop()
-    else:
-        google_auth_placeholder.empty()
-        st.sidebar.success("✅ Googleカレンダーに認証済みです！")
 
-def initialize_calendar_service():
-    try:
-        service = build("calendar", "v3", credentials=creds)
-        calendar_list = service.calendarList().list().execute()
+    db = firestore.client()
+    
+    user = login_page()
+    if user:
+        user_id = get_firebase_user_id()
         
-        editable_calendar_options = {
-            cal['summary']: cal['id']
-            for cal in calendar_list['items']
-            if cal.get('accessRole') != 'reader'
-        }
-        
-        return service, editable_calendar_options
-    except HttpError as e:
-        st.error(f"カレンダーサービスの初期化に失敗しました (HTTPエラー): {e}")
-        return None, None
-    except Exception as e:
-        st.error(f"カレンダーサービスの初期化に失敗しました: {e}")
-        return None, None
+        if not user_id:
+            firebase_auth_form()
+            st.stop()
 
-def initialize_tasks_service_wrapper():
-    try:
-        tasks_service = build_tasks_service(creds)
-        if not tasks_service:
-            return None, None
-            
-        task_lists = tasks_service.tasklists().list().execute()
-        default_task_list_id = None
-        
-        for task_list in task_lists.get('items', []):
-            if task_list.get('title') == 'My Tasks':
-                default_task_list_id = task_list['id']
-                break
+        # ユーザー設定の読み込み関数
+        def load_user_settings(user_id):
+            if not user_id:
+                return
+
+            doc_ref = db.collection('user_settings').document(user_id)
+            doc = doc_ref.get()
+
+            if doc.exists:
+                settings = doc.to_dict()
+                if 'description_columns_selected' in settings:
+                    st.session_state[f'description_columns_selected_{user_id}'] = settings['description_columns_selected']
+                if 'event_name_col_selected' in settings:
+                    st.session_state[f'event_name_col_selected_{user_id}'] = settings['event_name_col_selected']
+                if 'event_name_col_selected_update' in settings:
+                    st.session_state[f'event_name_col_selected_update_{user_id}'] = settings['event_name_col_selected_update']
+                if 'add_task_type_to_event_name' in settings:
+                    st.session_state[f'add_task_type_to_event_name_{user_id}'] = settings['add_task_type_to_event_name']
+            else:
+                st.session_state[f'description_columns_selected_{user_id}'] = ["内容", "詳細"]
+                st.session_state[f'event_name_col_selected_{user_id}'] = "選択しない"
+                st.session_state[f'event_name_col_selected_update_{user_id}'] = "選択しない"
+                st.session_state[f'add_task_type_to_event_name_{user_id}'] = False
+
+        def save_user_setting(user_id, setting_key, setting_value):
+            if not user_id:
+                return
+
+            doc_ref = db.collection('user_settings').document(user_id)
+            try:
+                doc_ref.set({setting_key: setting_value}, merge=True)
+            except Exception as e:
+                st.error(f"設定の保存に失敗しました: {e}")
+
+        load_user_settings(user_id)
+
+        st.title("📅 Googleカレンダー一括イベント登録・削除")
+
+        # Google認証部分
+        google_auth_placeholder = st.empty()
+
+        with google_auth_placeholder.container():
+            st.subheader("🔐 Googleカレンダー認証")
+            creds = authenticate_google()
+
+            if not creds:
+                st.warning("Googleカレンダー認証を完了してください。")
+                st.stop()
+            else:
+                google_auth_placeholder.empty()
+                st.sidebar.success("✅ Googleカレンダーに認証済みです！")
+
+        def initialize_calendar_service():
+            try:
+                service = build("calendar", "v3", credentials=creds)
+                calendar_list = service.calendarList().list().execute()
                 
-        if not default_task_list_id and task_lists.get('items'):
-            default_task_list_id = task_lists['items'][0]['id']
-        
-        return tasks_service, default_task_list_id
-    except HttpError as e:
-        st.warning(f"Google ToDoリストサービスの初期化に失敗しました (HTTPエラー): {e}")
-        return None, None
-    except Exception as e:
-        st.warning(f"Google ToDoリストサービスの初期化に失敗しました: {e}")
-        return None, None
+                editable_calendar_options = {
+                    cal['summary']: cal['id']
+                    for cal in calendar_list['items']
+                    if cal.get('accessRole') != 'reader'
+                }
+                
+                return service, editable_calendar_options
+            except HttpError as e:
+                st.error(f"カレンダーサービスの初期化に失敗しました (HTTPエラー): {e}")
+                return None, None
+            except Exception as e:
+                st.error(f"カレンダーサービスの初期化に失敗しました: {e}")
+                return None, None
 
-if 'calendar_service' not in st.session_state or not st.session_state['calendar_service']:
-    service, editable_calendar_options = initialize_calendar_service()
-    
-    if not service:
-        st.warning("Google認証の状態を確認するか、ページをリロードしてください。")
-        st.stop()
-    
-    st.session_state['calendar_service'] = service
-    st.session_state['editable_calendar_options'] = editable_calendar_options
-else:
-    service = st.session_state['calendar_service']
-    _, st.session_state['editable_calendar_options'] = initialize_calendar_service()
+        def initialize_tasks_service_wrapper():
+            try:
+                tasks_service = build_tasks_service(creds)
+                if not tasks_service:
+                    return None, None
+                    
+                task_lists = tasks_service.tasklists().list().execute()
+                default_task_list_id = None
+                
+                for task_list in task_lists.get('items', []):
+                    if task_list.get('title') == 'My Tasks':
+                        default_task_list_id = task_list['id']
+                        break
+                        
+                if not default_task_list_id and task_lists.get('items'):
+                    default_task_list_id = task_lists['items'][0]['id']
+                
+                return tasks_service, default_task_list_id
+            except HttpError as e:
+                st.warning(f"Google ToDoリストサービスの初期化に失敗しました (HTTPエラー): {e}")
+                return None, None
+            except Exception as e:
+                st.warning(f"Google ToDoリストサービスの初期化に失敗しました: {e}")
+                return None, None
 
-if 'tasks_service' not in st.session_state or not st.session_state.get('tasks_service'):
-    tasks_service, default_task_list_id = initialize_tasks_service_wrapper()
-    
-    st.session_state['tasks_service'] = tasks_service
-    st.session_state['default_task_list_id'] = default_task_list_id
-    
-    if not tasks_service:
-        st.info("ToDoリスト機能は利用できませんが、カレンダー機能は引き続き使用できます。")
-else:
-    tasks_service = st.session_state['tasks_service']
+        if 'calendar_service' not in st.session_state or not st.session_state['calendar_service']:
+            service, editable_calendar_options = initialize_calendar_service()
+            
+            if not service:
+                st.warning("Google認証の状態を確認するか、ページをリロードしてください。")
+                st.stop()
+            
+            st.session_state['calendar_service'] = service
+            st.session_state['editable_calendar_options'] = editable_calendar_options
+        else:
+            service = st.session_state['calendar_service']
+            _, st.session_state['editable_calendar_options'] = initialize_calendar_service()
 
-tabs = st.tabs([
-    "1. ファイルのアップロード",
-    "2. イベントの登録",
-    "3. イベントの削除",
-    "4. イベントの更新"
-])
+        if 'tasks_service' not in st.session_state or not st.session_state.get('tasks_service'):
+            tasks_service, default_task_list_id = initialize_tasks_service_wrapper()
+            
+            st.session_state['tasks_service'] = tasks_service
+            st.session_state['default_task_list_id'] = default_task_list_id
+            
+            if not tasks_service:
+                st.info("ToDoリスト機能は利用できませんが、カレンダー機能は引き続き使用できます。")
+        else:
+            tasks_service = st.session_state['tasks_service']
 
-if 'uploaded_files' not in st.session_state:
-    st.session_state['uploaded_files'] = []
-    st.session_state['description_columns_pool'] = []
-    st.session_state['merged_df_for_selector'] = pd.DataFrame()
+        tabs = st.tabs([
+            "1. ファイルのアップロード",
+            "2. イベントの登録",
+            "3. イベントの削除",
+            "4. イベントの更新"
+        ])
+
+        if 'uploaded_files' not in st.session_state:
+            st.session_state['uploaded_files'] = []
+            st.session_state['description_columns_pool'] = []
+            st.session_state['merged_df_for_selector'] = pd.DataFrame()
+
 
 with tabs[0]:
     st.header("ファイルをアップロード")
