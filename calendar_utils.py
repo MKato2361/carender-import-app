@@ -97,7 +97,7 @@ def authenticate_google():
         flow = Flow.from_client_config(client_config, SCOPES)
         flow.redirect_uri = st.secrets["google"]["redirect_uri"]
 
-        params = st.experimental_get_query_params()
+        params = st.query_params
         if "code" not in params:
             auth_url, _ = flow.authorization_url(
                 prompt='consent',
@@ -107,13 +107,13 @@ def authenticate_google():
             st.markdown(f"[Googleでログインする]({auth_url})")
             st.stop()
         else:
-            code = params["code"][0]
+            code = params["code"]
             flow.fetch_token(code=code)
             creds = flow.credentials
             st.session_state['credentials'] = creds
             doc_ref.set(json.loads(creds.to_json()))
             st.success("Google認証が完了しました！")
-            st.experimental_set_query_params()
+            st.query_params.clear()
             st.rerun()
 
     except Exception as e:
@@ -208,4 +208,3 @@ def find_and_delete_tasks_by_event_id(tasks_service, task_list_id, event_id):
     except Exception as e:
         st.error(f"タスク検索・削除失敗: {e}")
     return 0
-
