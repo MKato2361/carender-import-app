@@ -8,6 +8,7 @@ from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from firebase_admin import firestore
 from firebase_auth import get_firebase_user_id  # 追加
+from googleapiclient.discovery import build
 
 # Google API スコープ
 SCOPES = [
