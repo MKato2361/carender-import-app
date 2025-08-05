@@ -1,3 +1,23 @@
+import os
+import json
+import pickle
+from pathlib import Path
+import streamlit as st
+from google_auth_oauthlib.flow import Flow
+from google.auth.transport.requests import Request
+from google.oauth2.credentials import Credentials
+from firebase_admin import firestore
+from firebase_auth import get_firebase_user_id  # 追加
+
+# Google API スコープ
+SCOPES = [
+    "https://www.googleapis.com/auth/calendar",
+    "https://www.googleapis.com/auth/tasks"
+]
+
+# ==============================
+# Google 認証（Webリダイレクト型に変更）
+# ==============================
 def authenticate_google():
     creds = None
     user_id = get_firebase_user_id()
@@ -8,7 +28,7 @@ def authenticate_google():
     db = firestore.client()
     doc_ref = db.collection('google_tokens').document(user_id)
 
-    # セッションから認証情報を取得
+    # --- セッションから ---
     if 'credentials' in st.session_state and st.session_state['credentials']:
         creds = st.session_state['credentials']
         if creds.valid:
@@ -19,7 +39,7 @@ def authenticate_google():
             doc_ref.set(json.loads(creds.to_json()))
             return creds
 
-    # Firestoreから認証情報を取得
+    # --- Firestoreから ---
     try:
         doc = doc_ref.get()
         if doc.exists:
@@ -39,7 +59,7 @@ def authenticate_google():
         st.error(f"Firestoreからトークン取得に失敗しました: {e}")
         creds = None
 
-    # 新しいOAuthフロー（Webリダイレクト型）
+    # --- 新しいOAuthフロー（Webリダイレクト型） ---
     try:
         client_config = {
             "web": {
@@ -56,7 +76,7 @@ def authenticate_google():
         flow = Flow.from_client_config(client_config, SCOPES)
         flow.redirect_uri = st.secrets["google"]["redirect_uri"]
 
-        # URLパラメータから認証コード取得
+        # URLパラメータから認証コードを取得
         params = st.experimental_get_query_params()
         if "code" not in params:
             auth_url, _ = flow.authorization_url(
@@ -73,7 +93,7 @@ def authenticate_google():
             st.session_state['credentials'] = creds
             doc_ref.set(json.loads(creds.to_json()))
             st.success("Google認証が完了しました！")
-            st.experimental_set_query_params()  # 認証コードをURLから消す
+            st.experimental_set_query_params()  # URLからcodeを削除
             st.rerun()
 
     except Exception as e:
@@ -82,7 +102,6 @@ def authenticate_google():
         return None
 
     return creds
-
 
 def build_tasks_service(creds):
     try:
