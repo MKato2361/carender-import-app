@@ -11,19 +11,21 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 import requests
 
-# ✅ Firebase認証ヘルパーの読み込みと初期化
 from firebase_auth import get_firebase_user_id, initialize_firebase
 
-# 🔧 Firebase初期化（これがないと Firestore クライアントが使えない）
+# Firebaseの初期化
 initialize_firebase()
 
-# 認証スコープ
 SCOPES = [
     "https://www.googleapis.com/auth/calendar",
     "https://www.googleapis.com/auth/tasks"
 ]
 
 def authenticate_google():
+    """
+    Google OAuth認証を処理し、認証情報を返す関数。
+    Webアプリケーション向けの認証フローに修正
+    """
     creds = None
     user_id = get_firebase_user_id()
 
@@ -33,230 +35,203 @@ def authenticate_google():
     db = firestore.client()
     doc_ref = db.collection('google_tokens').document(user_id)
 
-    # セッションステートから認証情報を確認
+    # 1. セッションステートから認証情報を確認
     if 'credentials' in st.session_state and st.session_state['credentials']:
         creds = st.session_state['credentials']
         if creds.valid:
             return creds
 
-    # Firestoreから読み込む
+    # 2. Firestoreからトークンを読み込む
     try:
         doc = doc_ref.get()
         if doc.exists:
             token_data = doc.to_dict()
             creds = Credentials.from_authorized_user_info(token_data, SCOPES)
             st.session_state['credentials'] = creds
-
-            if creds.expired and creds.refresh_token:
+            
+            # トークンの有効期限を確認し、必要ならリフレッシュ
+            if creds and creds.expired and creds.refresh_token:
                 creds.refresh(Request())
+                token_data = json.loads(creds.to_json())
+                doc_ref.set(token_data) # Firestoreに更新後のトークンを保存
                 st.session_state['credentials'] = creds
-                doc_ref.set(json.loads(creds.to_json()))
-                st.info("認証トークンを更新しました。")
-                st.rerun()
-
-            return creds
+            if creds.valid:
+                return creds
+            
     except Exception as e:
-        st.error(f"Firestoreからのトークン読み込みに失敗しました: {e}")
-        creds = None
+        st.error(f"Firestoreからの認証情報読み込みに失敗しました: {e}")
+        st.session_state['credentials'] = None
+        return None
 
-    # OAuth認証開始
-    if not creds:
+    # 3. 認証情報がない場合、OAuthフローを開始
+    client_config = st.secrets["google_oauth"]
+    
+    # Webアプリケーション向けにリダイレクトURIを設定
+    redirect_uri = client_config["redirect_uris"][0]
+    
+    flow = Flow.from_client_config(
+        client_config, 
+        scopes=SCOPES, 
+        redirect_uri=redirect_uri
+    )
+
+    auth_url, _ = flow.authorization_url(prompt='consent', access_type='offline')
+    
+    # 認証URLをユーザーに表示
+    st.write("Googleカレンダーと連携するには、以下のリンクをクリックしてください。")
+    st.markdown(f"[Google認証ページへ移動する]({auth_url})", unsafe_allow_html=True)
+    
+    # ユーザーが認証を完了し、リダイレクトされた後、URLに認証コードが付与される
+    if "code" in st.query_params:
         try:
-            client_config = {
-                "installed": {
-                    "client_id": st.secrets["google"]["client_id"],
-                    "client_secret": st.secrets["google"]["client_secret"],
-                    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-                    "token_uri": "https://oauth2.googleapis.com/token",
-                    "redirect_uris": ["urn:ietf:wg:oauth:2.0:oob"]
-                }
-            }
+            flow.fetch_token(code=st.query_params["code"])
+            creds = flow.credentials
+            st.session_state['credentials'] = creds
 
-            flow = Flow.from_client_config(client_config, SCOPES)
-            flow.redirect_uri = "urn:ietf:wg:oauth:2.0:oob"
-            auth_url, _ = flow.authorization_url(prompt='consent')
-
-            st.info("以下のURLをブラウザで開いて、表示されたコードをここに貼り付けてください：")
-            st.write(auth_url)
-            code = st.text_input("認証コードを貼り付けてください:")
-
-            if code:
-                flow.fetch_token(code=code)
-                creds = flow.credentials
-                st.session_state['credentials'] = creds
-                doc_ref.set(json.loads(creds.to_json()))
-                st.success("Google認証が完了しました！")
-                st.rerun()
-
+            # 認証情報をFirestoreに保存
+            token_data = json.loads(creds.to_json())
+            doc_ref.set(token_data)
+            
+            st.experimental_rerun() # 認証完了後、画面を再描画して認証済み状態にする
         except Exception as e:
-            st.error(f"Google認証に失敗しました: {e}")
+            st.error(f"トークンの取得に失敗しました: {e}")
             st.session_state['credentials'] = None
-            return None
+    
+    return None
 
-    return creds
-
-def build_tasks_service(creds):
+def get_google_service(creds, service_name='calendar', version='v3'):
+    """
+    Google APIサービスを認証情報を使って構築する
+    """
+    if creds is None or not creds.valid:
+        return None
     try:
-        if not creds:
-            return None
-        return build('tasks', 'v1', credentials=creds)
-    except Exception as e:
-        st.warning(f"Google Tasks サービスのビルドに失敗しました: {e}")
+        service = build(service_name, version, credentials=creds)
+        return service
+    except HttpError as error:
+        st.error(f"Google APIサービス構築中にエラーが発生しました: {error}")
         return None
 
-def add_event_to_calendar(service, calendar_id, event_data):
+def get_all_calendars(service):
+    """
+    ユーザーがアクセス可能なすべてのカレンダーのリストを取得する
+    """
+    if not service:
+        st.error("Google認証がされていません。")
+        return []
+    
     try:
-        event = service.events().insert(calendarId=calendar_id, body=event_data).execute()
-        return event
+        calendar_list_result = service.calendarList().list().execute()
+        calendars = calendar_list_result.get('items', [])
+        return calendars
     except HttpError as e:
-        st.error(f"イベントの追加に失敗しました (HTTPエラー): {e}")
+        st.error(f"カレンダーリストの取得に失敗しました: {e}")
+        return []
+
+def get_calendar_id_by_summary(calendars, summary):
+    """
+    指定されたsummary（カレンダー名）を持つカレンダーのIDを検索する
+    """
+    for calendar in calendars:
+        if calendar.get('summary') == summary:
+            return calendar.get('id')
+    return None
+
+def create_event(service, calendar_id, event_summary, start_time_str, end_time_str, timezone_str):
+    """
+    指定されたカレンダーに新しいイベントを作成する
+    """
+    if not service:
+        st.error("Google認証がされていません。")
         return None
-    except Exception as e:
-        st.error(f"イベントの追加に失敗しました: {e}")
+    
+    try:
+        event = {
+            'summary': event_summary,
+            'start': {
+                'dateTime': start_time_str,
+                'timeZone': timezone_str,
+            },
+            'end': {
+                'dateTime': end_time_str,
+                'timeZone': timezone_str,
+            },
+        }
+
+        created_event = service.events().insert(calendarId=calendar_id, body=event).execute()
+        return created_event
+    except HttpError as e:
+        st.error(f"イベント作成中にエラーが発生しました: {e}")
         return None
 
-def fetch_all_events(service, calendar_id, time_min=None, time_max=None):
+def delete_events_by_summary(service, calendar_id, event_summary):
+    """
+    指定されたカレンダーから、指定されたサマリーを持つすべてのイベントを削除する
+    """
+    if not service:
+        st.error("Google認証がされていません。")
+        return None
+    
     try:
+        # イベントを検索
         events_result = service.events().list(
             calendarId=calendar_id,
-            timeMin=time_min,
-            timeMax=time_max,
+            q=event_summary,
             singleEvents=True,
             orderBy='startTime'
         ).execute()
-        return events_result.get('items', [])
-    except HttpError as e:
-        st.error(f"イベントの取得に失敗しました (HTTPエラー): {e}")
-        return []
-    except Exception as e:
-        st.error(f"イベントの取得に失敗しました: {e}")
-        return []
+        
+        events_to_delete = events_result.get('items', [])
+        
+        if not events_to_delete:
+            st.info(f"'{event_summary}' というイベントは見つかりませんでした。")
+            return 0
 
-def update_event_if_needed(service, calendar_id, event_id, updated_event_data):
-    try:
-        existing_event = service.events().get(calendarId=calendar_id, eventId=event_id).execute()
-        needs_update = any(
-            existing_event.get(key) != value
-            for key, value in updated_event_data.items()
-        )
-        if needs_update:
-            return service.events().update(
-                calendarId=calendar_id,
-                eventId=event_id,
-                body=updated_event_data
-            ).execute()
-        else:
-            return existing_event
-    except HttpError as e:
-        st.error(f"イベントの更新に失敗しました (HTTPエラー): {e}")
-        return None
-    except Exception as e:
-        st.error(f"イベントの更新に失敗しました: {e}")
-        return None
-
-def add_task_to_todo_list(tasks_service, task_list_id, task_data):
-    try:
-        if not tasks_service:
-            return None
-        return tasks_service.tasks().insert(
-            tasklist=task_list_id,
-            body=task_data
-        ).execute()
-    except HttpError as e:
-        st.error(f"タスクの追加に失敗しました (HTTPエラー): {e}")
-        return None
-    except Exception as e:
-        st.error(f"タスクの追加に失敗しました: {e}")
-        return None
-
-def find_and_delete_tasks_by_event_id(tasks_service, task_list_id, event_id):
-    try:
-        if not tasks_service:
-            return False
-        tasks_result = tasks_service.tasks().list(tasklist=task_list_id).execute()
-        tasks = tasks_result.get('items', [])
         deleted_count = 0
-        for task in tasks:
-            if (event_id in task.get('notes', '') or event_id in task.get('title', '')):
-                try:
-                    tasks_service.tasks().delete(
-                        tasklist=task_list_id,
-                        task=task['id']
-                    ).execute()
-                    deleted_count += 1
-                except Exception as e:
-                    st.warning(f"タスクの削除に失敗しました: {e}")
-        return deleted_count > 0
+        for event in events_to_delete:
+            service.events().delete(calendarId=calendar_id, eventId=event['id']).execute()
+            deleted_count += 1
+            
+        return deleted_count
     except HttpError as e:
-        st.error(f"タスクの検索・削除に失敗しました (HTTPエラー): {e}")
-        return False
-    except Exception as e:
-        st.error(f"タスクの検索・削除に失敗しました: {e}")
-        return False
+        st.error(f"イベント削除中にエラーが発生しました: {e}")
+        return 0
 
-def delete_event_from_calendar(service, calendar_id, event_id):
+def convert_excel_date_to_datetime_utc(excel_date):
+    """
+    Excelのシリアル値をUTCのdatetimeオブジェクトに変換する
+    """
     try:
-        service.events().delete(calendarId=calendar_id, eventId=event_id).execute()
-        return True
-    except HttpError as e:
-        st.error(f"イベントの削除に失敗しました (HTTPエラー): {e}")
-        return False
+        base_date = datetime(1899, 12, 30, tzinfo=timezone.utc)
+        if isinstance(excel_date, (int, float)):
+            delta = timedelta(days=excel_date)
+            # Excelの閏年バグ（1900年2月29日）を考慮して1日引く
+            if excel_date > 60:
+                delta -= timedelta(days=1)
+            utc_datetime = base_date + delta
+            return utc_datetime
     except Exception as e:
-        st.error(f"イベントの削除に失敗しました: {e}")
-        return False
+        st.error(f"日付の変換に失敗しました: {e}")
+    return None
 
-def format_event_for_calendar(title, start_datetime, end_datetime, description="", location=""):
-    event_data = {
-        'summary': title,
-        'start': {
-            'dateTime': start_datetime.isoformat(),
-            'timeZone': 'Asia/Tokyo',
-        },
-        'end': {
-            'dateTime': end_datetime.isoformat(),
-            'timeZone': 'Asia/Tokyo',
-        },
-        'description': description,
-    }
-    if location:
-        event_data['location'] = location
-    return event_data
-
-def format_task_for_todo_list(title, notes="", due_date=None):
-    task_data = {'title': title, 'notes': notes}
-    if due_date:
-        task_data['due'] = due_date.isoformat() + 'Z'
-    return task_data
-
-def get_calendar_colors():
-    return {
-        'デフォルト': '1',
-        'ラベンダー': '2',
-        'セージ': '3',
-        'ぶどう': '4',
-        'フラミンゴ': '5',
-        'バナナ': '6',
-        'マンダリン': '7',
-        'ピーコック': '8',
-        'グラファイト': '9',
-        'バジル': '10',
-        'トマト': '11'
-    }
-
-def validate_datetime(date_str, time_str):
-    try:
-        if isinstance(date_str, str):
-            date_obj = datetime.strptime(date_str, '%Y-%m-%d').date()
-        else:
-            date_obj = date_str
-
-        if isinstance(time_str, str):
-            time_obj = datetime.strptime(time_str, '%H:%M').time()
-        else:
-            time_obj = time_str
-
-        dt = datetime.combine(date_obj, time_obj)
-        return dt.replace(tzinfo=timezone(timedelta(hours=9)))
-    except ValueError as e:
-        st.error(f"日付または時刻の形式が正しくありません: {e}")
-        return None
+def normalize_date_string(date_str):
+    """
+    さまざまな日付文字列を 'YYYY-MM-DD' 形式に正規化する
+    """
+    formats = [
+        "%Y/%m/%d", "%Y-%m-%d", "%Y年%m月%d日",
+        "%m/%d/%Y", "%m-%d-%Y",
+        "%B %d, %Y", "%d %B, %Y"
+    ]
+    
+    # 全角数字を半角に変換
+    date_str = date_str.translate(str.maketrans('０１２３４５６７８９', '0123456789'))
+    
+    for fmt in formats:
+        try:
+            return datetime.strptime(date_str, fmt).strftime("%Y-%m-%d")
+        except ValueError:
+            continue
+    
+    st.error(f"日付形式 '{date_str}' を解析できませんでした。'YYYY-MM-DD' または 'YYYY/MM/DD' 形式を使用してください。")
+    return None
