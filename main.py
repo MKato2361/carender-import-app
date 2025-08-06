@@ -246,12 +246,7 @@ with tabs[1]:
     if saved_defaults:default_selection = [col for col in saved_defaults if col in description_columns_pool]
     else:default_selection = []
 
-description_columns = st.multiselect(
-    "説明欄に含める列（複数選択可）",
-    description_columns_pool,
-    default=default_selection,
-    key=f"description_selector_register_{user_id}"
-)
+        description_columns = st.multiselect("説明欄に含める列（複数選択可）",description_columns_pool,default=default_selection,key=f"description_selector_register_{user_id}")
 
         fallback_event_name_column = None
         has_mng_data, has_name_data = check_event_name_columns(st.session_state['merged_df_for_selector'])
