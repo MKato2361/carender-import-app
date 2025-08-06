@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, date, timedelta, timezone
 import re
-import logging
 from excel_parser import (
     process_excel_data_for_calendar,
     _load_and_merge_dataframes,
@@ -31,8 +30,6 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from firebase_admin import firestore
 
-logging.basicConfig(level=logging.INFO, filename="app.log")
-
 st.set_page_config(page_title="Googleカレンダー一括イベント登録・削除", layout="wide")
 st.title("📅 Googleカレンダー一括イベント登録・削除")
 
@@ -53,15 +50,11 @@ def load_user_settings_from_firestore(user_id):
         return
     initialize_session_state(user_id)
     doc_ref = db.collection('user_settings').document(user_id)
-    try:
-        doc = doc_ref.get()
-        if doc.exists:
-            settings = doc.to_dict()
-            for key, value in settings.items():
-                set_user_setting(user_id, key, value)
-    except Exception as e:
-        logging.error(f"ユーザー設定の読み込みに失敗: {e}")
-        st.error(f"ユーザー設定の読み込みに失敗しました: {e}")
+    doc = doc_ref.get()
+    if doc.exists:
+        settings = doc.to_dict()
+        for key, value in settings.items():
+            set_user_setting(user_id, key, value)
 
 def save_user_setting_to_firestore(user_id, setting_key, setting_value):
     """Firestoreにユーザー設定を保存"""
@@ -71,7 +64,6 @@ def save_user_setting_to_firestore(user_id, setting_key, setting_value):
     try:
         doc_ref.set({setting_key: setting_value}, merge=True)
     except Exception as e:
-        logging.error(f"ユーザー設定の保存に失敗: {e}")
         st.error(f"設定の保存に失敗しました: {e}")
 
 # ユーザー設定の読み込み
@@ -84,11 +76,7 @@ with google_auth_placeholder.container():
     creds = authenticate_google()
 
     if not creds:
-        st.warning("Googleカレンダー認証を完了してください。以下のメッセージを確認して、必要に応じて認証をやり直してください。")
-        if st.button("認証をリセットして再試行"):
-            if 'google_auth' in st.session_state:
-                del st.session_state['google_auth']
-            st.rerun()
+        st.warning("Googleカレンダー認証を完了してください。")
         st.stop()
     else:
         google_auth_placeholder.empty()
@@ -105,12 +93,9 @@ def initialize_calendar_service():
         }
         return service, editable_calendar_options
     except HttpError as e:
-        error_code = e.resp.status
-        logging.error(f"カレンダーサービス初期化エラー (HTTP {error_code}): {e}")
-        st.error(f"カレンダーサービスの初期化に失敗しました: HTTPエラー {error_code}")
+        st.error(f"カレンダーサービスの初期化に失敗しました (HTTPエラー): {e}")
         return None, None
     except Exception as e:
-        logging.exception(f"カレンダーサービス初期化中にエラーが発生: {e}")
         st.error(f"カレンダーサービスの初期化に失敗しました: {e}")
         return None, None
 
@@ -129,12 +114,9 @@ def initialize_tasks_service_wrapper():
             default_task_list_id = task_lists['items'][0]['id']
         return tasks_service, default_task_list_id
     except HttpError as e:
-        error_code = e.resp.status
-        logging.error(f"Tasksサービス初期化エラー (HTTP {error_code}): {e}")
-        st.warning(f"Google ToDoリストサービスの初期化に失敗しました: HTTPエラー {error_code}")
+        st.warning(f"Google ToDoリストサービスの初期化に失敗しました (HTTPエラー): {e}")
         return None, None
     except Exception as e:
-        logging.exception(f"Tasksサービス初期化中にエラーが発生: {e}")
         st.warning(f"Google ToDoリストサービスの初期化に失敗しました: {e}")
         return None, None
 
@@ -226,7 +208,6 @@ with tabs[0]:
             if st.session_state['merged_df_for_selector'].empty:
                 st.warning("読み込まれたファイルに有効なデータがありませんでした。")
         except (ValueError, IOError) as e:
-            logging.error(f"ファイル読み込みエラー: {e}")
             st.error(f"ファイルの読み込みに失敗しました: {e}")
             st.session_state['uploaded_files'] = []
             st.session_state['merged_df_for_selector'] = pd.DataFrame()
@@ -355,7 +336,6 @@ with tabs[1]:
                             add_task_type_to_event_name
                         )
                     except (ValueError, IOError) as e:
-                        logging.error(f"Excelデータ処理エラー: {e}")
                         st.error(f"Excelデータ処理中にエラーが発生しました: {e}")
                         df = pd.DataFrame()
 
@@ -364,19 +344,13 @@ with tabs[1]:
                     else:
                         st.info(f"{len(df)} 件のイベントを処理します。")
                         progress = st.progress(0)
-                        status_text = st.empty()
                         successful_operations = 0
                         successful_todo_creations = 0
 
                         worksheet_to_event = {}
                         time_min = (datetime.now(timezone.utc) - timedelta(days=365*2)).isoformat()
                         time_max = (datetime.now(timezone.utc) + timedelta(days=365*2)).isoformat()
-                        try:
-                            events = fetch_all_events(service, calendar_id, time_min, time_max)
-                        except Exception as e:
-                            logging.error(f"イベント取得エラー: {e}")
-                            st.error(f"イベントの取得に失敗しました: {e}")
-                            st.stop()
+                        events = fetch_all_events(service, calendar_id, time_min, time_max)
 
                         for event in events:
                             desc = event.get('description', '')
@@ -386,7 +360,6 @@ with tabs[1]:
                                 worksheet_to_event[worksheet_id] = event
 
                         for i, row in df.iterrows():
-                            status_text.text(f"処理中: {row['Subject']} ({i+1}/{len(df)})")
                             match = re.search(r"作業指示書[：:]\s*(\d+)", row['Description'])
                             event_data = {
                                 'summary': row['Subject'],
@@ -417,7 +390,6 @@ with tabs[1]:
                                     if updated_event:
                                         successful_operations += 1
                                 except Exception as e:
-                                    logging.error(f"イベント更新エラー (Subject: {row['Subject']}, 作業指示書: {worksheet_id}): {e}")
                                     st.error(f"イベント '{row['Subject']}' (作業指示書: {worksheet_id}) の更新に失敗しました: {e}")
                             else:
                                 try:
@@ -428,7 +400,6 @@ with tabs[1]:
                                         if worksheet_id:
                                             worksheet_to_event[worksheet_id] = added_event
                                 except Exception as e:
-                                    logging.error(f"イベント追加エラー (Subject: {row['Subject']}): {e}")
                                     st.error(f"イベント '{row['Subject']}' の追加に失敗しました: {e}")
 
                             if create_todo and tasks_service and default_task_list_id:
@@ -450,17 +421,14 @@ with tabs[1]:
                                                 if add_task_to_todo_list(tasks_service, default_task_list_id, task_data):
                                                     successful_todo_creations += 1
                                             except Exception as e:
-                                                logging.error(f"ToDo追加エラー (Summary: {todo_summary}): {e}")
                                                 st.error(f"ToDo '{todo_summary}' の追加に失敗しました: {e}")
                                     else:
                                         st.warning(f"ToDoの期限が設定されませんでした。カスタム日数が無効です。")
                                 except Exception as e:
-                                    logging.error(f"ToDo期限設定エラー (Subject: {row['Subject']}): {e}")
                                     st.warning(f"ToDoの期限を設定できませんでした。イベント開始日が不明です: {e}")
 
                             progress.progress((i + 1) / len(df))
 
-                        status_text.empty()
                         st.success(f"✅ {successful_operations} 件のイベントが処理されました (新規登録/更新)。")
                         if create_todo:
                             st.success(f"✅ {successful_todo_creations} 件のToDoリストが作成されました！")
@@ -493,13 +461,8 @@ with tabs[2]:
                 time_min_utc = start_dt_utc.isoformat(timespec='microseconds').replace('+00:00', 'Z')
                 time_max_utc = end_dt_utc.isoformat(timespec='microseconds').replace('+00:00', 'Z')
 
-                try:
-                    events_to_delete = fetch_all_events(calendar_service, calendar_id_del, time_min_utc, time_max_utc)
-                except Exception as e:
-                    logging.error(f"イベント取得エラー: {e}")
-                    st.error(f"イベントの取得に失敗しました: {e}")
-                    st.stop()
-
+                events_to_delete = fetch_all_events(calendar_service, calendar_id_del, time_min_utc, time_max_utc)
+                
                 if not events_to_delete:
                     st.info("指定期間内に削除するイベントはありませんでした。")
 
@@ -526,10 +489,9 @@ with tabs[2]:
                                 )
                                 deleted_todos_count += deleted_task_count_for_event
                             
-                            if delete_event_from_calendar(calendar_service, calendar_id_del, event_id):
-                                deleted_events_count += 1
+                            calendar_service.events().delete(calendarId=calendar_id_del, eventId=event_id).execute()
+                            deleted_events_count += 1
                         except Exception as e:
-                            logging.error(f"イベント削除エラー (Summary: {event_summary}, ID: {event_id}): {e}")
                             st.error(f"イベント '{event_summary}' (ID: {event_id}) の削除に失敗しました: {e}")
                         
                         progress_bar.progress((i + 1) / total_events)
@@ -619,7 +581,6 @@ with tabs[3]:
                             add_task_type_to_event_name_update
                         )
                     except (ValueError, IOError) as e:
-                        logging.error(f"Excelデータ処理エラー: {e}")
                         st.error(f"Excelデータ処理中にエラーが発生しました: {e}")
                         df = pd.DataFrame()
 
@@ -630,12 +591,7 @@ with tabs[3]:
                     today_for_update = datetime.now()
                     time_min = (today_for_update - timedelta(days=365*2)).isoformat() + 'Z'
                     time_max = (today_for_update + timedelta(days=365*2)).isoformat() + 'Z'
-                    try:
-                        events = fetch_all_events(service, calendar_id_upd, time_min, time_max)
-                    except Exception as e:
-                        logging.error(f"イベント取得エラー: {e}")
-                        st.error(f"イベントの取得に失敗しました: {e}")
-                        st.stop()
+                    events = fetch_all_events(service, calendar_id_upd, time_min, time_max)
 
                     worksheet_to_event = {}
                     for event in events:
@@ -647,9 +603,7 @@ with tabs[3]:
 
                     update_count = 0
                     progress_bar = st.progress(0)
-                    status_text = st.empty()
                     for i, row in df.iterrows():
-                        status_text.text(f"処理中: {row['Subject']} ({i+1}/{len(df)})")
                         match = re.search(r"作業指示書[：:]\s*(\d+)", row['Description'])
                         if not match:
                             progress_bar.progress((i + 1) / len(df))
@@ -685,12 +639,10 @@ with tabs[3]:
                             if update_event_if_needed(service, calendar_id_upd, matched_event['id'], event_data):
                                 update_count += 1
                         except Exception as e:
-                            logging.error(f"イベント更新エラー (Subject: {row['Subject']}, 作業指示書: {worksheet_id}): {e}")
                             st.error(f"イベント '{row['Subject']}' (作業指示書: {worksheet_id}) の更新に失敗しました: {e}")
                         
                         progress_bar.progress((i + 1) / len(df))
 
-                    status_text.empty()
                     st.success(f"✅ {update_count} 件のイベントを更新しました。")
 
 with st.sidebar:
