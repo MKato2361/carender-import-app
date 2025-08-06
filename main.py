@@ -2,7 +2,6 @@ import streamlit as st
 import calendar_utils
 import session_utils
 import firebase_auth # This is now the Google Auth module
-import google_calendar_api
 
 # Initialize Streamlit session state
 session_utils.set_session_state_defaults()
@@ -36,11 +35,11 @@ else:
         try:
             # Exchange auth code for tokens and save to session
             user_info, google_auth_info = firebase_auth.handle_google_auth_callback(auth_code)
-            
+
             if user_info and google_auth_info:
                 st.session_state.user_info = user_info
                 st.session_state.google_auth_info = google_auth_info
-                
+
                 st.success("Successfully logged in!")
                 st.query_params.clear()
                 st.rerun()
