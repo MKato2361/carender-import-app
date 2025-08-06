@@ -236,12 +236,22 @@ with tabs[1]:
         all_day_event_override = st.checkbox("終日イベントとして登録", value=False)
         private_event = st.checkbox("非公開イベントとして登録", value=True)
 
-        description_columns = st.multiselect(
-            "説明欄に含める列（複数選択可）",
-            st.session_state.get('description_columns_pool', []),
-            default=get_user_setting(user_id, 'description_columns_selected'),
-            key=f"description_selector_register_{user_id}"
-        )
+    # Assuming description_columns_pool is the list of available options
+    description_columns_pool = st.session_state.get('description_columns_pool', [])
+
+    # Get the user's saved default setting
+    saved_defaults = get_user_setting(user_id, 'description_columns_selected')
+
+    # Filter the saved_defaults to only include columns that are available in the current file
+    if saved_defaults:default_selection = [col for col in saved_defaults if col in description_columns_pool]
+    else:default_selection = []
+
+description_columns = st.multiselect(
+    "説明欄に含める列（複数選択可）",
+    description_columns_pool,
+    default=default_selection,
+    key=f"description_selector_register_{user_id}"
+)
 
         fallback_event_name_column = None
         has_mng_data, has_name_data = check_event_name_columns(st.session_state['merged_df_for_selector'])
