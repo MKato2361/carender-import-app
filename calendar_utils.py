@@ -5,15 +5,14 @@ from google.oauth2.credentials import Credentials
 from backoff import on_exception, expo
 from datetime import datetime, timedelta
 import re
+import streamlit as st
 
 logging.basicConfig(level=logging.INFO, filename="app.log")
 
 def authenticate_google():
     try:
-        import streamlit as st
         from google_auth_oauthlib.flow import InstalledAppFlow
         from google.auth.transport.requests import Request
-        import pickle
         import os
 
         SCOPES = [
@@ -23,8 +22,10 @@ def authenticate_google():
         
         creds = None
         if 'google_auth' in st.session_state:
+            st.write("セッションに認証情報が見つかりました。認証情報を確認中...")
             creds = Credentials(**st.session_state['google_auth'])
             if creds.expired and creds.refresh_token:
+                st.write("認証情報が期限切れです。リフレッシュします...")
                 creds.refresh(Request())
                 st.session_state['google_auth'] = {
                     'token': creds.token,
@@ -34,20 +35,42 @@ def authenticate_google():
                     'client_secret': creds.client_secret,
                     'scopes': creds.scopes
                 }
-        else:
+                st.write("認証情報をリフレッシュしました。")
+            elif not creds.valid:
+                st.write("認証情報が無効です。新しい認証を開始します...")
+                st.session_state.pop('google_auth')
+                creds = None
+            else:
+                st.write("有効な認証情報がセッションに存在します。")
+        
+        if not creds:
+            if not os.path.exists('credentials.json'):
+                st.error("credentials.json ファイルが見つかりません。Google Cloud Consoleからダウンロードして配置してください。")
+                logging.error("credentials.json ファイルが見つかりません")
+                return None
+            
+            st.write("Google認証を開始します。以下のリンクをクリックして認証してください。")
             flow = InstalledAppFlow.from_client_secrets_file('credentials.json', SCOPES)
-            creds = flow.run_local_server(port=0)
-            st.session_state['google_auth'] = {
-                'token': creds.token,
-                'refresh_token': creds.refresh_token,
-                'token_uri': creds.token_uri,
-                'client_id': creds.client_id,
-                'client_secret': creds.client_secret,
-                'scopes': creds.scopes
-            }
+            try:
+                creds = flow.run_local_server(port=0, prompt='consent')
+                st.session_state['google_auth'] = {
+                    'token': creds.token,
+                    'refresh_token': creds.refresh_token,
+                    'token_uri': creds.token_uri,
+                    'client_id': creds.client_id,
+                    'client_secret': creds.client_secret,
+                    'scopes': creds.scopes
+                }
+                st.write("Google認証が完了しました！")
+            except Exception as e:
+                st.error(f"Google認証中にエラーが発生しました: {e}")
+                logging.error(f"Google認証エラー: {e}")
+                return None
+        
         return creds
     except Exception as e:
-        logging.error(f"Google認証中にエラーが発生: {e}")
+        st.error(f"Google認証中に予期しないエラーが発生しました: {e}")
+        logging.exception(f"Google認証中にエラーが発生: {e}")
         return None
 
 def build_tasks_service(creds):
@@ -59,7 +82,6 @@ def build_tasks_service(creds):
 
 @on_exception(expo, HttpError, max_tries=5, giveup=lambda e: e.resp.status not in [429, 503])
 def add_event_to_calendar(service, calendar_id, event_data):
-    import streamlit as st
     try:
         return service.events().insert(calendarId=calendar_id, body=event_data).execute()
     except HttpError as e:
@@ -74,7 +96,6 @@ def add_event_to_calendar(service, calendar_id, event_data):
 
 @on_exception(expo, HttpError, max_tries=5, giveup=lambda e: e.resp.status not in [429, 503])
 def fetch_all_events(service, calendar_id, time_min, time_max):
-    import streamlit as st
     try:
         events = []
         page_token = None
@@ -104,7 +125,6 @@ def fetch_all_events(service, calendar_id, time_min, time_max):
 
 @on_exception(expo, HttpError, max_tries=5, giveup=lambda e: e.resp.status not in [429, 503])
 def update_event_if_needed(service, calendar_id, event_id, event_data):
-    import streamlit as st
     try:
         existing_event = service.events().get(calendarId=calendar_id, eventId=event_id).execute()
         needs_update = (
@@ -135,7 +155,6 @@ def update_event_if_needed(service, calendar_id, event_id, event_data):
 
 @on_exception(expo, HttpError, max_tries=5, giveup=lambda e: e.resp.status not in [429, 503])
 def delete_event_from_calendar(service, calendar_id, event_id):
-    import streamlit as st
     try:
         service.events().delete(calendarId=calendar_id, eventId=event_id).execute()
         return True
@@ -151,7 +170,6 @@ def delete_event_from_calendar(service, calendar_id, event_id):
 
 @on_exception(expo, HttpError, max_tries=5, giveup=lambda e: e.resp.status not in [429, 503])
 def add_task_to_todo_list(service, task_list_id, task_data):
-    import streamlit as st
     try:
         return service.tasks().insert(tasklist=task_list_id, body=task_data).execute()
     except HttpError as e:
@@ -166,7 +184,6 @@ def add_task_to_todo_list(service, task_list_id, task_data):
 
 @on_exception(expo, HttpError, max_tries=5, giveup=lambda e: e.resp.status not in [429, 503])
 def find_and_delete_tasks_by_event_id(service, task_list_id, event_id):
-    import streamlit as st
     try:
         tasks = service.tasks().list(tasklist=task_list_id).execute()
         deleted_count = 0
