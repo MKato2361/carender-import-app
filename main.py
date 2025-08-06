@@ -1,35 +1,58 @@
 import streamlit as st
-import pandas as pd
-from datetime import datetime, date, timedelta, timezone
-import re
-from excel_parser import (
-    process_excel_data_for_calendar,
-    _load_and_merge_dataframes,
-    get_available_columns_for_event_name,
-    check_event_name_columns,
-    format_worksheet_value
-)
-from calendar_utils import (
-    authenticate_google,
-    add_event_to_calendar,
-    fetch_all_events,
-    update_event_if_needed,
-    build_tasks_service,
-    add_task_to_todo_list,
-    find_and_delete_tasks_by_event_id
-)
-from firebase_auth import initialize_firebase, firebase_auth_form, get_firebase_user_id
-from session_utils import (
-    initialize_session_state,
-    get_user_setting,
-    set_user_setting,
-    get_all_user_settings,
-    clear_user_settings
-)
-from googleapiclient.discovery import build
-from googleapiclient.errors import HttpError
-from firebase_admin import firestore
+import calendar_utils
+import session_utils
+import firebase_auth # This is now the Google Auth module
+import google_calendar_api
 
+# Initialize Streamlit session state
+session_utils.set_session_state_defaults()
+
+# --- Main App ---
+st.title("Streamlit Google Calendar & Task App")
+
+# Check if user is authenticated
+if st.session_state.get("user_info") and st.session_state.get("google_auth_info"):
+    # User is logged in, show main content
+    st.sidebar.success(f"Logged in as: {st.session_state.user_info.email}")
+    st.sidebar.button("Logout", on_click=session_utils.logout)
+
+    st.subheader("Google Calendar Events")
+    calendar_utils.display_calendar_events(
+        st.session_state.user_info.uid, st.session_state.google_auth_info
+    )
+
+    st.subheader("Google Tasks")
+    calendar_utils.display_task_lists(
+        st.session_state.user_info.uid, st.session_state.google_auth_info
+    )
+
+else:
+    # User is not logged in, show login page
+    st.info("Please sign in with your Google account to use the app.")
+
+    # Check for authentication redirect
+    auth_code = st.query_params.get("code")
+    if auth_code:
+        try:
+            # Exchange auth code for tokens and save to session
+            user_info, google_auth_info = firebase_auth.handle_google_auth_callback(auth_code)
+            
+            if user_info and google_auth_info:
+                st.session_state.user_info = user_info
+                st.session_state.google_auth_info = google_auth_info
+                
+                st.success("Successfully logged in!")
+                st.query_params.clear()
+                st.rerun()
+
+        except Exception as e:
+            st.error(f"Authentication failed: {e}")
+            st.query_params.clear()
+
+    # Create a link to start the Google authentication flow
+    auth_url = firebase_auth.get_google_auth_url()
+    st.link_button("Sign in with Google", auth_url)
+    
 st.set_page_config(page_title="Googleカレンダー一括イベント登録・削除", layout="wide")
 st.title("📅 Googleカレンダー一括イベント登録・削除")
 
