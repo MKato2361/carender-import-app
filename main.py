@@ -29,6 +29,9 @@ from session_utils import (
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from firebase_admin import firestore
+import os
+from pathlib import Path
+from io import BytesIO
 
 st.set_page_config(page_title="Googleカレンダー一括イベント登録・削除", layout="wide")
 st.title("📅 Googleカレンダー一括イベント登録・削除")
@@ -166,10 +169,6 @@ with tabs[0]:
     ☐ToDoリストを作成すると、点検通知のリマインドが可能です（ToDoとしてイベント登録されます）
     """)
 
-    import os
-    from pathlib import Path
-    from io import BytesIO
-
     def get_local_excel_files():
         current_dir = Path(__file__).parent
         return [f for f in current_dir.glob("*.xlsx") if f.is_file()]
@@ -236,10 +235,18 @@ with tabs[1]:
         all_day_event_override = st.checkbox("終日イベントとして登録", value=False)
         private_event = st.checkbox("非公開イベントとして登録", value=True)
 
+        # 修正箇所: ユーザー設定を読み込み、利用可能な列にフィルタリング
+        description_columns_pool = st.session_state.get('description_columns_pool', [])
+        saved_defaults = get_user_setting(user_id, 'description_columns_selected')
+        if saved_defaults:
+            default_selection = [col for col in saved_defaults if col in description_columns_pool]
+        else:
+            default_selection = []
+
         description_columns = st.multiselect(
             "説明欄に含める列（複数選択可）",
-            st.session_state.get('description_columns_pool', []),
-            default=get_user_setting(user_id, 'description_columns_selected'),
+            description_columns_pool,
+            default=default_selection,
             key=f"description_selector_register_{user_id}"
         )
 
@@ -520,10 +527,18 @@ with tabs[3]:
         all_day_event_override_update = st.checkbox("終日イベントとして扱う", value=False, key="update_all_day")
         private_event_update = st.checkbox("非公開イベントとして扱う", value=True, key="update_private")
 
+        # 修正箇所: ユーザー設定を読み込み、利用可能な列にフィルタリング
+        description_columns_pool_update = st.session_state['description_columns_pool']
+        saved_defaults_update = get_user_setting(user_id, 'description_columns_selected')
+        if saved_defaults_update:
+            default_selection_update = [col for col in saved_defaults_update if col in description_columns_pool_update]
+        else:
+            default_selection_update = []
+
         description_columns_update = st.multiselect(
             "説明欄に含める列", 
-            st.session_state['description_columns_pool'], 
-            default=get_user_setting(user_id, 'description_columns_selected'),
+            description_columns_pool_update, 
+            default=default_selection_update,
             key=f"update_desc_cols_{user_id}"
         )
 
