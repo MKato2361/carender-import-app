@@ -84,7 +84,11 @@ with google_auth_placeholder.container():
     creds = authenticate_google()
 
     if not creds:
-        st.warning("Googleカレンダー認証を完了してください。")
+        st.warning("Googleカレンダー認証を完了してください。以下のメッセージを確認して、必要に応じて認証をやり直してください。")
+        if st.button("認証をリセットして再試行"):
+            if 'google_auth' in st.session_state:
+                del st.session_state['google_auth']
+            st.rerun()
         st.stop()
     else:
         google_auth_placeholder.empty()
@@ -370,6 +374,7 @@ with tabs[1]:
                         try:
                             events = fetch_all_events(service, calendar_id, time_min, time_max)
                         except Exception as e:
+                            logging.error(f"イベント取得エラー: {e}")
                             st.error(f"イベントの取得に失敗しました: {e}")
                             st.stop()
 
