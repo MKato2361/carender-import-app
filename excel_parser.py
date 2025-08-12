@@ -28,6 +28,7 @@ def format_worksheet_value(val):
         return str(int(val))
     return str(val)
 
+
 def _load_and_merge_dataframes(uploaded_files):
     dataframes = []
     
@@ -39,17 +40,20 @@ def _load_and_merge_dataframes(uploaded_files):
             df = pd.read_excel(uploaded_file, engine="openpyxl")
             df.columns = [str(c).strip() for c in df.columns]
             
+            # 管理番号列の生成
             mng_col = find_closest_column(df.columns, ["管理番号"])
             if mng_col:
                 df["管理番号"] = df[mng_col].apply(clean_mng_num)
             else:
                 df["管理番号"] = ""
-            
+
+            # 作業指示書列の生成
             worksheet_col = find_closest_column(df.columns, ["作業指示書"])
             if worksheet_col:
                 df["作業指示書"] = df[worksheet_col].apply(format_worksheet_value)
             else:
                 df["作業指示書"] = ""
+
             dataframes.append(df)
         except Exception as e:
             raise IOError(f"ファイル '{uploaded_file.name}' の読み込みに失敗しました: {e}")
@@ -59,14 +63,21 @@ def _load_and_merge_dataframes(uploaded_files):
 
     merged_df = dataframes[0].copy()
     merged_df['管理番号'] = merged_df['管理番号'].astype(str)
+    merged_df['作業指示書'] = merged_df['作業指示書'].astype(str)
     
     for df in dataframes[1:]:
         df_copy = df.copy()
         df_copy['管理番号'] = df_copy['管理番号'].astype(str)
-        cols_to_merge = [col for col in df_copy.columns if col == "管理番号" or col not in merged_df.columns]
-        merged_df = pd.merge(merged_df, df_copy[cols_to_merge], on=["管理番号", "作業指示書"], how="outer")
+        df_copy['作業指示書'] = df_copy['作業指示書'].astype(str)
 
-    if not merged_df["管理番号"].str.strip().eq("").all():
+        # 両方そろっている場合のみマージ
+        if not (df_copy["管理番号"].str.strip().eq("") | df_copy["作業指示書"].str.strip().eq("")).all():
+            cols_to_merge = [col for col in df_copy.columns if col in ["管理番号", "作業指示書"] or col not in merged_df.columns]
+            merged_df = pd.merge(merged_df, df_copy[cols_to_merge], on=["管理番号", "作業指示書"], how="outer")
+        else:
+            merged_df = pd.concat([merged_df, df_copy], ignore_index=True)
+
+    if not (merged_df["管理番号"].str.strip().eq("") & merged_df["作業指示書"].str.strip().eq("")).all():
         merged_df.drop_duplicates(subset=["管理番号", "作業指示書"], inplace=True)
         
     return merged_df
@@ -224,3 +235,4 @@ def process_excel_data_for_calendar(
         })
 
     return pd.DataFrame(output_records) if output_records else pd.DataFrame()
+
