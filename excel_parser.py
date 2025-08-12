@@ -44,6 +44,12 @@ def _load_and_merge_dataframes(uploaded_files):
                 df["管理番号"] = df[mng_col].apply(clean_mng_num)
             else:
                 df["管理番号"] = ""
+            
+            worksheet_col = find_closest_column(df.columns, ["作業指示書"])
+            if worksheet_col:
+                df["作業指示書"] = df[worksheet_col].apply(format_worksheet_value)
+            else:
+                df["作業指示書"] = ""
             dataframes.append(df)
         except Exception as e:
             raise IOError(f"ファイル '{uploaded_file.name}' の読み込みに失敗しました: {e}")
@@ -58,10 +64,10 @@ def _load_and_merge_dataframes(uploaded_files):
         df_copy = df.copy()
         df_copy['管理番号'] = df_copy['管理番号'].astype(str)
         cols_to_merge = [col for col in df_copy.columns if col == "管理番号" or col not in merged_df.columns]
-        merged_df = pd.merge(merged_df, df_copy[cols_to_merge], on="管理番号", how="outer")
+        merged_df = pd.merge(merged_df, df_copy[cols_to_merge], on=["管理番号", "作業指示書"], how="outer")
 
     if not merged_df["管理番号"].str.strip().eq("").all():
-        merged_df.drop_duplicates(subset="管理番号", inplace=True)
+        merged_df.drop_duplicates(subset=["管理番号", "作業指示書"], inplace=True)
         
     return merged_df
 
