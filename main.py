@@ -1,9 +1,6 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta, timezone
-from io import BytesIO
-import re
-from pathlib import Path
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from firebase_admin import firestore
@@ -29,7 +26,6 @@ from session_utils import (
     initialize_session_state,
     get_user_setting,
     set_user_setting,
-    get_all_user_settings,
     clear_user_settings
 )
 
@@ -74,14 +70,16 @@ if not st.session_state.creds:
 else:
     st.sidebar.success("✅ Googleカレンダーに認証済みです！")
 
-@st.cache_resource(ttl=3600)
 def get_calendar_service(creds):
+    """カレンダーサービスを構築し、編集可能なカレンダーを返す"""
+    if not creds:
+        return None, None
     try:
         service = build("calendar", "v3", credentials=creds)
         calendar_list = service.calendarList().list().execute()
         editable_calendars = {
             cal['summary']: cal['id']
-            for cal in calendar_list['items']
+            for cal in calendar_list.get('items', [])
             if cal.get('accessRole') in ['owner', 'writer']
         }
         return service, editable_calendars
@@ -89,8 +87,10 @@ def get_calendar_service(creds):
         st.error(f"カレンダーサービスの初期化に失敗しました: {e}")
         return None, None
 
-@st.cache_resource(ttl=3600)
 def get_tasks_service(creds):
+    """ToDoリストサービスを構築し、デフォルトリストIDを返す"""
+    if not creds:
+        return None, None
     try:
         tasks_service = build_tasks_service(creds)
         if not tasks_service:
@@ -181,15 +181,15 @@ with tabs[1]:
         with col_checkbox1:
             all_day_event_override = st.checkbox(
                 "全てのイベントを終日イベントとして登録する",
-                value=st.session_state.get('all_day_event_override', False)
+                value=get_user_setting(user_id, 'all_day_event_override')
             )
-            st.session_state.all_day_event_override = all_day_event_override
+            set_user_setting(user_id, 'all_day_event_override', all_day_event_override)
         with col_checkbox2:
             private_event = st.checkbox(
                 "全てのイベントを非公開として登録する",
-                value=st.session_state.get('private_event', False)
+                value=get_user_setting(user_id, 'private_event')
             )
-            st.session_state.private_event = private_event
+            set_user_setting(user_id, 'private_event', private_event)
 
         add_task_type = st.checkbox(
             "イベント名に作業タイプを追加する（作業タイプ列がある場合）",
@@ -198,7 +198,7 @@ with tabs[1]:
         set_user_setting(user_id, 'add_task_type_to_event_name', add_task_type)
         
         if st.button("イベントを登録", type="primary"):
-            if not uploaded_files:
+            if not st.session_state.get('uploaded_files'):
                 st.warning("イベントを登録するには、まずファイルをアップロードしてください。")
             else:
                 try:
@@ -234,8 +234,11 @@ with tabs[1]:
 
 with tabs[2]:
     st.header("3. イベント削除設定")
-    delete_with_mng = st.checkbox("管理番号でイベントを削除", value=st.session_state.get('delete_with_mng', False))
-    st.session_state.delete_with_mng = delete_with_mng
+    delete_with_mng = st.checkbox(
+        "管理番号でイベントを削除",
+        value=get_user_setting(user_id, 'delete_with_mng')
+    )
+    set_user_setting(user_id, 'delete_with_mng', delete_with_mng)
     
     if st.button("イベントを削除", type="primary"):
         if 'merged_df' not in st.session_state or 'uploaded_files' not in st.session_state:
@@ -287,7 +290,7 @@ with tabs[3]:
             description_options_upd = st.multiselect(
                 "更新後の説明文に含める列を選択",
                 options=available_columns_upd,
-                default=get_user_setting(user_id, 'description_columns_selected')
+                default=get_user_setting(user_id, 'description_columns_selected_update')
             )
             set_user_setting(user_id, 'description_columns_selected_update', description_options_upd)
         
@@ -306,17 +309,17 @@ with tabs[3]:
         with col_checkbox1_upd:
             all_day_event_override_upd = st.checkbox(
                 "全てのイベントを終日イベントとして更新する",
-                value=st.session_state.get('all_day_event_override_upd', False),
+                value=get_user_setting(user_id, 'all_day_event_override_upd'),
                 key="update_all_day_event"
             )
-            st.session_state.all_day_event_override_upd = all_day_event_override_upd
+            set_user_setting(user_id, 'all_day_event_override_upd', all_day_event_override_upd)
         with col_checkbox2_upd:
             private_event_upd = st.checkbox(
                 "全てのイベントを非公開として更新する",
-                value=st.session_state.get('private_event_upd', False),
+                value=get_user_setting(user_id, 'private_event_upd'),
                 key="update_private_event"
             )
-            st.session_state.private_event_upd = private_event_upd
+            set_user_setting(user_id, 'private_event_upd', private_event_upd)
             
         add_task_type_upd = st.checkbox(
             "イベント名に作業タイプを追加する（作業タイプ列がある場合）",
@@ -359,7 +362,7 @@ with tabs[3]:
                     progress_bar = st.progress(0)
                     
                     for i, row in df.iterrows():
-                        worksheet_id = row['worksheet_id']
+                        worksheet_id = format_worksheet_value(row['worksheet_id'])
                         matched_event = next(
                             (event for event in all_events if worksheet_id.lower() in event.get('summary', '').lower()),
                             None
