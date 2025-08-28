@@ -672,6 +672,18 @@ tabs = st.tabs([
 # ...（既存のコードは省略）...
 
 # 新しいタブ5のコードを追加
+# 既存のtabs定義を修正
+tabs = st.tabs([
+    "1. ファイルのアップロード",
+    "2. イベントの登録",
+    "3. イベントの削除",
+    "4. イベントの更新",
+    "5. イベントのExcel出力"  # 新しいタブを追加
+])
+
+# ...（既存のコードは省略）...
+
+# 新しいタブ5のコードを追加
 with tabs[4]:  # tabs[4]は新しいタブに対応
     st.header("カレンダーイベントをExcelに出力")
     if 'editable_calendar_options' not in st.session_state or not st.session_state['editable_calendar_options']:
@@ -707,6 +719,9 @@ with tabs[4]:  # tabs[4]は新しいタブに対応
                             # DataFrameの作成
                             events_df = pd.DataFrame(events_to_export)
                             
+                            # 日本時間のタイムゾーンを定義
+                            jst = timezone(timedelta(hours=9))
+                            
                             # 必要な列を抽出して整形
                             extracted_data = []
                             for event in events_to_export:
@@ -717,11 +732,18 @@ with tabs[4]:  # tabs[4]は新しいタブに対応
                                 start_time = event['start'].get(start_time_key, 'N/A')
                                 end_time = event['end'].get(end_time_key, 'N/A')
                                 
-                                # 'dateTime'形式の場合、ISO 8601から見やすい形式に変換
+                                # 'dateTime'形式の場合、ISO 8601から日本時間に変換
                                 if 'dateTime' in event['start']:
-                                    start_time = datetime.fromisoformat(start_time.replace('Z', '+00:00')).astimezone(None).strftime('%Y/%m/%d %H:%M')
+                                    # UTCからJSTに変換
+                                    utc_start = datetime.fromisoformat(start_time.replace('Z', '+00:00'))
+                                    jst_start = utc_start.astimezone(jst)
+                                    start_time = jst_start.strftime('%Y/%m/%d %H:%M')
+                                    
                                 if 'dateTime' in event['end']:
-                                    end_time = datetime.fromisoformat(end_time.replace('Z', '+00:00')).astimezone(None).strftime('%Y/%m/%d %H:%M')
+                                    # UTCからJSTに変換
+                                    utc_end = datetime.fromisoformat(end_time.replace('Z', '+00:00'))
+                                    jst_end = utc_end.astimezone(jst)
+                                    end_time = jst_end.strftime('%Y/%m/%d %H:%M')
 
                                 extracted_data.append({
                                     "イベント名": event.get('summary', '無題'),
