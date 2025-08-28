@@ -32,7 +32,6 @@ from firebase_admin import firestore
 import os
 from pathlib import Path
 from io import BytesIO
-import pytz
 
 st.set_page_config(page_title="Googleカレンダー一括イベント登録・削除", layout="wide")
 st.title("📅 Googleカレンダー一括イベント登録・削除")
@@ -661,6 +660,17 @@ with tabs[3]:
                         progress_bar.progress((i + 1) / len(df))
 
                     st.success(f"✅ {update_count} 件のイベントを更新しました。")
+# 既存のtabs定義を修正
+tabs = st.tabs([
+    "1. ファイルのアップロード",
+    "2. イベントの登録",
+    "3. イベントの削除",
+    "4. イベントの更新",
+    "5. イベントのExcel出力"  # 新しいタブを追加
+])
+
+# ...（既存のコードは省略）...
+
 # 新しいタブ5のコードを追加
 with tabs[4]:  # tabs[4]は新しいタブに対応
     st.header("カレンダーイベントをExcelに出力")
@@ -678,83 +688,68 @@ with tabs[4]:  # tabs[4]は新しいタブに対応
         if export_start_date > export_end_date:
             st.error("出力開始日は終了日より前に設定してください。")
         else:
-  if st.button("指定期間のイベントを読み込む"):
-    with st.spinner("イベントを読み込み中..."):
-        try:
-            calendar_service = st.session_state['calendar_service']
+            if st.button("指定期間のイベントを読み込む"):
+                with st.spinner("イベントを読み込み中..."):
+                    try:
+                        calendar_service = st.session_state['calendar_service']
+                        
+                        start_dt_utc_export = datetime.combine(export_start_date, datetime.min.time(), tzinfo=datetime.now().astimezone().tzinfo).astimezone(timezone.utc)
+                        end_dt_utc_export = datetime.combine(export_end_date, datetime.max.time(), tzinfo=datetime.now().astimezone().tzinfo).astimezone(timezone.utc)
+                        
+                        time_min_utc_export = start_dt_utc_export.isoformat(timespec='microseconds').replace('+00:00', 'Z')
+                        time_max_utc_export = end_dt_utc_export.isoformat(timespec='microseconds').replace('+00:00', 'Z')
+                        
+                        events_to_export = fetch_all_events(calendar_service, calendar_id_export, time_min_utc_export, time_max_utc_export)
+                        
+                        if not events_to_export:
+                            st.info("指定期間内にイベントは見つかりませんでした。")
+                        else:
+                            # DataFrameの作成
+                            events_df = pd.DataFrame(events_to_export)
+                            
+                            # 必要な列を抽出して整形
+                            extracted_data = []
+                            for event in events_to_export:
+                                # 'date'形式と'dateTime'形式の開始/終了時間を処理
+                                start_time_key = 'date' if 'date' in event.get('start', {}) else 'dateTime'
+                                end_time_key = 'date' if 'date' in event.get('end', {}) else 'dateTime'
+                                
+                                start_time = event['start'].get(start_time_key, 'N/A')
+                                end_time = event['end'].get(end_time_key, 'N/A')
+                                
+                                # 'dateTime'形式の場合、ISO 8601から見やすい形式に変換
+                                if 'dateTime' in event['start']:
+                                    start_time = datetime.fromisoformat(start_time.replace('Z', '+00:00')).astimezone(None).strftime('%Y/%m/%d %H:%M')
+                                if 'dateTime' in event['end']:
+                                    end_time = datetime.fromisoformat(end_time.replace('Z', '+00:00')).astimezone(None).strftime('%Y/%m/%d %H:%M')
 
-            # 修正箇所: タイムゾーンを考慮してUTCに正確に変換
-            JST = pytz.timezone('Asia/Tokyo')
-            start_dt_local_export = JST.localize(datetime.combine(export_start_date, datetime.min.time()))
-            end_dt_local_export = JST.localize(datetime.combine(export_end_date, datetime.max.time()))
-
-            start_dt_utc_export = start_dt_local_export.astimezone(timezone.utc)
-            end_dt_utc_export = end_dt_local_export.astimezone(timezone.utc)
-
-            time_min_utc_export = start_dt_utc_export.isoformat()
-            time_max_utc_export = end_dt_utc_export.isoformat()
-
-            events_to_export = fetch_all_events(calendar_service, calendar_id_export, time_min_utc_export, time_max_utc_export)
-
-            if not events_to_export:
-                st.info("指定期間内にイベントは見つかりませんでした。")
-            else:
-                # DataFrameの作成
-                extracted_data = []
-                for event in events_to_export:
-                    start_time_key = 'date' if 'date' in event.get('start', {}) else 'dateTime'
-                    end_time_key = 'date' if 'date' in event.get('end', {}) else 'dateTime'
-
-                    start_time = event['start'].get(start_time_key, 'N/A')
-                    end_time = event['end'].get(end_time_key, 'N/A')
-
-                    # 修正箇所: Google Calendar APIから取得した時刻文字列をJSTに変換
-                    if 'dateTime' in event['start']:
-                        try:
-                            # タイムゾーン情報付きでdatetimeオブジェクトを作成
-                            dt_obj = datetime.fromisoformat(event['start'][start_time_key])
-                            # ローカルタイムゾーン（JST）に変換して整形
-                            start_time = dt_obj.astimezone(JST).strftime('%Y/%m/%d %H:%M')
-                        except (ValueError, pytz.exceptions.UnknownTimeZoneError):
-                            # エラーが発生した場合は元の文字列を保持
-                            start_time = event['start'][start_time_key]
-
-                    if 'dateTime' in event['end']:
-                        try:
-                            # タイムゾーン情報付きでdatetimeオブジェクトを作成
-                            dt_obj = datetime.fromisoformat(event['end'][end_time_key])
-                            # ローカルタイムゾーン（JST）に変換して整形
-                            end_time = dt_obj.astimezone(JST).strftime('%Y/%m/%d %H:%M')
-                        except (ValueError, pytz.exceptions.UnknownTimeZoneError):
-                            # エラーが発生した場合は元の文字列を保持
-                            end_time = event['end'][end_time_key]
-
-                    extracted_data.append({
-                        "イベント名": event.get('summary', '無題'),
-                        "開始日時": start_time,
-                        "終了日時": end_time,
-                        "場所": event.get('location', 'なし'),
-                        "説明": event.get('description', 'なし')
-                    })
-
-                output_df = pd.DataFrame(extracted_data)
-                st.dataframe(output_df)
-
-                buffer = BytesIO()
-                with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-                    output_df.to_excel(writer, index=False, sheet_name='カレンダーイベント')
-                buffer.seek(0)
-
-                st.download_button(
-                    label="✅ Excelファイルとしてダウンロード",
-                    data=buffer,
-                    file_name="Googleカレンダー_イベントリスト.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
-                st.success(f"{len(output_df)} 件のイベントを読み込みました。")
-
-        except Exception as e:
-            st.error(f"イベントの読み込み中にエラーが発生しました: {e}")
+                                extracted_data.append({
+                                    "イベント名": event.get('summary', '無題'),
+                                    "開始日時": start_time,
+                                    "終了日時": end_time,
+                                    "場所": event.get('location', 'なし'),
+                                    "説明": event.get('description', 'なし')
+                                })
+                            
+                            output_df = pd.DataFrame(extracted_data)
+                            st.dataframe(output_df) # プレビューとして表示
+                            
+                            # Excelファイルの作成とダウンロードボタン
+                            buffer = BytesIO()
+                            with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+                                output_df.to_excel(writer, index=False, sheet_name='カレンダーイベント')
+                            buffer.seek(0)
+                            
+                            st.download_button(
+                                label="✅ Excelファイルとしてダウンロード",
+                                data=buffer,
+                                file_name="Googleカレンダー_イベントリスト.xlsx",
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                            )
+                            st.success(f"{len(output_df)} 件のイベントを読み込みました。")
+                    
+                    except Exception as e:
+                        st.error(f"イベントの読み込み中にエラーが発生しました: {e}")
                         
 with st.sidebar:
     st.header("🔐 認証状態")
