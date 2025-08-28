@@ -660,30 +660,7 @@ with tabs[3]:
                         progress_bar.progress((i + 1) / len(df))
 
                     st.success(f"✅ {update_count} 件のイベントを更新しました。")
-# 既存のtabs定義を修正
-tabs = st.tabs([
-    "1. ファイルのアップロード",
-    "2. イベントの登録",
-    "3. イベントの削除",
-    "4. イベントの更新",
-    "5. イベントのExcel出力"  # 新しいタブを追加
-])
 
-# ...（既存のコードは省略）...
-
-# 新しいタブ5のコードを追加
-# 既存のtabs定義を修正
-tabs = st.tabs([
-    "1. ファイルのアップロード",
-    "2. イベントの登録",
-    "3. イベントの削除",
-    "4. イベントの更新",
-    "5. イベントのExcel出力"  # 新しいタブを追加
-])
-
-# ...（既存のコードは省略）...
-
-# 新しいタブ5のコードを追加
 with tabs[4]:  # tabs[4]は新しいタブに対応
     st.header("カレンダーイベントをExcelに出力")
     if 'editable_calendar_options' not in st.session_state or not st.session_state['editable_calendar_options']:
