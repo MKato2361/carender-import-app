@@ -32,6 +32,7 @@ from firebase_admin import firestore
 import os
 from pathlib import Path
 from io import BytesIO
+import pytz
 
 st.set_page_config(page_title="Googleカレンダー一括イベント登録・削除", layout="wide")
 st.title("📅 Googleカレンダー一括イベント登録・削除")
