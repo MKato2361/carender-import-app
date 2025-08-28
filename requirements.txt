@@ -9,3 +9,4 @@ firebase-admin
 google-cloud-firestore
 streamlit-firebase-auth
 backoff
+xlsxwriter
