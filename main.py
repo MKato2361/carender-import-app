@@ -324,7 +324,7 @@ with tabs[1]:
                     key="custom_offset_input"
                 )
 
-            st.subheader("➡️ イベント登録・更新実行")
+          st.subheader("➡️ イベント登録・更新実行")
             if st.button("Googleカレンダーに登録・更新する"):
                 set_user_setting(user_id, 'description_columns_selected', description_columns)
                 set_user_setting(user_id, 'event_name_col_selected', selected_event_name_col)
@@ -354,21 +354,34 @@ with tabs[1]:
                         progress = st.progress(0)
                         successful_operations = 0
                         successful_todo_creations = 0
-
+                        
+                        # 既存イベントを事前に取得して辞書化
                         worksheet_to_event = {}
                         time_min = (datetime.now(timezone.utc) - timedelta(days=365*2)).isoformat()
                         time_max = (datetime.now(timezone.utc) + timedelta(days=365*2)).isoformat()
-                        events = fetch_all_events(service, calendar_id, time_min, time_max)
+                        
+                        with st.spinner("既存イベントを確認中..."):
+                            events = fetch_all_events(service, calendar_id, time_min, time_max)
+                            st.info(f"カレンダーから {len(events)} 件の既存イベントを取得しました。")
+                            
+                            for event in events:
+                                desc = event.get('description', '')
+                                match = re.search(r"作業指示書[ï¼š:]\s*(\d+)", desc)
+                                if match:
+                                    worksheet_id = match.group(1).strip()
+                                    worksheet_to_event[worksheet_id] = event
 
-                        for event in events:
-                            desc = event.get('description', '')
-                            match = re.search(r"作業指示書[：:]\s*(\d+)", desc)
-                            if match:
-                                worksheet_id = match.group(1)
-                                worksheet_to_event[worksheet_id] = event
-
+                        # 各行を処理
+                        new_events_count = 0
+                        updated_events_count = 0
+                        
                         for i, row in df.iterrows():
-                            match = re.search(r"作業指示書[：:]\s*(\d+)", row['Description'])
+                            # 作業指示書番号を抽出
+                            desc_text = row['Description']
+                            match = re.search(r"作業指示書[ï¼š:]\s*(\d+)", desc_text)
+                            worksheet_id = match.group(1).strip() if match else None
+                            
+                            # イベントデータの構築
                             event_data = {
                                 'summary': row['Subject'],
                                 'location': row['Location'],
@@ -389,27 +402,31 @@ with tabs[1]:
                                 event_data['start'] = {'dateTime': start_dt_obj.isoformat(), 'timeZone': 'Asia/Tokyo'}
                                 event_data['end'] = {'dateTime': end_dt_obj.isoformat(), 'timeZone': 'Asia/Tokyo'}
 
-                            worksheet_id = match.group(1) if match else None
+                            # 既存イベントの確認と処理
                             existing_event = worksheet_to_event.get(worksheet_id) if worksheet_id else None
 
                             if existing_event:
+                                # 既存イベントを更新
                                 try:
                                     updated_event = update_event_if_needed(service, calendar_id, existing_event['id'], event_data)
                                     if updated_event:
+                                        updated_events_count += 1
                                         successful_operations += 1
                                 except Exception as e:
                                     st.error(f"イベント '{row['Subject']}' (作業指示書: {worksheet_id}) の更新に失敗しました: {e}")
                             else:
+                                # 新規イベントを追加
                                 try:
                                     added_event = add_event_to_calendar(service, calendar_id, event_data)
                                     if added_event:
+                                        new_events_count += 1
                                         successful_operations += 1
-                                        worksheet_id = match.group(1) if match else None
                                         if worksheet_id:
                                             worksheet_to_event[worksheet_id] = added_event
                                 except Exception as e:
                                     st.error(f"イベント '{row['Subject']}' の追加に失敗しました: {e}")
 
+                            # ToDo作成処理
                             if create_todo and tasks_service and default_task_list_id:
                                 start_date_str = row['Start Date']
                                 try:
@@ -419,7 +436,8 @@ with tabs[1]:
                                         todo_due_date = (start_date - timedelta(days=offset_days)).strftime("%Y-%m-%d")
                                         for todo_type in fixed_todo_types:
                                             todo_summary = f"{todo_type}: {row['Subject']}"
-                                            todo_notes = f"イベントID: {worksheet_to_event.get(worksheet_id, {}).get('id', '不明')}\n詳細: {row['Description']}"
+                                            event_id_for_todo = worksheet_to_event.get(worksheet_id, {}).get('id', '不明') if worksheet_id else '不明'
+                                            todo_notes = f"イベントID: {event_id_for_todo}\n詳細: {row['Description']}"
                                             task_data = {
                                                 'title': todo_summary,
                                                 'due': todo_due_date,
@@ -437,9 +455,10 @@ with tabs[1]:
 
                             progress.progress((i + 1) / len(df))
 
-                        st.success(f"✅ {successful_operations} 件のイベントが処理されました (新規登録/更新)。")
+                        # 結果表示
+                        st.success(f"✅ 処理完了: 新規{new_events_count}件 / 更新{updated_events_count}件 (合計{successful_operations}件)")
                         if create_todo:
-                            st.success(f"✅ {successful_todo_creations} 件のToDoリストが作成されました！")
+                            st.success(f"✅ {successful_todo_creations} 件のToDoリストが作成されました!")
 
 with tabs[2]:
     st.header("イベントを削除")
