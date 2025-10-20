@@ -10,3 +10,5 @@ google-cloud-firestore
 streamlit-firebase-auth
 backoff
 xlsxwriter
+chardet
+
