@@ -36,21 +36,20 @@ def _load_and_merge_dataframes(uploaded_files):
 
     for uploaded_file in uploaded_files:
         try:
-            # CSVまたはExcelを判定
+            # CSVかExcelかを判定
             if uploaded_file.name.lower().endswith(".csv"):
-                # 文字コードと区切り文字を自動検出（複数候補を試行）
                 success = False
+                # 複数の文字コードを試す
                 for enc in ["utf-8-sig", "cp932", "shift_jis", "utf-8"]:
                     uploaded_file.seek(0)
                     try:
                         df = pd.read_csv(
                             uploaded_file,
                             encoding=enc,
-                            sep=None,            # 区切り文字自動検出
-                            engine="python",     # 自動検出にはpythonエンジンが必要
+                            sep=None,
+                            engine="python",
                             dtype=str
                         )
-                        # 列が存在すれば成功とみなす
                         if not df.empty and len(df.columns) > 0:
                             success = True
                             break
@@ -61,14 +60,11 @@ def _load_and_merge_dataframes(uploaded_files):
 
             elif uploaded_file.name.lower().endswith((".xls", ".xlsx")):
                 df = pd.read_excel(uploaded_file, engine="openpyxl")
-
             else:
                 raise ValueError(f"未対応のファイル形式です: {uploaded_file.name}")
 
-            # 列名を整形
             df.columns = [str(c).strip() for c in df.columns]
 
-            # 管理番号の正規化
             mng_col = find_closest_column(df.columns, ["管理番号"])
             if mng_col:
                 df["管理番号"] = df[mng_col].apply(clean_mng_num)
@@ -83,7 +79,6 @@ def _load_and_merge_dataframes(uploaded_files):
     if not dataframes:
         raise ValueError("処理できる有効なデータがありません。")
 
-    # マージ処理
     merged_df = dataframes[0].copy()
     merged_df["管理番号"] = merged_df["管理番号"].astype(str)
 
@@ -91,7 +86,8 @@ def _load_and_merge_dataframes(uploaded_files):
         df_copy = df.copy()
         df_copy["管理番号"] = df_copy["管理番号"].astype(str)
         cols_to_merge = [
-            col for col in df_copy.columns if col == "管理番号" or col not in merged_df.columns
+            col for col in df_copy.columns
+            if col == "管理番号" or col not in merged_df.columns
         ]
         merged_df = pd.merge(merged_df, df_copy[cols_to_merge], on="管理番号", how="outer")
 
@@ -104,18 +100,15 @@ def get_available_columns_for_event_name(df):
         "private", "subject", "description", "location", "作業タイプ"
     ]
     available_columns = []
-
     for col in df.columns:
         col_lower = str(col).lower()
         if not any(keyword in col_lower for keyword in exclude_keywords) and col != "管理番号":
             available_columns.append(col)
-
     return available_columns
 
 def check_event_name_columns(merged_df):
     mng_col = find_closest_column(merged_df.columns, ["管理番号"])
     name_col = find_closest_column(merged_df.columns, ["物件名"])
-
     has_mng_data = (
         mng_col is not None
         and not merged_df[mng_col].fillna("").astype(str).str.strip().eq("").all()
@@ -124,7 +117,6 @@ def check_event_name_columns(merged_df):
         name_col is not None
         and not merged_df[name_col].fillna("").astype(str).str.strip().eq("").all()
     )
-
     return has_mng_data, has_name_data
 
 def process_excel_data_for_calendar(
@@ -133,23 +125,18 @@ def process_excel_data_for_calendar(
     all_day_event_override,
     private_event,
     fallback_event_name_column=None,
-    add_task_type_to_event_name=False,
+    add_task_type_to_event_name=False
 ):
     merged_df = _load_and_merge_dataframes(uploaded_files)
-
     name_col = find_closest_column(merged_df.columns, ["物件名"])
-    start_col = find_closest_column(
-        merged_df.columns, ["予定開始", "開始日時", "開始時間", "開始"]
-    )
-    end_col = find_closest_column(
-        merged_df.columns, ["予定終了", "終了日時", "終了時間", "終了"]
-    )
+    start_col = find_closest_column(merged_df.columns, ["予定開始", "開始日時", "開始時間", "開始"])
+    end_col = find_closest_column(merged_df.columns, ["予定終了", "終了日時", "終了時間", "終了"])
     addr_col = find_closest_column(merged_df.columns, ["住所", "所在地"])
     worksheet_col = find_closest_column(merged_df.columns, ["作業指示書"])
     task_type_col = find_closest_column(merged_df.columns, ["作業タイプ"])
 
     if not start_col:
-        raise ValueError("必須の時刻列（'予定開始'、または'開始日時'など）が見つかりません。")
+        raise ValueError("必須の時刻列が見つかりません。")
 
     output_records = []
 
@@ -159,16 +146,82 @@ def process_excel_data_for_calendar(
         if add_task_type_to_event_name and task_type_col and pd.notna(row.get(task_type_col)):
             task_type = str(row.get(task_type_col)).strip()
             if task_type:
-                subj_parts.append(f"【{task_type}】")
+                subj_parts.append(f"[{task_type}]")
 
         mng = clean_mng_num(row["管理番号"])
-        if mng and str(mng).strip():
-            subj_parts.append(str(mng).strip())
+        if mng:
+            subj_parts.append(mng)
 
         name = row.get(name_col, "") if name_col else ""
         if name and str(name).strip():
             subj_parts.append(str(name).strip())
 
-        subj = ""
-        if subj_parts:
-            if subj_parts[0].startswith("_
+        subj = " ".join(subj_parts) if subj_parts else "イベント"
+
+        if not subj and fallback_event_name_column and fallback_event_name_column in row:
+            subj = format_description_value(row.get(fallback_event_name_column, ""))
+
+        try:
+            start = pd.to_datetime(row[start_col])
+            end = None
+            if end_col and pd.notna(row.get(end_col)):
+                try:
+                    end = pd.to_datetime(row[end_col])
+                except Exception:
+                    pass
+            if end is None:
+                if start.time() == datetime.time(0, 0, 0):
+                    end = start + datetime.timedelta(days=1)
+                else:
+                    end = start + datetime.timedelta(hours=1)
+            if end < start:
+                continue
+
+            is_all_day = all_day_event_override or (
+                start.time() == datetime.time(0, 0, 0)
+                and end.time() == datetime.time(0, 0, 0)
+            )
+
+            if is_all_day:
+                end_display = end - datetime.timedelta(days=1)
+                start_time_display = ""
+                end_time_display = ""
+            else:
+                end_display = end
+                start_time_display = start.strftime("%H:%M")
+                end_time_display = end.strftime("%H:%M")
+
+        except Exception:
+            continue
+
+        location = row.get(addr_col, "") if addr_col else ""
+        if isinstance(location, str) and "北海道札幌市" in location:
+            location = location.replace("北海道札幌市", "")
+
+        description_parts = []
+        for col in description_columns:
+            if col in row:
+                description_parts.append(format_description_value(row.get(col)))
+        description = " / ".join(filter(None, description_parts))
+
+        worksheet_value = row.get(worksheet_col, "") if worksheet_col else ""
+        if pd.notna(worksheet_value) and str(worksheet_value).strip():
+            formatted_ws = format_worksheet_value(worksheet_value)
+            if description:
+                description = f"作業指示書: {formatted_ws}/ " + description
+            else:
+                description = f"作業指示書: {formatted_ws}"
+
+        output_records.append({
+            "Subject": subj,
+            "Start Date": start.strftime("%Y/%m/%d"),
+            "Start Time": start_time_display,
+            "End Date": end_display.strftime("%Y/%m/%d"),
+            "End Time": end_time_display,
+            "All Day Event": "True" if is_all_day else "False",
+            "Description": description,
+            "Location": location,
+            "Private": "True" if private_event else "False"
+        })
+
+    return pd.DataFrame(output_records) if output_records else pd.DataFrame()
