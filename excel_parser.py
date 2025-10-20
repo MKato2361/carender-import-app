@@ -249,10 +249,10 @@ def process_excel_data_for_calendar(
             if col in row:
                 optional_items.append(format_description_value(row.get(col)))
         
-        # Descriptionを組み立て: 必須項目 + オプション項目
-        description_parts = required_items.copy()
-        if optional_items:
-            description_parts.extend(optional_items)
+        # Descriptionを組み立て: オプション項目 + 必須項目
+        description_parts = optional_items.copy()
+        if required_items:
+            description_parts.extend(required_items)
         
         description = " / ".join(filter(None, description_parts))
 
