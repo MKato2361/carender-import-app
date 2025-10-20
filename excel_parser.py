@@ -160,8 +160,6 @@ def process_excel_data_for_calendar(
             original_mng_value = row.get(mng_col, "")
             if pd.notna(original_mng_value):
                 original_mng = str(original_mng_value).strip()
-        if mng:
-            subj_parts.append(mng)
 
         name = row.get(name_col, "") if name_col else ""
         if name and str(name).strip():
