@@ -176,11 +176,11 @@ with tabs[0]:
 
     uploaded_files = st.file_uploader("ExcelまたはCSVファイルを選択（複数可）", type=["xlsx", "xls", "csv"], accept_multiple_files=True)
 
-    local_excel_files = get_local_files()
+    local_excel_files = get_local_excel_files()
     selected_local_files = []
     if local_excel_files:
         st.subheader("📁 サーバーにあるExcelファイル")
-        local_file_names = [f.name for f in local_files]
+        local_file_names = [f.name for f in local_excel_files]
         selected_names = st.multiselect(
             "以下のファイルを処理対象に含める（アップロードと同様に扱われます）",
             local_file_names
@@ -192,13 +192,13 @@ with tabs[0]:
                     file_bytes = f.read()
                     file_obj = BytesIO(file_bytes)
                     file_obj.name = name
-                    selected_local_files.append(file_obj)
+                    selected_local_excel_files.append(file_obj)
 
     all_files = []
     if uploaded_files:
         all_files.extend(uploaded_files)
     if selected_local_files:
-        all_files.extend(selected_local_files)
+        all_files.extend(selected_local_excel_files)
 
     if all_files:
         st.session_state['uploaded_files'] = all_files
