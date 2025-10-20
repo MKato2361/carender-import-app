@@ -174,7 +174,7 @@ with tabs[0]:
         current_dir = Path(__file__).parent
         return [f for f in current_dir.glob("*.xlsx") if f.is_file()]
 
-    uploaded_files = st.file_uploader("Excelファイルを選択（複数可）", type=["xlsx"], accept_multiple_files=True)
+    uploaded_files = st.file_uploader("ExcelまたはCSVファイルを選択（複数可）", type=["xlsx", "xls", "csv"], accept_multiple_files=True)
 
     local_excel_files = get_local_excel_files()
     selected_local_files = []
