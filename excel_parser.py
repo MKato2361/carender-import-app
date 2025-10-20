@@ -97,7 +97,7 @@ def get_available_columns_for_event_name(df):
     exclude_keywords = [
         "日時", "開始", "終了", "予定", "時間",
         "date", "time", "start", "end", "all day",
-        "private", "subject", "description", "location", "作業タイプ"
+        "private", "subject", "description", "location"
     ]
     available_columns = []
     for col in df.columns:
@@ -198,19 +198,56 @@ def process_excel_data_for_calendar(
         if isinstance(location, str) and "北海道札幌市" in location:
             location = location.replace("北海道札幌市", "")
 
-        description_parts = []
-        for col in description_columns:
-            if col in row:
-                description_parts.append(format_description_value(row.get(col)))
-        description = " / ".join(filter(None, description_parts))
-
+        # Description用の必須項目とオプション項目を整理
+        required_items = []
+        optional_items = []
+        
+        # 作業指示書（必須）
         worksheet_value = row.get(worksheet_col, "") if worksheet_col else ""
         if pd.notna(worksheet_value) and str(worksheet_value).strip():
             formatted_ws = format_worksheet_value(worksheet_value)
-            if description:
-                description = f"作業指示書: {formatted_ws}/ " + description
-            else:
-                description = f"作業指示書: {formatted_ws}"
+            required_items.append(f"[作業指示書: {formatted_ws}]")
+        
+        # 作業タイプ（必須）
+        if task_type_col and pd.notna(row.get(task_type_col)):
+            task_type = str(row.get(task_type_col)).strip()
+            if task_type:
+                required_items.append(f"[作業タイプ: {task_type}]")
+        
+        # タイトル（必須） - fallback_event_name_columnがある場合
+        if fallback_event_name_column and fallback_event_name_column in row:
+            title_value = format_description_value(row.get(fallback_event_name_column, ""))
+            if title_value:
+                required_items.append(f"[タイトル: {title_value}]")
+        
+        # 管理番号（必須）
+        if mng:
+            required_items.append(f"[管理番号: {mng}]")
+        
+        # 物件名（必須）
+        if name_col and pd.notna(row.get(name_col)):
+            property_name = str(row.get(name_col)).strip()
+            if property_name:
+                required_items.append(f"[物件名: {property_name}]")
+        
+        # 作業者（必須）
+        worker_col = find_closest_column(merged_df.columns, ["作業者", "担当者"])
+        if worker_col and pd.notna(row.get(worker_col)):
+            worker = str(row.get(worker_col)).strip()
+            if worker:
+                required_items.append(f"[作業者: {worker}]")
+        
+        # ユーザーが選択したオプション項目
+        for col in description_columns:
+            if col in row:
+                optional_items.append(format_description_value(row.get(col)))
+        
+        # Descriptionを組み立て: 必須項目 + オプション項目
+        description_parts = required_items.copy()
+        if optional_items:
+            description_parts.extend(optional_items)
+        
+        description = " / ".join(filter(None, description_parts))
 
         output_records.append({
             "Subject": subj,
