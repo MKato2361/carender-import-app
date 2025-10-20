@@ -226,9 +226,11 @@ def process_excel_data_for_calendar(
                 if task_type:
                     required_items.append(f"[作業タイプ: {task_type}]")
         
-        # タイトル（必須） - fallback_event_name_columnがある場合
-        if fallback_event_name_column and fallback_event_name_column in row:
-            title_value = format_description_value(row.get(fallback_event_name_column, ""))
+        # タイトル（必須）
+        # 【修正箇所: 'タイトル'列の値をDescriptionに追加するために追加】
+        title_col = find_closest_column(merged_df.columns, ["タイトル"])
+        if title_col:
+            title_value = format_description_value(row.get(title_col, ""))
             if title_value:
                 required_items.append(f"[タイトル: {title_value}]")
         
