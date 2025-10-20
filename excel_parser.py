@@ -204,15 +204,18 @@ def process_excel_data_for_calendar(
         
         # 作業指示書（必須）
         worksheet_value = row.get(worksheet_col, "") if worksheet_col else ""
-        if pd.notna(worksheet_value) and str(worksheet_value).strip():
+        if worksheet_col and pd.notna(worksheet_value):
             formatted_ws = format_worksheet_value(worksheet_value)
-            required_items.append(f"[作業指示書: {formatted_ws}]")
+            if formatted_ws:
+                required_items.append(f"[作業指示書: {formatted_ws}]")
         
         # 作業タイプ（必須）
-        if task_type_col and pd.notna(row.get(task_type_col)):
-            task_type = str(row.get(task_type_col)).strip()
-            if task_type:
-                required_items.append(f"[作業タイプ: {task_type}]")
+        if task_type_col:
+            task_type_value = row.get(task_type_col, "")
+            if pd.notna(task_type_value):
+                task_type = str(task_type_value).strip()
+                if task_type:
+                    required_items.append(f"[作業タイプ: {task_type}]")
         
         # タイトル（必須） - fallback_event_name_columnがある場合
         if fallback_event_name_column and fallback_event_name_column in row:
@@ -225,17 +228,21 @@ def process_excel_data_for_calendar(
             required_items.append(f"[管理番号: {mng}]")
         
         # 物件名（必須）
-        if name_col and pd.notna(row.get(name_col)):
-            property_name = str(row.get(name_col)).strip()
-            if property_name:
-                required_items.append(f"[物件名: {property_name}]")
+        if name_col:
+            property_name_value = row.get(name_col, "")
+            if pd.notna(property_name_value):
+                property_name = str(property_name_value).strip()
+                if property_name:
+                    required_items.append(f"[物件名: {property_name}]")
         
         # 作業者（必須）
         worker_col = find_closest_column(merged_df.columns, ["作業者", "担当者"])
-        if worker_col and pd.notna(row.get(worker_col)):
-            worker = str(row.get(worker_col)).strip()
-            if worker:
-                required_items.append(f"[作業者: {worker}]")
+        if worker_col:
+            worker_value = row.get(worker_col, "")
+            if pd.notna(worker_value):
+                worker = str(worker_value).strip()
+                if worker:
+                    required_items.append(f"[作業者: {worker}]")
         
         # ユーザーが選択したオプション項目
         for col in description_columns:
