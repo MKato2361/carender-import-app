@@ -696,7 +696,7 @@ with tabs[3]:
                     st.success(f"✅ {update_count} 件のイベントを更新しました。")
 
 with tabs[4]:  # tabs[4]は新しいタブに対応
-    st.header("カレンダーイベントをExcelに出力") # ヘッダーはそのまま
+    st.header("カレンダーイベントをExcelに出力")
     if 'editable_calendar_options' not in st.session_state or not st.session_state['editable_calendar_options']:
         st.error("利用可能なカレンダーが見つかりません。")
     else:
@@ -708,7 +708,6 @@ with tabs[4]:  # tabs[4]は新しいタブに対応
         export_start_date = st.date_input("出力開始日", value=today_date_export - timedelta(days=30))
         export_end_date = st.date_input("出力終了日", value=today_date_export)
         
-        # 追加: CSV/Excelの出力形式選択 (デフォルトをExcelからCSVに変更も可能ですが、今回はCSVのみに対応)
         export_format = st.radio("出力形式を選択", ("CSV", "Excel"), index=0)
 
         if export_start_date > export_end_date:
@@ -719,7 +718,6 @@ with tabs[4]:  # tabs[4]は新しいタブに対応
                     try:
                         calendar_service = st.session_state['calendar_service']
                         
-                        # UTCで期間を計算
                         start_dt_utc_export = datetime.combine(export_start_date, datetime.min.time(), tzinfo=datetime.now().astimezone().tzinfo).astimezone(timezone.utc)
                         end_dt_utc_export = datetime.combine(export_end_date, datetime.max.time(), tzinfo=datetime.now().astimezone().tzinfo).astimezone(timezone.utc)
                         
@@ -731,22 +729,15 @@ with tabs[4]:  # tabs[4]は新しいタブに対応
                         if not events_to_export:
                             st.info("指定期間内にイベントは見つかりませんでした。")
                         else:
-                            # 必要な列を抽出して整形
                             extracted_data = []
-                            # 正規表現パターンをコンパイル (修正: キーの直後のコロン(:または：)以降の文字を、次のフィールドまたは行末までキャプチャ)
-                            # (?:.*?[：:]) - キーを検索 (例: 作業指示書: )
-                            # \s* - 任意の空白文字をスキップ
-                            # (.*?) - ここが値 (非貪欲マッチで次の区切りまで)
-                            # (?:\s*\[|\n|$) - 抽出を停止する区切り ([または改行または文字列の終わり)
                             
-                            # 例: "作業指示書： 2529260 [管理番号: HK471]" の場合、
-                            # キーの直後から、非貪欲マッチで次の [ の前までを抽出
-                            # 値のトリミング（前後の空白除去）は最後に実施
+                            # 🚨🚨 正規表現の最終調整 🚨🚨
+                            # 形式: [キー: 値] に特化し、コロンの直後から閉じ括弧の直前までを厳密に抽出します。
+                            # パターン: \[キー[：:]\s*(.*?)\]
                             
-                            # 抽出対象: []、空白文字、任意の文字
-                            wonum_pattern = re.compile(r"作業指示書[：:]\s*(.*?)(?=\s*\[|\n|$)")
-                            assetnum_pattern = re.compile(r"管理番号[：:]\s*(.*?)(?=\s*\[|\n|$)")
-                            worktype_pattern = re.compile(r"作業タイプ[：:]\s*(.*?)(?=\s*\[|\n|$)")
+                            wonum_pattern = re.compile(r"\[作業指示書[：:]\s*(.*?)\]")
+                            assetnum_pattern = re.compile(r"\[管理番号[：:]\s*(.*?)\]")
+                            worktype_pattern = re.compile(r"\[作業タイプ[：:]\s*(.*?)\]")
                             
                             for event in events_to_export:
                                 description = event.get('description', '')
@@ -756,7 +747,7 @@ with tabs[4]:  # tabs[4]は新しいタブに対応
                                 assetnum_match = assetnum_pattern.search(description)
                                 worktype_match = worktype_pattern.search(description)
                                 
-                                # .strip()で前後の空白を除去し、余分な [] を含めないようにする
+                                # 抽出したグループ1 (値) の前後の空白を削除
                                 wonum = wonum_match.group(1).strip() if wonum_match else ""
                                 assetnum = assetnum_match.group(1).strip() if assetnum_match else ""
                                 worktype = worktype_match.group(1).strip() if worktype_match else ""
@@ -771,43 +762,37 @@ with tabs[4]:  # tabs[4]は新しいタブに対応
                                 # 'dateTime'形式の場合、タイムゾーン付きISO 8601形式 (+09:00) で再フォーマット
                                 if start_time_key == 'dateTime':
                                     try:
-                                        # ISO 8601文字列を解析し、タイムゾーンをAsia/Tokyoに設定して再フォーマット
                                         dt_obj = datetime.fromisoformat(schedstart.replace('Z', '+00:00'))
                                         jst = timezone(timedelta(hours=9))
                                         schedstart = dt_obj.astimezone(jst).isoformat(timespec='seconds')
                                     except ValueError:
-                                        # 解析に失敗した場合はそのまま
                                         pass
 
                                 if end_time_key == 'dateTime':
                                     try:
-                                        # ISO 8601文字列を解析し、タイムゾーンをAsia/Tokyoに設定して再フォーマット
                                         dt_obj = datetime.fromisoformat(schedfinish.replace('Z', '+00:00'))
                                         jst = timezone(timedelta(hours=9))
                                         schedfinish = dt_obj.astimezone(jst).isoformat(timespec='seconds')
                                     except ValueError:
-                                        # 解析に失敗した場合はそのまま
                                         pass
                                 
                                 extracted_data.append({
                                     "WONUM": wonum,
-                                    "DESCRIPTION": "", # 空欄
+                                    "DESCRIPTION": "",
                                     "ASSETNUM": assetnum,
                                     "WORKTYPE": worktype,
                                     "SCHEDSTART": schedstart,
                                     "SCHEDFINISH": schedfinish,
-                                    "LEAD": "", # 空欄
-                                    "JESSCHEDFIXED": "", # 空欄
-                                    "SITEID": "JES" # JES
+                                    "LEAD": "",
+                                    "JESSCHEDFIXED": "",
+                                    "SITEID": "JES"
                                 })
                             
                             output_df = pd.DataFrame(extracted_data)
-                            st.dataframe(output_df) # プレビューとして表示
+                            st.dataframe(output_df)
                             
                             # ダウンロードボタン
                             if export_format == "CSV":
-                                # CSVファイルの作成とダウンロードボタン
-                                # BOM付きUTF-8で出力し、Excelでの文字化けを防ぐ
                                 csv_buffer = output_df.to_csv(index=False).encode('utf-8-sig') 
                                 st.download_button(
                                     label="✅ CSVファイルとしてダウンロード",
@@ -816,7 +801,6 @@ with tabs[4]:  # tabs[4]は新しいタブに対応
                                     mime="text/csv"
                                 )
                             else:
-                                # Excelファイルの作成とダウンロードボタン (既存コードを再利用)
                                 buffer = BytesIO()
                                 with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
                                     output_df.to_excel(writer, index=False, sheet_name='カレンダーイベント')
