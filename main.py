@@ -696,7 +696,7 @@ with tabs[3]:
                     st.success(f"✅ {update_count} 件のイベントを更新しました。")
 
 with tabs[4]:  # tabs[4]は新しいタブに対応
-    st.header("カレンダーイベントをExcelに出力")
+    st.header("カレンダーイベントをExcelに出力") # ヘッダーはそのまま
     if 'editable_calendar_options' not in st.session_state or not st.session_state['editable_calendar_options']:
         st.error("利用可能なカレンダーが見つかりません。")
     else:
@@ -708,6 +708,9 @@ with tabs[4]:  # tabs[4]は新しいタブに対応
         export_start_date = st.date_input("出力開始日", value=today_date_export - timedelta(days=30))
         export_end_date = st.date_input("出力終了日", value=today_date_export)
         
+        # 追加: CSV/Excelの出力形式選択 (デフォルトをExcelからCSVに変更も可能ですが、今回はCSVのみに対応)
+        export_format = st.radio("出力形式を選択", ("CSV", "Excel"), index=0)
+
         if export_start_date > export_end_date:
             st.error("出力開始日は終了日より前に設定してください。")
         else:
@@ -716,6 +719,7 @@ with tabs[4]:  # tabs[4]は新しいタブに対応
                     try:
                         calendar_service = st.session_state['calendar_service']
                         
+                        # UTCで期間を計算
                         start_dt_utc_export = datetime.combine(export_start_date, datetime.min.time(), tzinfo=datetime.now().astimezone().tzinfo).astimezone(timezone.utc)
                         end_dt_utc_export = datetime.combine(export_end_date, datetime.max.time(), tzinfo=datetime.now().astimezone().tzinfo).astimezone(timezone.utc)
                         
@@ -727,58 +731,99 @@ with tabs[4]:  # tabs[4]は新しいタブに対応
                         if not events_to_export:
                             st.info("指定期間内にイベントは見つかりませんでした。")
                         else:
-                            # DataFrameの作成
-                            events_df = pd.DataFrame(events_to_export)
-                            
-                            # 日本時間のタイムゾーンを定義
-                            jst = timezone(timedelta(hours=9))
-                            
                             # 必要な列を抽出して整形
                             extracted_data = []
+                            # 正規表現パターンをコンパイル
+                            wonum_pattern = re.compile(r"作業指示書[：:]\s*(\d+)")
+                            assetnum_pattern = re.compile(r"管理番号[：:]\s*(\w+)")
+                            worktype_pattern = re.compile(r"作業タイプ[：:]\s*(\S+)")
+                            
                             for event in events_to_export:
-                                # 'date'形式と'dateTime'形式の開始/終了時間を処理
+                                description = event.get('description', '')
+                                
+                                # 説明フィールドからの抽出
+                                wonum_match = wonum_pattern.search(description)
+                                assetnum_match = assetnum_pattern.search(description)
+                                worktype_match = worktype_pattern.search(description)
+                                
+                                wonum = wonum_match.group(1) if wonum_match else ""
+                                assetnum = assetnum_match.group(1) if assetnum_match else ""
+                                worktype = worktype_match.group(1) if worktype_match else ""
+                                
+                                # SCHEDSTART/SCHEDFINISHの処理（ISO 8601形式で出力）
+                                # 'date' (終日イベント) の場合は日付のみ、'dateTime' の場合はタイムゾーン付きISO 8601
                                 start_time_key = 'date' if 'date' in event.get('start', {}) else 'dateTime'
                                 end_time_key = 'date' if 'date' in event.get('end', {}) else 'dateTime'
                                 
-                                start_time = event['start'].get(start_time_key, 'N/A')
-                                end_time = event['end'].get(end_time_key, 'N/A')
+                                schedstart = event['start'].get(start_time_key, '')
+                                schedfinish = event['end'].get(end_time_key, '')
                                 
-                                # 'dateTime'形式の場合、ISO 8601から日本時間に変換
-                                if 'dateTime' in event['start']:
-                                    # UTCからJSTに変換
-                                    utc_start = datetime.fromisoformat(start_time.replace('Z', '+00:00'))
-                                    jst_start = utc_start.astimezone(jst)
-                                    start_time = jst_start.strftime('%Y/%m/%d %H:%M')
-                                    
-                                if 'dateTime' in event['end']:
-                                    # UTCからJSTに変換
-                                    utc_end = datetime.fromisoformat(end_time.replace('Z', '+00:00'))
-                                    jst_end = utc_end.astimezone(jst)
-                                    end_time = jst_end.strftime('%Y/%m/%d %H:%M')
+                                # 'date'形式 (終日イベント) の場合、'YYYY-MM-DD'形式
+                                # 'dateTime'形式の場合、タイムゾーン付きISO 8601形式 (例: 2002-02-02T12:00:00+09:00)
+                                if start_time_key == 'dateTime':
+                                    # Google APIのdateTimeは通常Z (UTC) またはタイムゾーン情報を含む。そのまま出力する
+                                    # ただし、APIの仕様によりタイムゾーンが明示されない場合があるため、UTCとして扱う
+                                    try:
+                                        # ISO 8601文字列を解析し、タイムゾーンをAsia/Tokyoに設定して再フォーマット
+                                        dt_obj = datetime.fromisoformat(schedstart.replace('Z', '+00:00'))
+                                        jst = timezone(timedelta(hours=9))
+                                        schedstart = dt_obj.astimezone(jst).isoformat(timespec='seconds')
+                                    except ValueError:
+                                        # 解析に失敗した場合はそのまま
+                                        pass
 
+                                if end_time_key == 'dateTime':
+                                    try:
+                                        # ISO 8601文字列を解析し、タイムゾーンをAsia/Tokyoに設定して再フォーマット
+                                        dt_obj = datetime.fromisoformat(schedfinish.replace('Z', '+00:00'))
+                                        jst = timezone(timedelta(hours=9))
+                                        schedfinish = dt_obj.astimezone(jst).isoformat(timespec='seconds')
+                                    except ValueError:
+                                        # 解析に失敗した場合はそのまま
+                                        pass
+                                
+                                # 終日イベントの場合、終了日はAPI上は翌日として設定されているため、表示上は当日に戻す必要はない。
+                                # ISO 8601の'date'形式として出力
+                                
                                 extracted_data.append({
-                                    "イベント名": event.get('summary', '無題'),
-                                    "開始日時": start_time,
-                                    "終了日時": end_time,
-                                    "場所": event.get('location', 'なし'),
-                                    "説明": event.get('description', 'なし')
+                                    "WONUM": wonum,
+                                    "DESCRIPTION": "", # 空欄
+                                    "ASSETNUM": assetnum,
+                                    "WORKTYPE": worktype,
+                                    "SCHEDSTART": schedstart,
+                                    "SCHEDFINISH": schedfinish,
+                                    "LEAD": "", # 空欄
+                                    "JESSCHEDFIXED": "", # 空欄
+                                    "SITEID": "JES" # JES
                                 })
                             
                             output_df = pd.DataFrame(extracted_data)
                             st.dataframe(output_df) # プレビューとして表示
                             
-                            # Excelファイルの作成とダウンロードボタン
-                            buffer = BytesIO()
-                            with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-                                output_df.to_excel(writer, index=False, sheet_name='カレンダーイベント')
-                            buffer.seek(0)
-                            
-                            st.download_button(
-                                label="✅ Excelファイルとしてダウンロード",
-                                data=buffer,
-                                file_name="Googleカレンダー_イベントリスト.xlsx",
-                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                            )
+                            # ダウンロードボタン
+                            if export_format == "CSV":
+                                # CSVファイルの作成とダウンロードボタン
+                                csv_buffer = output_df.to_csv(index=False).encode('utf-8')
+                                st.download_button(
+                                    label="✅ CSVファイルとしてダウンロード",
+                                    data=csv_buffer,
+                                    file_name="Googleカレンダー_イベントリスト.csv",
+                                    mime="text/csv"
+                                )
+                            else:
+                                # Excelファイルの作成とダウンロードボタン (既存コードを再利用)
+                                buffer = BytesIO()
+                                with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+                                    output_df.to_excel(writer, index=False, sheet_name='カレンダーイベント')
+                                buffer.seek(0)
+                                
+                                st.download_button(
+                                    label="✅ Excelファイルとしてダウンロード",
+                                    data=buffer,
+                                    file_name="Googleカレンダー_イベントリスト.xlsx",
+                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                                )
+
                             st.success(f"{len(output_df)} 件のイベントを読み込みました。")
                     
                     except Exception as e:
