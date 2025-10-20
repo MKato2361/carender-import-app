@@ -172,7 +172,7 @@ with tabs[0]:
 
     def get_local_excel_files():
         current_dir = Path(__file__).parent
-        return [f for f in current_dir.glob("*.xlsx") if f.is_file()]
+        return [f for f in current_dir.glob("*") if f.suffix.lower() in [".xlsx", ".xls", ".csv"]]
 
     uploaded_files = st.file_uploader("ExcelまたはCSVファイルを選択（複数可）",type=["xlsx", "xls", "csv"],accept_multiple_files=True)
 
