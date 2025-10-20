@@ -176,7 +176,7 @@ with tabs[0]:
 
     uploaded_files = st.file_uploader("ExcelまたはCSVファイルを選択（複数可）", type=["xlsx", "xls", "csv"], accept_multiple_files=True)
 
-    local_excel_files = get_local_excel_files()
+    local_excel_files = get_local_files()
     selected_local_files = []
     if local_excel_files:
         st.subheader("📁 サーバーにあるExcelファイル")
@@ -186,7 +186,7 @@ with tabs[0]:
             local_file_names
         )
         for name in selected_names:
-            full_path = next((f for f in local_excel_files if f.name == name), None)
+            full_path = next((f for f in local_files if f.name == name), None)
             if full_path:
                 with open(full_path, "rb") as f:
                     file_bytes = f.read()
