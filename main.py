@@ -159,15 +159,15 @@ if 'uploaded_files' not in st.session_state:
 with tabs[0]:
     st.header("ファイルをアップロード")
     st.info("""
-    ☐作業指示書一覧をアップロードすると管理番号+物件名をイベント名として任意のカレンダーに登録します。
+    ☀作業指示書一覧をアップロードすると管理番号+物件名をイベント名として任意のカレンダーに登録します。
     
-    ☐イベントの説明欄に含めたい情報はドロップダウンリストから選択してください。（複数選択可能,次回から同じ項目が選択されます）
+    ☀イベントの説明欄に含めたい情報はドロップダウンリストから選択してください。（複数選択可能,次回から同じ項目が選択されます）
     
-    ☐イベントに住所を追加したい場合は、物件一覧のファイルを作業指示書一覧と一緒にアップロードしてください。
+    ☀イベントに住所を追加したい場合は、物件一覧のファイルを作業指示書一覧と一緒にアップロードしてください。
     
-    ☐作業外予定の一覧をアップロードすると、イベント名を選択することができます。
+    ☀作業外予定の一覧をアップロードすると、イベント名を選択することができます。
 
-    ☐ToDoリストを作成すると、点検通知のリマインドが可能です（ToDoとしてイベント登録されます）
+    ☀ToDoリストを作成すると、点検通知のリマインドが可能です（ToDoとしてイベント登録されます）
     """)
 
     def get_local_excel_files():
@@ -459,65 +459,98 @@ with tabs[2]:
             st.error("削除開始日は終了日より前に設定してください。")
         else:
             st.subheader("🗑️ 削除実行")
-            if st.button("選択期間のイベントを削除する"):
-                calendar_service = st.session_state['calendar_service']
-                tasks_service = st.session_state['tasks_service']
-                default_task_list_id = st.session_state.get('default_task_list_id')
-
-                start_dt_utc = datetime.combine(delete_start_date, datetime.min.time(), tzinfo=datetime.now().astimezone().tzinfo).astimezone(timezone.utc)
-                end_dt_utc = datetime.combine(delete_end_date, datetime.max.time(), tzinfo=datetime.now().astimezone().tzinfo).astimezone(timezone.utc)
+            
+            # 削除確認フラグの初期化
+            if 'confirm_delete' not in st.session_state:
+                st.session_state['confirm_delete'] = False
+            
+            # 最初のボタン: 削除確認を表示
+            if not st.session_state['confirm_delete']:
+                if st.button("選択期間のイベントを削除する", type="primary"):
+                    st.session_state['confirm_delete'] = True
+                    st.rerun()
+            
+            # 確認メッセージと実行/キャンセルボタン
+            if st.session_state['confirm_delete']:
+                st.warning(f"""
+                ⚠️ **削除確認**
                 
-                time_min_utc = start_dt_utc.isoformat(timespec='microseconds').replace('+00:00', 'Z')
-                time_max_utc = end_dt_utc.isoformat(timespec='microseconds').replace('+00:00', 'Z')
-
-                events_to_delete = fetch_all_events(calendar_service, calendar_id_del, time_min_utc, time_max_utc)
+                以下のイベントを削除します:
+                - **カレンダー名**: {selected_calendar_name_del}
+                - **期間**: {delete_start_date.strftime('%Y年%m月%d日')} ～ {delete_end_date.strftime('%Y年%m月%d日')}
+                - **ToDoリストも削除**: {'はい' if delete_related_todos else 'いいえ'}
                 
-                if not events_to_delete:
-                    st.info("指定期間内に削除するイベントはありませんでした。")
-
-                deleted_events_count = 0
-                deleted_todos_count = 0
-                total_events = len(events_to_delete)
+                この操作は取り消せません。本当に削除しますか？
+                """)
                 
-                if total_events > 0:
-                    progress_bar = st.progress(0)
-                    status_text = st.empty()
+                col1, col2 = st.columns([1, 1])
+                
+                with col1:
+                    if st.button("✅ 実行", type="primary", use_container_width=True):
+                        st.session_state['confirm_delete'] = False
+                        calendar_service = st.session_state['calendar_service']
+                        tasks_service = st.session_state['tasks_service']
+                        default_task_list_id = st.session_state.get('default_task_list_id')
 
-                    for i, event in enumerate(events_to_delete):
-                        event_summary = event.get('summary', '不明なイベント')
-                        event_id = event['id']
+                        start_dt_utc = datetime.combine(delete_start_date, datetime.min.time(), tzinfo=datetime.now().astimezone().tzinfo).astimezone(timezone.utc)
+                        end_dt_utc = datetime.combine(delete_end_date, datetime.max.time(), tzinfo=datetime.now().astimezone().tzinfo).astimezone(timezone.utc)
                         
-                        status_text.text(f"イベント '{event_summary}' を削除中... ({i+1}/{total_events})")
+                        time_min_utc = start_dt_utc.isoformat(timespec='microseconds').replace('+00:00', 'Z')
+                        time_max_utc = end_dt_utc.isoformat(timespec='microseconds').replace('+00:00', 'Z')
 
-                        try:
-                            if delete_related_todos and tasks_service and default_task_list_id:
-                                deleted_task_count_for_event = find_and_delete_tasks_by_event_id(
-                                    tasks_service,
-                                    default_task_list_id,
-                                    event_id
-                                )
-                                deleted_todos_count += deleted_task_count_for_event
+                        events_to_delete = fetch_all_events(calendar_service, calendar_id_del, time_min_utc, time_max_utc)
+                        
+                        if not events_to_delete:
+                            st.info("指定期間内に削除するイベントはありませんでした。")
+
+                        deleted_events_count = 0
+                        deleted_todos_count = 0
+                        total_events = len(events_to_delete)
+                        
+                        if total_events > 0:
+                            progress_bar = st.progress(0)
+                            status_text = st.empty()
+
+                            for i, event in enumerate(events_to_delete):
+                                event_summary = event.get('summary', '不明なイベント')
+                                event_id = event['id']
+                                
+                                status_text.text(f"イベント '{event_summary}' を削除中... ({i+1}/{total_events})")
+
+                                try:
+                                    if delete_related_todos and tasks_service and default_task_list_id:
+                                        deleted_task_count_for_event = find_and_delete_tasks_by_event_id(
+                                            tasks_service,
+                                            default_task_list_id,
+                                            event_id
+                                        )
+                                        deleted_todos_count += deleted_task_count_for_event
+                                    
+                                    calendar_service.events().delete(calendarId=calendar_id_del, eventId=event_id).execute()
+                                    deleted_events_count += 1
+                                except Exception as e:
+                                    st.error(f"イベント '{event_summary}' (ID: {event_id}) の削除に失敗しました: {e}")
+                                
+                                progress_bar.progress((i + 1) / total_events)
                             
-                            calendar_service.events().delete(calendarId=calendar_id_del, eventId=event_id).execute()
-                            deleted_events_count += 1
-                        except Exception as e:
-                            st.error(f"イベント '{event_summary}' (ID: {event_id}) の削除に失敗しました: {e}")
-                        
-                        progress_bar.progress((i + 1) / total_events)
-                    
-                    status_text.empty()
+                            status_text.empty()
 
-                    if deleted_events_count > 0:
-                        st.success(f"✅ {deleted_events_count} 件のイベントが削除されました。")
-                        if delete_related_todos:
-                            if deleted_todos_count > 0:
-                                st.success(f"✅ {deleted_todos_count} 件の関連ToDoタスクが削除されました。")
+                            if deleted_events_count > 0:
+                                st.success(f"✅ {deleted_events_count} 件のイベントが削除されました。")
+                                if delete_related_todos:
+                                    if deleted_todos_count > 0:
+                                        st.success(f"✅ {deleted_todos_count} 件の関連ToDoタスクが削除されました。")
+                                    else:
+                                        st.info("関連するToDoタスクは見つからなかったか、すでに削除されていました。")
                             else:
-                                st.info("関連するToDoタスクは見つからなかったか、すでに削除されていました。")
-                    else:
-                        st.info("指定期間内に削除するイベントはありませんでした。")
-                else:
-                    st.info("指定期間内に削除するイベントはありませんでした。")
+                                st.info("指定期間内に削除するイベントはありませんでした。")
+                        else:
+                            st.info("指定期間内に削除するイベントはありませんでした。")
+                
+                with col2:
+                    if st.button("❌ キャンセル", use_container_width=True):
+                        st.session_state['confirm_delete'] = False
+                        st.rerun()
 
 with tabs[3]:
     st.header("イベントを更新")
