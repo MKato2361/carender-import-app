@@ -151,4 +151,94 @@ def process_excel_data_for_calendar(
 
         subj = ""
         if subj_parts:
-            if subj_parts[0].startswith("_
+            if subj_parts[0].startswith("【"):
+                subj = "".join(subj_parts)
+                if len(subj_parts) > 2:
+                    subj = f"{subj_parts[0]}{subj_parts[1]} {subj_parts[2]}"
+            else:
+                subj = " ".join(subj_parts)
+
+        if not subj and fallback_event_name_column and fallback_event_name_column in row:
+            fallback_value = row.get(fallback_event_name_column, "")
+            subj = format_description_value(fallback_value)
+
+        if not subj:
+            subj = "イベント"
+
+        try:
+            start = pd.to_datetime(row[start_col])
+
+            end = None
+            if end_col and pd.notna(row.get(end_col)):
+                try:
+                    end = pd.to_datetime(row[end_col])
+                except Exception:
+                    pass
+
+            if end is None:
+                if start.time() == datetime.time(0, 0, 0):
+                    end = start + datetime.timedelta(days=1)
+                else:
+                    end = start + datetime.timedelta(hours=1)
+
+            if end < start:
+                print(
+                    f"Warning: 開始日時({start})が終了日時({end})より後です。この行はスキップされます。"
+                )
+                continue
+
+            is_all_day = all_day_event_override or (
+                start.time() == datetime.time(0, 0, 0)
+                and end.time() == datetime.time(0, 0, 0)
+                and (
+                    end.date() == start.date() + datetime.timedelta(days=1)
+                    or end.date() == start.date()
+                )
+            )
+
+            if is_all_day:
+                end_display = end - datetime.timedelta(days=1)
+                start_time_display = ""
+                end_time_display = ""
+            else:
+                end_display = end
+                start_time_display = start.strftime("%H:%M")
+                end_time_display = end.strftime("%H:%M")
+
+        except Exception as e:
+            print(f"Warning: 日時の変換に失敗しました（行 {index+2}）: {e}")
+            continue
+
+        location = row.get(addr_col, "") if addr_col else ""
+        if isinstance(location, str) and "北海道札幌市" in location:
+            location = location.replace("北海道札幌市", "")
+
+        description_parts = []
+        for col in description_columns:
+            if col in row:
+                description_parts.append(format_description_value(row.get(col)))
+        description = " / ".join(filter(None, description_parts))
+
+        worksheet_value = row.get(worksheet_col, "") if worksheet_col else ""
+        if pd.notna(worksheet_value) and str(worksheet_value).strip():
+            formatted_ws = format_worksheet_value(worksheet_value)
+            if description:
+                description = f"作業指示書：{formatted_ws}/ " + description
+            else:
+                description = f"作業指示書：{formatted_ws}"
+
+        output_records.append(
+            {
+                "Subject": subj,
+                "Start Date": start.strftime("%Y/%m/%d"),
+                "Start Time": start_time_display,
+                "End Date": end_display.strftime("%Y/%m/%d"),
+                "End Time": end_time_display,
+                "All Day Event": "True" if is_all_day else "False",
+                "Description": description,
+                "Location": location,
+                "Private": "True" if private_event else "False",
+            }
+        )
+
+    return pd.DataFrame(output_records) if output_records else pd.DataFrame()
