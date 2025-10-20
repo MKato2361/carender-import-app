@@ -211,6 +211,23 @@ def process_excel_data_for_calendar(
         required_items = []
         optional_items = []
         
+        # -----------------------------------------------------------------------------------
+        # 【最終修正箇所】「タイトル」列の値をDescriptionに確実に追加
+        # -----------------------------------------------------------------------------------
+        # 'タイトル'列の値を明示的に取得し、required_itemsの先頭に追加
+        # 'タイトル'という列名がプルダウンにあるため、find_closest_columnで探す
+        title_col_name = find_closest_column(merged_df.columns, ["タイトル"])
+        
+        if title_col_name and title_col_name in row:
+            title_value = format_description_value(row.get(title_col_name, ""))
+            if title_value:
+                # required_itemsの先頭に確実に追加
+                required_items.append(f"[タイトル: {title_value}]")
+        
+        # 既存の fallback_event_name_column の処理は、Descriptionに追加するロジックから削除し、
+        # Subjectを補完するためだけに使うようにシンプルに戻します。
+        # -----------------------------------------------------------------------------------
+        
         # 作業指示書（必須）
         worksheet_value = row.get(worksheet_col, "") if worksheet_col else ""
         if worksheet_col and pd.notna(worksheet_value):
@@ -225,14 +242,6 @@ def process_excel_data_for_calendar(
                 task_type = str(task_type_value).strip()
                 if task_type:
                     required_items.append(f"[作業タイプ: {task_type}]")
-        
-        # タイトル（必須）
-        # 【修正箇所: 'タイトル'列の値をDescriptionに追加するために追加】
-        title_col = find_closest_column(merged_df.columns, ["タイトル"])
-        if title_col:
-            title_value = format_description_value(row.get(title_col, ""))
-            if title_value:
-                required_items.append(f"[タイトル: {title_value}]")
         
         # 管理番号（必須） - 整形前の元データを使用
         if original_mng:
@@ -257,12 +266,14 @@ def process_excel_data_for_calendar(
         
         # ユーザーが選択したオプション項目
         for col in description_columns:
-            if col in row:
+            # colが今回追加したタイトル列と同じ場合はスキップし、重複を避ける
+            if col in row and col != title_col_name:
                 optional_items.append(format_description_value(row.get(col)))
         
         # Descriptionを組み立て: オプション項目 + 必須項目
         description_parts = optional_items.copy()
         if required_items:
+            # required_items にはタイトル列が既に追加されている
             description_parts.extend(required_items)
         
         description = " / ".join(filter(None, description_parts))
