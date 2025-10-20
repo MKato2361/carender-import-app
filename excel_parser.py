@@ -32,11 +32,19 @@ def _load_and_merge_dataframes(uploaded_files):
     dataframes = []
     
     if not uploaded_files:
-        raise ValueError("Excelファイルがアップロードされていません。")
+        raise ValueError("ExcelまたはCSVファイルがアップロードされていません。")
 
     for uploaded_file in uploaded_files:
         try:
-            df = pd.read_excel(uploaded_file, engine="openpyxl")
+            # 🔽 ここを修正：拡張子でExcelかCSVかを判定
+            if uploaded_file.name.lower().endswith(".csv"):
+                df = pd.read_csv(uploaded_file, encoding="utf-8-sig")
+            elif uploaded_file.name.lower().endswith((".xls", ".xlsx")):
+                df = pd.read_excel(uploaded_file, engine="openpyxl")
+            else:
+                raise ValueError(f"未対応のファイル形式です: {uploaded_file.name}")
+            # 🔼 修正ここまで
+
             df.columns = [str(c).strip() for c in df.columns]
             
             mng_col = find_closest_column(df.columns, ["管理番号"])
@@ -131,24 +139,18 @@ def process_excel_data_for_calendar(
 
         # 4. パーツを結合してイベント名（`subj`）を生成
         subj = ""
-        # パーツが1つ以上ある場合
         if subj_parts:
-            # 最初のパーツが「【作業タイプ】」の場合、2番目以降のパーツとはスペースを入れない
             if subj_parts[0].startswith("【"):
                 subj = "".join(subj_parts)
-                # 2つ目以降に「物件名」が含まれていたら、その前にスペースを入れる
                 if len(subj_parts) > 2:
                     subj = f"{subj_parts[0]}{subj_parts[1]} {subj_parts[2]}"
             else:
-                # 「作業タイプ」がない場合、スペースで結合
                 subj = " ".join(subj_parts)
         
-        # 5. 上記でイベント名が生成されなかった場合、代替列を使用
         if not subj and fallback_event_name_column and fallback_event_name_column in row:
             fallback_value = row.get(fallback_event_name_column, "")
             subj = format_description_value(fallback_value)
 
-        # 6. イベント名が最終的に空だった場合のデフォルト値
         if not subj:
             subj = "イベント"
         
