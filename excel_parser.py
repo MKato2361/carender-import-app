@@ -148,7 +148,18 @@ def process_excel_data_for_calendar(
             if task_type:
                 subj_parts.append(f"[{task_type}]")
 
+        # タイトル用の管理番号（整形済み）
         mng = clean_mng_num(row["管理番号"])
+        if mng:
+            subj_parts.append(mng)
+        
+        # Description用の管理番号（整形前の元データ）
+        mng_col = find_closest_column(merged_df.columns, ["管理番号"])
+        original_mng = ""
+        if mng_col:
+            original_mng_value = row.get(mng_col, "")
+            if pd.notna(original_mng_value):
+                original_mng = str(original_mng_value).strip()
         if mng:
             subj_parts.append(mng)
 
@@ -223,9 +234,9 @@ def process_excel_data_for_calendar(
             if title_value:
                 required_items.append(f"[タイトル: {title_value}]")
         
-        # 管理番号（必須）
-        if mng:
-            required_items.append(f"[管理番号: {mng}]")
+        # 管理番号（必須） - 整形前の元データを使用
+        if original_mng:
+            required_items.append(f"[管理番号: {original_mng}]")
         
         # 物件名（必須）
         if name_col:
