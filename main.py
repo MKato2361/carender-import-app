@@ -733,10 +733,20 @@ with tabs[4]:  # tabs[4]は新しいタブに対応
                         else:
                             # 必要な列を抽出して整形
                             extracted_data = []
-                            # 正規表現パターンをコンパイル
-                            wonum_pattern = re.compile(r"作業指示書[：:]\s*(\d+)")
-                            assetnum_pattern = re.compile(r"管理番号[：:]\s*(\w+)")
-                            worktype_pattern = re.compile(r"作業タイプ[：:]\s*(\S+)")
+                            # 正規表現パターンをコンパイル (修正: キーの直後のコロン(:または：)以降の文字を、次のフィールドまたは行末までキャプチャ)
+                            # (?:.*?[：:]) - キーを検索 (例: 作業指示書: )
+                            # \s* - 任意の空白文字をスキップ
+                            # (.*?) - ここが値 (非貪欲マッチで次の区切りまで)
+                            # (?:\s*\[|\n|$) - 抽出を停止する区切り ([または改行または文字列の終わり)
+                            
+                            # 例: "作業指示書： 2529260 [管理番号: HK471]" の場合、
+                            # キーの直後から、非貪欲マッチで次の [ の前までを抽出
+                            # 値のトリミング（前後の空白除去）は最後に実施
+                            
+                            # 抽出対象: []、空白文字、任意の文字
+                            wonum_pattern = re.compile(r"作業指示書[：:]\s*(.*?)(?=\s*\[|\n|$)")
+                            assetnum_pattern = re.compile(r"管理番号[：:]\s*(.*?)(?=\s*\[|\n|$)")
+                            worktype_pattern = re.compile(r"作業タイプ[：:]\s*(.*?)(?=\s*\[|\n|$)")
                             
                             for event in events_to_export:
                                 description = event.get('description', '')
@@ -746,23 +756,20 @@ with tabs[4]:  # tabs[4]は新しいタブに対応
                                 assetnum_match = assetnum_pattern.search(description)
                                 worktype_match = worktype_pattern.search(description)
                                 
-                                wonum = wonum_match.group(1) if wonum_match else ""
-                                assetnum = assetnum_match.group(1) if assetnum_match else ""
-                                worktype = worktype_match.group(1) if worktype_match else ""
+                                # .strip()で前後の空白を除去し、余分な [] を含めないようにする
+                                wonum = wonum_match.group(1).strip() if wonum_match else ""
+                                assetnum = assetnum_match.group(1).strip() if assetnum_match else ""
+                                worktype = worktype_match.group(1).strip() if worktype_match else ""
                                 
                                 # SCHEDSTART/SCHEDFINISHの処理（ISO 8601形式で出力）
-                                # 'date' (終日イベント) の場合は日付のみ、'dateTime' の場合はタイムゾーン付きISO 8601
                                 start_time_key = 'date' if 'date' in event.get('start', {}) else 'dateTime'
                                 end_time_key = 'date' if 'date' in event.get('end', {}) else 'dateTime'
                                 
                                 schedstart = event['start'].get(start_time_key, '')
                                 schedfinish = event['end'].get(end_time_key, '')
                                 
-                                # 'date'形式 (終日イベント) の場合、'YYYY-MM-DD'形式
-                                # 'dateTime'形式の場合、タイムゾーン付きISO 8601形式 (例: 2002-02-02T12:00:00+09:00)
+                                # 'dateTime'形式の場合、タイムゾーン付きISO 8601形式 (+09:00) で再フォーマット
                                 if start_time_key == 'dateTime':
-                                    # Google APIのdateTimeは通常Z (UTC) またはタイムゾーン情報を含む。そのまま出力する
-                                    # ただし、APIの仕様によりタイムゾーンが明示されない場合があるため、UTCとして扱う
                                     try:
                                         # ISO 8601文字列を解析し、タイムゾーンをAsia/Tokyoに設定して再フォーマット
                                         dt_obj = datetime.fromisoformat(schedstart.replace('Z', '+00:00'))
@@ -782,9 +789,6 @@ with tabs[4]:  # tabs[4]は新しいタブに対応
                                         # 解析に失敗した場合はそのまま
                                         pass
                                 
-                                # 終日イベントの場合、終了日はAPI上は翌日として設定されているため、表示上は当日に戻す必要はない。
-                                # ISO 8601の'date'形式として出力
-                                
                                 extracted_data.append({
                                     "WONUM": wonum,
                                     "DESCRIPTION": "", # 空欄
@@ -803,7 +807,8 @@ with tabs[4]:  # tabs[4]は新しいタブに対応
                             # ダウンロードボタン
                             if export_format == "CSV":
                                 # CSVファイルの作成とダウンロードボタン
-                                csv_buffer = output_df.to_csv(index=False).encode('utf-8')
+                                # BOM付きUTF-8で出力し、Excelでの文字化けを防ぐ
+                                csv_buffer = output_df.to_csv(index=False).encode('utf-8-sig') 
                                 st.download_button(
                                     label="✅ CSVファイルとしてダウンロード",
                                     data=csv_buffer,
