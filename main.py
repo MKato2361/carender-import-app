@@ -174,7 +174,7 @@ with tabs[0]:
         current_dir = Path(__file__).parent
         return [f for f in current_dir.glob("*.xlsx") if f.is_file()]
 
-    uploaded_files = st.file_uploader("ExcelまたはCSVファイルを選択（複数可）", type=["xlsx", "xls", "csv"], accept_multiple_files=True)
+    uploaded_files = st.file_uploader("Excelファイルを選択（複数可）", type=["xlsx"], accept_multiple_files=True)
 
     local_excel_files = get_local_excel_files()
     selected_local_files = []
@@ -186,19 +186,19 @@ with tabs[0]:
             local_file_names
         )
         for name in selected_names:
-            full_path = next((f for f in local_files if f.name == name), None)
+            full_path = next((f for f in local_excel_files if f.name == name), None)
             if full_path:
                 with open(full_path, "rb") as f:
                     file_bytes = f.read()
                     file_obj = BytesIO(file_bytes)
                     file_obj.name = name
-                    selected_local_excel_files.append(file_obj)
+                    selected_local_files.append(file_obj)
 
     all_files = []
     if uploaded_files:
         all_files.extend(uploaded_files)
     if selected_local_files:
-        all_files.extend(selected_local_excel_files)
+        all_files.extend(selected_local_files)
 
     if all_files:
         st.session_state['uploaded_files'] = all_files
