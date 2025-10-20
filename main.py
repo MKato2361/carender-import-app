@@ -731,26 +731,32 @@ with tabs[4]:  # tabs[4]は新しいタブに対応
                         else:
                             extracted_data = []
                             
-                            # 🚨🚨 正規表現の最終調整 🚨🚨
-                            # 形式: [キー: 値] に特化し、コロンの直後から閉じ括弧の直前までを厳密に抽出します。
-                            # パターン: \[キー[：:]\s*(.*?)\]
-                            
+                            # 正規表現パターン定義 (最終版)
                             wonum_pattern = re.compile(r"\[作業指示書[：:]\s*(.*?)\]")
                             assetnum_pattern = re.compile(r"\[管理番号[：:]\s*(.*?)\]")
                             worktype_pattern = re.compile(r"\[作業タイプ[：:]\s*(.*?)\]")
-                            
+                            title_pattern = re.compile(r"\[タイトル[：:]\s*(.*?)\]") # DESCRIPTION用
+
                             for event in events_to_export:
-                                description = event.get('description', '')
+                                description_text = event.get('description', '')
                                 
                                 # 説明フィールドからの抽出
-                                wonum_match = wonum_pattern.search(description)
-                                assetnum_match = assetnum_pattern.search(description)
-                                worktype_match = worktype_pattern.search(description)
+                                wonum_match = wonum_pattern.search(description_text)
+                                assetnum_match = assetnum_pattern.search(description_text)
+                                worktype_match = worktype_pattern.search(description_text)
+                                title_match = title_pattern.search(description_text)
                                 
                                 # 抽出したグループ1 (値) の前後の空白を削除
                                 wonum = wonum_match.group(1).strip() if wonum_match else ""
                                 assetnum = assetnum_match.group(1).strip() if assetnum_match else ""
                                 worktype = worktype_match.group(1).strip() if worktype_match else ""
+                                
+                                # 🚨 DESCRIPTION (タイトル) の抽出ロジックを修正
+                                if title_match:
+                                    description_val = title_match.group(1).strip()
+                                else:
+                                    # [タイトル: ...] が見つからなかった場合は空欄にする (ご要望通り)
+                                    description_val = "" 
                                 
                                 # SCHEDSTART/SCHEDFINISHの処理（ISO 8601形式で出力）
                                 start_time_key = 'date' if 'date' in event.get('start', {}) else 'dateTime'
@@ -778,7 +784,7 @@ with tabs[4]:  # tabs[4]は新しいタブに対応
                                 
                                 extracted_data.append({
                                     "WONUM": wonum,
-                                    "DESCRIPTION": "",
+                                    "DESCRIPTION": description_val, # 抽出したタイトルまたは空欄
                                     "ASSETNUM": assetnum,
                                     "WORKTYPE": worktype,
                                     "SCHEDSTART": schedstart,
