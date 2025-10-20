@@ -180,7 +180,7 @@ with tabs[0]:
     selected_local_files = []
     if local_excel_files:
         st.subheader("📁 サーバーにあるExcelファイル")
-        local_file_names = [f.name for f in local_excel_files]
+        local_file_names = [f.name for f in local_files]
         selected_names = st.multiselect(
             "以下のファイルを処理対象に含める（アップロードと同様に扱われます）",
             local_file_names
