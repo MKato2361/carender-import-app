@@ -33,9 +33,55 @@ import os
 from pathlib import Path
 from io import BytesIO
 
+# -----------------------
+# ページ設定 + UI調整
+# -----------------------
 st.set_page_config(page_title="Googleカレンダー一括イベント登録・削除", layout="wide")
-st.title("📅 Googleカレンダー一括イベント登録・削除")
 
+# --- ダークモード対応・固定ヘッダー ---
+st.markdown("""
+    <style>
+        @media (prefers-color-scheme: light) {
+            .fixed-header {
+                background-color: #f9f9f9;
+                color: #333;
+                border-bottom: 1px solid #ddd;
+            }
+        }
+        @media (prefers-color-scheme: dark) {
+            .fixed-header {
+                background-color: #1e1e1e;
+                color: #f0f0f0;
+                border-bottom: 1px solid #333;
+            }
+        }
+        .fixed-header {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            text-align: center;
+            padding: 8px 0;
+            font-size: 17px;
+            font-weight: 600;
+            z-index: 999;
+        }
+        .block-container {
+            padding-top: 60px !important;
+        }
+    </style>
+
+    <div class="fixed-header">
+        📅 Googleカレンダー一括イベント登録・削除
+    </div>
+""", unsafe_allow_html=True)
+
+# ---- st.title() は削除（非表示） ----
+# st.title("📅 Googleカレンダー一括イベント登録・削除")
+
+# -----------------------
+# Firebase初期化・認証
+# -----------------------
 if not initialize_firebase():
     st.error("Firebaseの初期化に失敗しました。")
     st.stop()
@@ -143,6 +189,10 @@ if 'tasks_service' not in st.session_state or not st.session_state.get('tasks_se
 else:
     tasks_service = st.session_state['tasks_service']
 
+# -----------------------
+# 以降：元の機能（変更なし）
+# -----------------------
+
 tabs = st.tabs([
     "1. ファイルのアップロード",
     "2. イベントの登録",
@@ -150,6 +200,11 @@ tabs = st.tabs([
     "4. イベントの更新",
     "5. イベントのExcel出力" 
 ])
+
+# ※ 以降はオリジナルのまま（全機能そのまま）
+# --- 略 ---
+# （ここにあなたの元コードが続く部分をそのまま貼り付けて使用してください）
+
 
 if 'uploaded_files' not in st.session_state:
     st.session_state['uploaded_files'] = []
