@@ -67,8 +67,11 @@ def _load_and_merge_dataframes(uploaded_files):
 
             mng_col = find_closest_column(df.columns, ["管理番号"])
             if mng_col:
+                # 元の管理番号を保存してから整形
+                df["元管理番号"] = df[mng_col].astype(str)
                 df["管理番号"] = df[mng_col].apply(clean_mng_num)
             else:
+                df["元管理番号"] = ""
                 df["管理番号"] = ""
 
             dataframes.append(df)
@@ -81,13 +84,15 @@ def _load_and_merge_dataframes(uploaded_files):
 
     merged_df = dataframes[0].copy()
     merged_df["管理番号"] = merged_df["管理番号"].astype(str)
+    merged_df["元管理番号"] = merged_df["元管理番号"].astype(str)
 
     for df in dataframes[1:]:
         df_copy = df.copy()
         df_copy["管理番号"] = df_copy["管理番号"].astype(str)
+        df_copy["元管理番号"] = df_copy["元管理番号"].astype(str)
         cols_to_merge = [
             col for col in df_copy.columns
-            if col == "管理番号" or col not in merged_df.columns
+            if col == "管理番号" or col == "元管理番号" or col not in merged_df.columns
         ]
         merged_df = pd.merge(merged_df, df_copy[cols_to_merge], on="管理番号", how="outer")
 
@@ -102,7 +107,7 @@ def get_available_columns_for_event_name(df):
     available_columns = []
     for col in df.columns:
         col_lower = str(col).lower()
-        if not any(keyword in col_lower for keyword in exclude_keywords) and col != "管理番号":
+        if not any(keyword in col_lower for keyword in exclude_keywords) and col != "管理番号" and col != "元管理番号":
             available_columns.append(col)
     return available_columns
 
@@ -154,11 +159,10 @@ def process_excel_data_for_calendar(
             subj_parts.append(mng)
         
         # Description用の管理番号（整形前の元データ）
-        mng_col = find_closest_column(merged_df.columns, ["管理番号"])
         original_mng = ""
-        if mng_col:
-            original_mng_value = row.get(mng_col, "")
-            if pd.notna(original_mng_value):
+        if "元管理番号" in row:
+            original_mng_value = row.get("元管理番号", "")
+            if pd.notna(original_mng_value) and str(original_mng_value).strip() and str(original_mng_value).strip().lower() != 'nan':
                 original_mng = str(original_mng_value).strip()
 
         name = row.get(name_col, "") if name_col else ""
@@ -211,22 +215,12 @@ def process_excel_data_for_calendar(
         required_items = []
         optional_items = []
         
-        # -----------------------------------------------------------------------------------
-        # 【最終修正箇所】「タイトル」列の値をDescriptionに確実に追加
-        # -----------------------------------------------------------------------------------
-        # 'タイトル'列の値を明示的に取得し、required_itemsの先頭に追加
-        # 'タイトル'という列名がプルダウンにあるため、find_closest_columnで探す
+        # タイトル列（必須）
         title_col_name = find_closest_column(merged_df.columns, ["タイトル"])
-        
         if title_col_name and title_col_name in row:
             title_value = format_description_value(row.get(title_col_name, ""))
             if title_value:
-                # required_itemsの先頭に確実に追加
                 required_items.append(f"[タイトル: {title_value}]")
-        
-        # 既存の fallback_event_name_column の処理は、Descriptionに追加するロジックから削除し、
-        # Subjectを補完するためだけに使うようにシンプルに戻します。
-        # -----------------------------------------------------------------------------------
         
         # 作業指示書（必須）
         worksheet_value = row.get(worksheet_col, "") if worksheet_col else ""
@@ -264,16 +258,14 @@ def process_excel_data_for_calendar(
                 if worker:
                     required_items.append(f"[作業者: {worker}]")
         
-        # ユーザーが選択したオプション項目
+        # ユーザーが選択したオプション項目（タイトル列との重複を避ける）
         for col in description_columns:
-            # colが今回追加したタイトル列と同じ場合はスキップし、重複を避ける
             if col in row and col != title_col_name:
                 optional_items.append(format_description_value(row.get(col)))
         
         # Descriptionを組み立て: オプション項目 + 必須項目
         description_parts = optional_items.copy()
         if required_items:
-            # required_items にはタイトル列が既に追加されている
             description_parts.extend(required_items)
         
         description = " / ".join(filter(None, description_parts))
