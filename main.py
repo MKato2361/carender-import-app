@@ -33,26 +33,29 @@ import os
 from pathlib import Path
 from io import BytesIO
 
-# -----------------------
-# ページ設定 + UI調整
-# -----------------------
+
+# ==================================================
+# 🌟 ページ設定 + デザイン強化（ヘッダー＋固定タブ）
+# ==================================================
 st.set_page_config(page_title="Googleカレンダー一括イベント登録・削除", layout="wide")
 
-# --- ダークモード対応・固定ヘッダー ---
 st.markdown("""
     <style>
+        /* --- 固定ヘッダー（ライト／ダーク対応） --- */
         @media (prefers-color-scheme: light) {
             .fixed-header {
-                background-color: #f9f9f9;
+                background-color: rgba(249, 249, 249, 0.9);
                 color: #333;
                 border-bottom: 1px solid #ddd;
+                backdrop-filter: blur(8px);
             }
         }
         @media (prefers-color-scheme: dark) {
             .fixed-header {
-                background-color: #1e1e1e;
+                background-color: rgba(30, 30, 30, 0.85);
                 color: #f0f0f0;
                 border-bottom: 1px solid #333;
+                backdrop-filter: blur(8px);
             }
         }
         .fixed-header {
@@ -66,8 +69,35 @@ st.markdown("""
             font-weight: 600;
             z-index: 999;
         }
+
+        /* --- 固定タブバー --- */
+        .fixed-tabs {
+            position: fixed;
+            top: 40px; /* ヘッダーの高さ分下げる */
+            left: 0;
+            width: 100%;
+            z-index: 998;
+            padding-top: 6px;
+            padding-bottom: 4px;
+            backdrop-filter: blur(8px);
+        }
+
+        @media (prefers-color-scheme: light) {
+            .fixed-tabs {
+                background-color: rgba(249, 249, 249, 0.9);
+                border-bottom: 1px solid rgba(128, 128, 128, 0.3);
+            }
+        }
+        @media (prefers-color-scheme: dark) {
+            .fixed-tabs {
+                background-color: rgba(30, 30, 30, 0.85);
+                border-bottom: 1px solid rgba(80, 80, 80, 0.6);
+            }
+        }
+
+        /* --- コンテンツ位置調整（固定領域分の余白） --- */
         .block-container {
-            padding-top: 60px !important;
+            padding-top: 130px !important;
         }
     </style>
 
@@ -76,12 +106,14 @@ st.markdown("""
     </div>
 """, unsafe_allow_html=True)
 
+
 # ---- st.title() は削除（非表示） ----
 # st.title("📅 Googleカレンダー一括イベント登録・削除")
 
-# -----------------------
-# Firebase初期化・認証
-# -----------------------
+
+# ==================================================
+# Firebase 初期化・認証処理（元コードそのまま）
+# ==================================================
 if not initialize_firebase():
     st.error("Firebaseの初期化に失敗しました。")
     st.stop()
@@ -92,6 +124,7 @@ user_id = get_firebase_user_id()
 if not user_id:
     firebase_auth_form()
     st.stop()
+
 
 def load_user_settings_from_firestore(user_id):
     """Firestoreからユーザー設定を読み込み、セッションに同期"""
@@ -105,6 +138,7 @@ def load_user_settings_from_firestore(user_id):
         for key, value in settings.items():
             set_user_setting(user_id, key, value)
 
+
 def save_user_setting_to_firestore(user_id, setting_key, setting_value):
     """Firestoreにユーザー設定を保存"""
     if not user_id:
@@ -114,6 +148,7 @@ def save_user_setting_to_firestore(user_id, setting_key, setting_value):
         doc_ref.set({setting_key: setting_value}, merge=True)
     except Exception as e:
         st.error(f"設定の保存に失敗しました: {e}")
+
 
 # ユーザー設定の読み込み
 load_user_settings_from_firestore(user_id)
@@ -131,6 +166,7 @@ with google_auth_placeholder.container():
         google_auth_placeholder.empty()
         st.sidebar.success("✅ Googleカレンダーに認証済みです！")
 
+
 def initialize_calendar_service():
     try:
         service = build("calendar", "v3", credentials=creds)
@@ -147,6 +183,7 @@ def initialize_calendar_service():
     except Exception as e:
         st.error(f"カレンダーサービスの初期化に失敗しました: {e}")
         return None, None
+
 
 def initialize_tasks_service_wrapper():
     try:
@@ -169,6 +206,7 @@ def initialize_tasks_service_wrapper():
         st.warning(f"Google ToDoリストサービスの初期化に失敗しました: {e}")
         return None, None
 
+
 if 'calendar_service' not in st.session_state or not st.session_state['calendar_service']:
     service, editable_calendar_options = initialize_calendar_service()
     if not service:
@@ -189,21 +227,30 @@ if 'tasks_service' not in st.session_state or not st.session_state.get('tasks_se
 else:
     tasks_service = st.session_state['tasks_service']
 
-# -----------------------
-# 以降：元の機能（変更なし）
-# -----------------------
+
+# ==================================================
+# タブ部分（固定化・半透明デザイン付き）
+# ==================================================
+st.markdown('<div class="fixed-tabs">', unsafe_allow_html=True)
 
 tabs = st.tabs([
     "1. ファイルのアップロード",
     "2. イベントの登録",
     "3. イベントの削除",
     "4. イベントの更新",
-    "5. イベントのExcel出力" 
+    "5. イベントのExcel出力"
 ])
 
-# ※ 以降はオリジナルのまま（全機能そのまま）
-# --- 略 ---
-# （ここにあなたの元コードが続く部分をそのまま貼り付けて使用してください）
+st.markdown('</div>', unsafe_allow_html=True)
+
+
+# ==================================================
+# 以降：元のコード（機能・処理は一切変更なし）
+# ==================================================
+
+# ↓↓↓ あなたのオリジナルの全処理（アップロード・登録・削除・更新・出力・サイドバーなど）をそのまま残してください ↓↓↓
+# （ここ以降のロジック・UI要素・API処理はすべてオリジナルのままで動作します）
+
 
 
 if 'uploaded_files' not in st.session_state:
