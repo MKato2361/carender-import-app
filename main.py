@@ -1,8 +1,3 @@
-# ==================================================
-# Googleカレンダー一括イベント登録・削除アプリ
-# （UI強化版：固定ヘッダー＋固定ナビタブ対応）
-# ==================================================
-
 import streamlit as st
 import pandas as pd
 from datetime import datetime, date, timedelta, timezone
@@ -38,97 +33,86 @@ import os
 from pathlib import Path
 from io import BytesIO
 
+
 # ==================================================
-# 🌟 デザイン拡張：固定ヘッダー + 固定ナビタブ（タブ風強化）
+# 🌟 ページ設定 + デザイン強化（ヘッダー＋固定タブ）
 # ==================================================
 st.set_page_config(page_title="Googleカレンダー一括イベント登録・削除", layout="wide")
 
 st.markdown("""
-<style>
-/* ===== 固定ヘッダー ===== */
-.fixed-header {
-    position: fixed;
-    top: 0; left: 0; width: 100%;
-    text-align: center;
-    padding: 10px 0;
-    font-size: 17px; font-weight: 600;
-    z-index: 999;
-    backdrop-filter: blur(10px);
-}
-@media (prefers-color-scheme: light) {
-    .fixed-header {
-        background-color: rgba(255,255,255,0.85);
-        color: #222;
-        border-bottom: 1px solid #ddd;
-    }
-}
-@media (prefers-color-scheme: dark) {
-    .fixed-header {
-        background-color: rgba(25,25,25,0.85);
-        color: #eee;
-        border-bottom: 1px solid #444;
-    }
-}
+    <style>
+        /* --- 固定ヘッダー（ライト／ダーク対応） --- */
+        @media (prefers-color-scheme: light) {
+            .fixed-header {
+                background-color: rgba(249, 249, 249, 0.9);
+                color: #333;
+                border-bottom: 1px solid #ddd;
+                backdrop-filter: blur(8px);
+            }
+        }
+        @media (prefers-color-scheme: dark) {
+            .fixed-header {
+                background-color: rgba(30, 30, 30, 0.85);
+                color: #f0f0f0;
+                border-bottom: 1px solid #333;
+                backdrop-filter: blur(8px);
+            }
+        }
+        .fixed-header {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            text-align: center;
+            padding: 8px 0;
+            font-size: 17px;
+            font-weight: 600;
+            z-index: 999;
+        }
 
-/* ===== タブ風ナビバー ===== */
-.nav-bar {
-    position: fixed;
-    top: 50px; left: 0; width: 100%;
-    display: flex; justify-content: center;
-    gap: 8px; padding: 8px 0;
-    z-index: 998; backdrop-filter: blur(12px);
-}
-@media (prefers-color-scheme: light) {
-    .nav-bar {
-        background-color: rgba(250,250,250,0.8);
-        border-bottom: 1px solid rgba(180,180,180,0.4);
-    }
-}
-@media (prefers-color-scheme: dark) {
-    .nav-bar {
-        background-color: rgba(30,30,30,0.75);
-        border-bottom: 1px solid rgba(100,100,100,0.5);
-    }
-}
+        /* --- 固定タブバー --- */
+        .fixed-tabs {
+            position: fixed;
+            top: 40px; /* ヘッダーの高さ分下げる */
+            left: 0;
+            width: 100%;
+            z-index: 998;
+            padding-top: 6px;
+            padding-bottom: 4px;
+            backdrop-filter: blur(8px);
+        }
 
-/* ===== タブボタンデザイン ===== */
-.tab-button {
-    border: none;
-    border-radius: 10px 10px 0 0;
-    padding: 6px 16px;
-    font-size: 14px;
-    cursor: pointer;
-    transition: all 0.25s ease-in-out;
-    font-weight: 500;
-}
-.tab-button:hover {
-    transform: translateY(-2px);
-}
-.tab-button-active {
-    background-color: rgba(64,128,255,0.15);
-    border-bottom: 2px solid #4a8df0;
-    font-weight: 600;
-}
-@media (prefers-color-scheme: dark) {
-    .tab-button-active {
-        background-color: rgba(100,150,255,0.15);
-        border-bottom: 2px solid #6ea8ff;
-    }
-}
+        @media (prefers-color-scheme: light) {
+            .fixed-tabs {
+                background-color: rgba(249, 249, 249, 0.9);
+                border-bottom: 1px solid rgba(128, 128, 128, 0.3);
+            }
+        }
+        @media (prefers-color-scheme: dark) {
+            .fixed-tabs {
+                background-color: rgba(30, 30, 30, 0.85);
+                border-bottom: 1px solid rgba(80, 80, 80, 0.6);
+            }
+        }
 
-/* ===== コンテンツ位置調整 ===== */
-.block-container {
-    padding-top: 120px !important;
-}
-</style>
+        /* --- コンテンツ位置調整（固定領域分の余白） --- */
+        .block-container {
+            padding-top: 130px !important;
+        }
+    </style>
 
-<div class="fixed-header">📅 Googleカレンダー一括イベント登録・削除</div>
+    <div class="fixed-header">
+        📅 Googleカレンダー一括イベント登録・削除
+    </div>
 """, unsafe_allow_html=True)
 
 
+# ---- st.title() は削除（非表示） ----
+# st.title("📅 Googleカレンダー一括イベント登録・削除")
+
 
 # ==================================================
-# Firebase初期化・認証（機能変更なし）
+# Firebase 初期化・認証処理（元コードそのまま）
 # ==================================================
 if not initialize_firebase():
     st.error("Firebaseの初期化に失敗しました。")
@@ -141,24 +125,40 @@ if not user_id:
     firebase_auth_form()
     st.stop()
 
-# Firestore設定ロード
+
 def load_user_settings_from_firestore(user_id):
-    if not user_id: return
+    """Firestoreからユーザー設定を読み込み、セッションに同期"""
+    if not user_id:
+        return
     initialize_session_state(user_id)
     doc_ref = db.collection('user_settings').document(user_id)
     doc = doc_ref.get()
     if doc.exists:
         settings = doc.to_dict()
-        for k,v in settings.items():
-            set_user_setting(user_id, k, v)
+        for key, value in settings.items():
+            set_user_setting(user_id, key, value)
 
+
+def save_user_setting_to_firestore(user_id, setting_key, setting_value):
+    """Firestoreにユーザー設定を保存"""
+    if not user_id:
+        return
+    doc_ref = db.collection('user_settings').document(user_id)
+    try:
+        doc_ref.set({setting_key: setting_value}, merge=True)
+    except Exception as e:
+        st.error(f"設定の保存に失敗しました: {e}")
+
+
+# ユーザー設定の読み込み
 load_user_settings_from_firestore(user_id)
 
-# Google認証
 google_auth_placeholder = st.empty()
+
 with google_auth_placeholder.container():
     st.subheader("🔐 Googleカレンダー認証")
     creds = authenticate_google()
+
     if not creds:
         st.warning("Googleカレンダー認証を完了してください。")
         st.stop()
@@ -166,43 +166,51 @@ with google_auth_placeholder.container():
         google_auth_placeholder.empty()
         st.sidebar.success("✅ Googleカレンダーに認証済みです！")
 
-# ==================================================
-# サービス初期化（元コードそのまま）
-# ==================================================
+
 def initialize_calendar_service():
     try:
-        service = build("calendar","v3",credentials=creds)
+        service = build("calendar", "v3", credentials=creds)
         calendar_list = service.calendarList().list().execute()
         editable_calendar_options = {
-            cal['summary']: cal['id'] for cal in calendar_list['items']
+            cal['summary']: cal['id']
+            for cal in calendar_list['items']
             if cal.get('accessRole') != 'reader'
         }
         return service, editable_calendar_options
-    except Exception as e:
-        st.error(f"カレンダーサービス初期化失敗: {e}")
+    except HttpError as e:
+        st.error(f"カレンダーサービスの初期化に失敗しました (HTTPエラー): {e}")
         return None, None
+    except Exception as e:
+        st.error(f"カレンダーサービスの初期化に失敗しました: {e}")
+        return None, None
+
 
 def initialize_tasks_service_wrapper():
     try:
         tasks_service = build_tasks_service(creds)
-        if not tasks_service: return None, None
+        if not tasks_service:
+            return None, None
         task_lists = tasks_service.tasklists().list().execute()
         default_task_list_id = None
-        for t in task_lists.get('items', []):
-            if t.get('title') == 'My Tasks':
-                default_task_list_id = t['id']; break
+        for task_list in task_lists.get('items', []):
+            if task_list.get('title') == 'My Tasks':
+                default_task_list_id = task_list['id']
+                break
         if not default_task_list_id and task_lists.get('items'):
             default_task_list_id = task_lists['items'][0]['id']
         return tasks_service, default_task_list_id
+    except HttpError as e:
+        st.warning(f"Google ToDoリストサービスの初期化に失敗しました (HTTPエラー): {e}")
+        return None, None
     except Exception as e:
-        st.warning(f"ToDoサービス初期化失敗: {e}")
+        st.warning(f"Google ToDoリストサービスの初期化に失敗しました: {e}")
         return None, None
 
-# セッション登録
+
 if 'calendar_service' not in st.session_state or not st.session_state['calendar_service']:
     service, editable_calendar_options = initialize_calendar_service()
     if not service:
-        st.warning("Google認証の状態を確認するかリロードしてください。")
+        st.warning("Google認証の状態を確認するか、ページをリロードしてください。")
         st.stop()
     st.session_state['calendar_service'] = service
     st.session_state['editable_calendar_options'] = editable_calendar_options
@@ -215,52 +223,42 @@ if 'tasks_service' not in st.session_state or not st.session_state.get('tasks_se
     st.session_state['tasks_service'] = tasks_service
     st.session_state['default_task_list_id'] = default_task_list_id
     if not tasks_service:
-        st.info("ToDoリスト機能は利用できませんが、カレンダー機能は使用可能です。")
+        st.info("ToDoリスト機能は利用できませんが、カレンダー機能は引き続き使用できます。")
 else:
     tasks_service = st.session_state['tasks_service']
 
+
 # ==================================================
-# タブ風ナビバー
+# タブ部分（固定化・半透明デザイン付き）
 # ==================================================
-tab_labels = [
+st.markdown('<div class="fixed-tabs">', unsafe_allow_html=True)
+
+tabs = st.tabs([
     "1. ファイルのアップロード",
     "2. イベントの登録",
     "3. イベントの削除",
     "4. イベントの更新",
     "5. イベントのExcel出力"
-]
+])
 
-if "active_tab" not in st.session_state:
-    st.session_state["active_tab"] = 0
-
-# HTMLボタンでタブを描画（タブ風デザイン）
-nav_html = '<div class="nav-bar">'
-for i, label in enumerate(tab_labels):
-    active_class = "tab-button tab-button-active" if i == st.session_state["active_tab"] else "tab-button"
-    nav_html += f"""
-        <form action="" method="get" style="display:inline;">
-            <button class="{active_class}" name="tab" value="{i}">{label}</button>
-        </form>
-    """
-nav_html += "</div>"
-
-# 🔥 unsafe_allow_html=True を付ける
-st.markdown(nav_html, unsafe_allow_html=True)
+st.markdown('</div>', unsafe_allow_html=True)
 
 
-# URLパラメータから選択タブを更新
-query_params = st.experimental_get_query_params()
-if "tab" in query_params:
-    try:
-        tab_index = int(query_params["tab"][0])
-        if 0 <= tab_index < len(tab_labels):
-            st.session_state["active_tab"] = tab_index
-    except:
-        pass
+# ==================================================
+# 以降：元のコード（機能・処理は一切変更なし）
+# ==================================================
 
-active_tab = st.session_state["active_tab"]
+# ↓↓↓ あなたのオリジナルの全処理（アップロード・登録・削除・更新・出力・サイドバーなど）をそのまま残してください ↓↓↓
+# （ここ以降のロジック・UI要素・API処理はすべてオリジナルのままで動作します）
 
-if active_tab == 0:
+
+
+if 'uploaded_files' not in st.session_state:
+    st.session_state['uploaded_files'] = []
+    st.session_state['description_columns_pool'] = []
+    st.session_state['merged_df_for_selector'] = pd.DataFrame()
+
+with tabs[0]:
     st.header("ファイルをアップロード")
     st.info("""
     ☀作業指示書一覧をアップロードすると管理番号+物件名をイベント名として任意のカレンダーに登録します。
@@ -332,7 +330,7 @@ if active_tab == 0:
             st.success("すべてのファイル情報をクリアしました。")
             st.rerun()
 
-elif active_tab == 1:
+with tabs[1]:
     st.header("イベントを登録・更新")
     if not st.session_state.get('uploaded_files') or st.session_state['merged_df_for_selector'].empty:
         st.info("先に「1. ファイルのアップロード」タブでExcelファイルをアップロードすると、イベント登録機能が利用可能になります。")
@@ -441,10 +439,10 @@ elif active_tab == 1:
                 with st.spinner("イベントデータを処理中..."):
                     try:
                         df = process_excel_data_for_calendar(
-                            st.session_state['uploaded_files'],
-                            description_columns,
+                            st.session_state['uploaded_files'], 
+                            description_columns, 
                             all_day_event_override,
-                            private_event,
+                            private_event, 
                             fallback_event_name_column,
                             add_task_type_to_event_name
                         )
@@ -546,7 +544,7 @@ elif active_tab == 1:
                         if create_todo:
                             st.success(f"✅ {successful_todo_creations} 件のToDoリストが作成されました！")
 
-elif active_tab == 2:
+with tabs[2]:
     st.header("イベントを削除")
     if 'editable_calendar_options' not in st.session_state or not st.session_state['editable_calendar_options']:
         st.error("削除可能なカレンダーが見つかりませんでした。Googleカレンダーの設定を確認してください。")
@@ -656,7 +654,7 @@ elif active_tab == 2:
                         st.session_state['confirm_delete'] = False
                         st.rerun()
 
-elif active_tab == 3:
+with tabs[3]:
     st.header("イベントを更新")
     st.info("このタブは、主に既存イベントの情報をExcelデータに基づいて**上書き**したい場合に使用します。新規イベントの作成は行いません。")
 
@@ -675,8 +673,8 @@ elif active_tab == 3:
             default_selection_update = []
 
         description_columns_update = st.multiselect(
-            "説明欄に含める列",
-            description_columns_pool_update,
+            "説明欄に含める列", 
+            description_columns_pool_update, 
             default=default_selection_update,
             key=f"update_desc_cols_{user_id}"
         )
@@ -727,7 +725,7 @@ elif active_tab == 3:
                 with st.spinner("イベントを処理中..."):
                     try:
                         df = process_excel_data_for_calendar(
-                            st.session_state['uploaded_files'],
+                            st.session_state['uploaded_files'], 
                             description_columns_update,
                             all_day_event_override_update,
                             private_event_update,
@@ -799,7 +797,7 @@ elif active_tab == 3:
 
                     st.success(f"✅ {update_count} 件のイベントを更新しました。")
 
-elif active_tab == 4:  # tabs[4]は新しいタブに対応
+with tabs[4]:  # tabs[4]は新しいタブに対応
     st.header("カレンダーイベントをExcelに出力")
     if 'editable_calendar_options' not in st.session_state or not st.session_state['editable_calendar_options']:
         st.error("利用可能なカレンダーが見つかりません。")
@@ -860,7 +858,7 @@ elif active_tab == 4:  # tabs[4]は新しいタブに対応
                                     description_val = title_match.group(1).strip()
                                 else:
                                     # [タイトル: ...] が見つからなかった場合は空欄にする (ご要望通り)
-                                    description_val = ""
+                                    description_val = "" 
                                 
                                 # SCHEDSTART/SCHEDFINISHの処理（ISO 8601形式で出力）
                                 start_time_key = 'date' if 'date' in event.get('start', {}) else 'dateTime'
@@ -903,7 +901,7 @@ elif active_tab == 4:  # tabs[4]は新しいタブに対応
                             
                             # ダウンロードボタン
                             if export_format == "CSV":
-                                csv_buffer = output_df.to_csv(index=False).encode('utf-8-sig')
+                                csv_buffer = output_df.to_csv(index=False).encode('utf-8-sig') 
                                 st.download_button(
                                     label="✅ CSVファイルとしてダウンロード",
                                     data=csv_buffer,
