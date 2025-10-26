@@ -260,7 +260,7 @@ if 'uploaded_files' not in st.session_state:
 
 with tabs[0]:
     st.subheader("ファイルをアップロード")
-    with st.expander("ℹ️作業手順と補足")
+    with st.expander("ℹ️作業手順と補足"):
         st.info("""
     **☀作業指示書一覧をアップロードすると管理番号+物件名をイベント名として任意のカレンダーに登録します。**
     
