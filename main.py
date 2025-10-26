@@ -282,7 +282,7 @@ with tabs[0]:
     local_excel_files = get_local_excel_files()
     selected_local_files = []
     if local_excel_files:
-        st.subheader("📁 サーバーにあるExcelファイル")
+        st.markdown("📁 サーバーにあるExcelファイル")
         local_file_names = [f.name for f in local_excel_files]
         selected_names = st.multiselect(
             "以下のファイルを処理対象に含める（アップロードと同様に扱われます）",
