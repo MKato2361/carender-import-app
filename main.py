@@ -126,44 +126,6 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
-# ==================================================
-# タブ風ナビバー
-# ==================================================
-tab_labels = [
-    "1. ファイルのアップロード",
-    "2. イベントの登録",
-    "3. イベントの削除",
-    "4. イベントの更新",
-    "5. イベントのExcel出力"
-]
-
-if "active_tab" not in st.session_state:
-    st.session_state["active_tab"] = 0
-
-# HTMLボタンでタブを描画（タブ風デザイン）
-nav_html = '<div class="nav-bar">'
-for i, label in enumerate(tab_labels):
-    active_class = "tab-button tab-button-active" if i == st.session_state["active_tab"] else "tab-button"
-    nav_html += f"""
-        <form action="" method="get" style="display:inline;">
-            <button class="{active_class}" name="tab" value="{i}">{label}</button>
-        </form>
-    """
-nav_html += "</div>"
-
-st.markdown(nav_html, unsafe_allow_html=True)
-
-# URLパラメータから選択タブを更新
-query_params = st.experimental_get_query_params()
-if "tab" in query_params:
-    try:
-        tab_index = int(query_params["tab"][0])
-        if 0 <= tab_index < len(tab_labels):
-            st.session_state["active_tab"] = tab_index
-    except:
-        pass
-
-active_tab = st.session_state["active_tab"]
 
 # ==================================================
 # Firebase初期化・認証（機能変更なし）
@@ -258,10 +220,8 @@ else:
     tasks_service = st.session_state['tasks_service']
 
 # ==================================================
-# 固定ナビバーでタブ切替（UIのみ変更）
+# タブ風ナビバー
 # ==================================================
-st.markdown('<div class="nav-bar">', unsafe_allow_html=True)
-cols = st.columns(5)
 tab_labels = [
     "1. ファイルのアップロード",
     "2. イベントの登録",
@@ -269,19 +229,34 @@ tab_labels = [
     "4. イベントの更新",
     "5. イベントのExcel出力"
 ]
-for i, label in enumerate(tab_labels):
-    if cols[i].button(label, key=f"nav_{i}"):
-        st.session_state["active_tab"] = i
-st.markdown('</div>', unsafe_allow_html=True)
 
 if "active_tab" not in st.session_state:
     st.session_state["active_tab"] = 0
-active_tab = st.session_state["active_tab"]
 
-if 'uploaded_files' not in st.session_state:
-    st.session_state['uploaded_files'] = []
-    st.session_state['description_columns_pool'] = []
-    st.session_state['merged_df_for_selector'] = pd.DataFrame()
+# HTMLボタンでタブを描画（タブ風デザイン）
+nav_html = '<div class="nav-bar">'
+for i, label in enumerate(tab_labels):
+    active_class = "tab-button tab-button-active" if i == st.session_state["active_tab"] else "tab-button"
+    nav_html += f"""
+        <form action="" method="get" style="display:inline;">
+            <button class="{active_class}" name="tab" value="{i}">{label}</button>
+        </form>
+    """
+nav_html += "</div>"
+
+st.markdown(nav_html, unsafe_allow_html=True)
+
+# URLパラメータから選択タブを更新
+query_params = st.experimental_get_query_params()
+if "tab" in query_params:
+    try:
+        tab_index = int(query_params["tab"][0])
+        if 0 <= tab_index < len(tab_labels):
+            st.session_state["active_tab"] = tab_index
+    except:
+        pass
+
+active_tab = st.session_state["active_tab"]
 
 if active_tab == 0:
     st.header("ファイルをアップロード")
