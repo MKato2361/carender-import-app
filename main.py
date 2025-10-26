@@ -260,7 +260,6 @@ if 'uploaded_files' not in st.session_state:
 
 with tabs[0]:
     st.subheader("ファイルをアップロード")
-    import streamlit as st
 
 # st.expander() で折りたたみ可能なセクションを作成し、タイトルを指定
     st.expander("📝 作業指示書と予定の登録について（クリックで展開）"):
