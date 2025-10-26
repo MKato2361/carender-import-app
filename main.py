@@ -40,6 +40,7 @@ from io import BytesIO
 st.set_page_config(page_title="Googleカレンダー一括イベント登録・削除", layout="wide")
 
 st.markdown("""
+   st.markdown("""
     <style>
         /* --- 固定ヘッダー（ライト／ダーク対応） --- */
         @media (prefers-color-scheme: light) {
@@ -75,7 +76,8 @@ st.markdown("""
             position: fixed;
             top: 40px; /* ヘッダーの高さ分下げる */
             left: 0;
-            width: 100%;
+            /* width: 100%; の代わりに 100vw を試行 */
+            width: 100vw; 
             z-index: 998;
             padding-top: 6px;
             padding-bottom: 4px;
@@ -95,9 +97,23 @@ st.markdown("""
             }
         }
 
+        /* 🚨 追加: Streamlitのコンテナ構造を上書きして固定を強制する */
+        div[data-testid="stVerticalBlock"] > div:first-child {
+            overflow: visible !important; 
+        }
+        
+        /* 🚨 追加: 固定タブバーの左右の余白を強制的に取り除く */
+        .fixed-tabs {
+            left: 0 !important;
+            right: 0 !important;
+            padding-left: 1rem; /* Streamlitのデフォルト余白に合わせて調整 */
+            padding-right: 1rem;
+        }
+
         /* --- コンテンツ位置調整（固定領域分の余白） --- */
         .block-container {
-            padding-top: 130px !important;
+            /* padding-top: 130px が適切に見えるためそのまま */
+            padding-top: 130px !important; 
         }
     </style>
 
@@ -105,7 +121,6 @@ st.markdown("""
         📅 Googleカレンダー一括イベント登録・削除
     </div>
 """, unsafe_allow_html=True)
-
 
 # ---- st.title() は削除（非表示） ----
 # st.title("📅 Googleカレンダー一括イベント登録・削除")
