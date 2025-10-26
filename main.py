@@ -73,7 +73,7 @@ st.markdown("""
         /* --- 固定タブバー --- */
         .fixed-tabs {
             position: fixed;
-            top: 40px; /* ヘッダーの高さ分下げる */
+            top: 1px; /* ヘッダーの高さ分下げる */
             left: 0;
             width: 100%;
             z-index: 998;
