@@ -40,7 +40,6 @@ from io import BytesIO
 st.set_page_config(page_title="Googleカレンダー一括イベント登録・削除", layout="wide")
 
 st.markdown("""
-   st.markdown("""
     <style>
         @media (prefers-color-scheme: light) {
             .fixed-header {
