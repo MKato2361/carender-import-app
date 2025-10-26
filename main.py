@@ -97,7 +97,7 @@ st.markdown("""
 
         /* --- コンテンツ位置調整（固定領域分の余白） --- */
         .block-container {
-            padding-top: 1px !important;
+            padding-top: 40px !important;
         }
     </style>
 
