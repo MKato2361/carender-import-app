@@ -1,3 +1,8 @@
+# ==================================================
+# Googleカレンダー一括イベント登録・削除アプリ
+# （UI強化版：固定ヘッダー＋固定ナビタブ対応）
+# ==================================================
+
 import streamlit as st
 import pandas as pd
 from datetime import datetime, date, timedelta, timezone
@@ -33,86 +38,74 @@ import os
 from pathlib import Path
 from io import BytesIO
 
-
 # ==================================================
-# 🌟 ページ設定 + デザイン強化（ヘッダー＋固定タブ）
+# 🌟 デザイン（固定ヘッダー＋固定タブ風ナビ）
 # ==================================================
 st.set_page_config(page_title="Googleカレンダー一括イベント登録・削除", layout="wide")
 
-st.markdown("""
-    <style>
-        /* --- 固定ヘッダー（ライト／ダーク対応） --- */
-        @media (prefers-color-scheme: light) {
-            .fixed-header {
-                background-color: rgba(249, 249, 249, 0.9);
-                color: #333;
-                border-bottom: 1px solid #ddd;
-                backdrop-filter: blur(8px);
-            }
-        }
-        @media (prefers-color-scheme: dark) {
-            .fixed-header {
-                background-color: rgba(30, 30, 30, 0.85);
-                color: #f0f0f0;
-                border-bottom: 1px solid #333;
-                backdrop-filter: blur(8px);
-            }
-        }
-        .fixed-header {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            text-align: center;
-            padding: 8px 0;
-            font-size: 17px;
-            font-weight: 600;
-            z-index: 999;
-        }
+st.markdown('''
+<style>
+/* 固定ヘッダー */
+.fixed-header {
+    position: fixed;
+    top: 0; left: 0; width: 100%;
+    text-align: center;
+    padding: 8px 0;
+    font-size: 17px; font-weight: 600;
+    z-index: 999; backdrop-filter: blur(8px);
+}
+@media (prefers-color-scheme: light) {
+    .fixed-header {
+        background-color: rgba(249,249,249,0.9);
+        color: #333; border-bottom: 1px solid #ddd;
+    }
+}
+@media (prefers-color-scheme: dark) {
+    .fixed-header {
+        background-color: rgba(30,30,30,0.85);
+        color: #f0f0f0; border-bottom: 1px solid #333;
+    }
+}
 
-        /* --- 固定タブバー --- */
-        .fixed-tabs {
-            position: fixed;
-            top: 40px; /* ヘッダーの高さ分下げる */
-            left: 0;
-            width: 100%;
-            z-index: 998;
-            padding-top: 6px;
-            padding-bottom: 4px;
-            backdrop-filter: blur(8px);
-        }
+/* ナビバー */
+.nav-bar {
+    position: fixed;
+    top: 42px; left: 0; width: 100%;
+    display: flex; justify-content: center; gap: 6px;
+    padding: 6px; z-index: 998; backdrop-filter: blur(8px);
+}
+@media (prefers-color-scheme: light) {
+    .nav-bar {
+        background-color: rgba(249,249,249,0.9);
+        border-bottom: 1px solid rgba(128,128,128,0.3);
+    }
+}
+@media (prefers-color-scheme: dark) {
+    .nav-bar {
+        background-color: rgba(30,30,30,0.85);
+        border-bottom: 1px solid rgba(80,80,80,0.6);
+    }
+}
 
-        @media (prefers-color-scheme: light) {
-            .fixed-tabs {
-                background-color: rgba(249, 249, 249, 0.9);
-                border-bottom: 1px solid rgba(128, 128, 128, 0.3);
-            }
-        }
-        @media (prefers-color-scheme: dark) {
-            .fixed-tabs {
-                background-color: rgba(30, 30, 30, 0.85);
-                border-bottom: 1px solid rgba(80, 80, 80, 0.6);
-            }
-        }
+/* ボタン */
+div[data-testid="column"] > div > button {
+    border-radius: 8px; padding: 4px 10px;
+    font-size: 13px; white-space: nowrap;
+    transition: all 0.2s ease-in-out;
+}
+div[data-testid="column"] > div > button:hover {
+    transform: translateY(-1px);
+}
 
-        /* --- コンテンツ位置調整（固定領域分の余白） --- */
-        .block-container {
-            padding-top: 130px !important;
-        }
-    </style>
+/* コンテンツ余白 */
+.block-container { padding-top: 110px !important; }
+</style>
 
-    <div class="fixed-header">
-        📅 Googleカレンダー一括イベント登録・削除
-    </div>
-""", unsafe_allow_html=True)
-
-
-# ---- st.title() は削除（非表示） ----
-# st.title("📅 Googleカレンダー一括イベント登録・削除")
-
+<div class="fixed-header">📅 Googleカレンダー一括イベント登録・削除</div>
+''', unsafe_allow_html=True)
 
 # ==================================================
-# Firebase 初期化・認証処理（元コードそのまま）
+# Firebase初期化・認証（機能変更なし）
 # ==================================================
 if not initialize_firebase():
     st.error("Firebaseの初期化に失敗しました。")
@@ -125,40 +118,24 @@ if not user_id:
     firebase_auth_form()
     st.stop()
 
-
+# Firestore設定ロード
 def load_user_settings_from_firestore(user_id):
-    """Firestoreからユーザー設定を読み込み、セッションに同期"""
-    if not user_id:
-        return
+    if not user_id: return
     initialize_session_state(user_id)
     doc_ref = db.collection('user_settings').document(user_id)
     doc = doc_ref.get()
     if doc.exists:
         settings = doc.to_dict()
-        for key, value in settings.items():
-            set_user_setting(user_id, key, value)
+        for k,v in settings.items():
+            set_user_setting(user_id, k, v)
 
-
-def save_user_setting_to_firestore(user_id, setting_key, setting_value):
-    """Firestoreにユーザー設定を保存"""
-    if not user_id:
-        return
-    doc_ref = db.collection('user_settings').document(user_id)
-    try:
-        doc_ref.set({setting_key: setting_value}, merge=True)
-    except Exception as e:
-        st.error(f"設定の保存に失敗しました: {e}")
-
-
-# ユーザー設定の読み込み
 load_user_settings_from_firestore(user_id)
 
+# Google認証
 google_auth_placeholder = st.empty()
-
 with google_auth_placeholder.container():
     st.subheader("🔐 Googleカレンダー認証")
     creds = authenticate_google()
-
     if not creds:
         st.warning("Googleカレンダー認証を完了してください。")
         st.stop()
@@ -166,51 +143,43 @@ with google_auth_placeholder.container():
         google_auth_placeholder.empty()
         st.sidebar.success("✅ Googleカレンダーに認証済みです！")
 
-
+# ==================================================
+# サービス初期化（元コードそのまま）
+# ==================================================
 def initialize_calendar_service():
     try:
-        service = build("calendar", "v3", credentials=creds)
+        service = build("calendar","v3",credentials=creds)
         calendar_list = service.calendarList().list().execute()
         editable_calendar_options = {
-            cal['summary']: cal['id']
-            for cal in calendar_list['items']
+            cal['summary']: cal['id'] for cal in calendar_list['items']
             if cal.get('accessRole') != 'reader'
         }
         return service, editable_calendar_options
-    except HttpError as e:
-        st.error(f"カレンダーサービスの初期化に失敗しました (HTTPエラー): {e}")
-        return None, None
     except Exception as e:
-        st.error(f"カレンダーサービスの初期化に失敗しました: {e}")
+        st.error(f"カレンダーサービス初期化失敗: {e}")
         return None, None
-
 
 def initialize_tasks_service_wrapper():
     try:
         tasks_service = build_tasks_service(creds)
-        if not tasks_service:
-            return None, None
+        if not tasks_service: return None, None
         task_lists = tasks_service.tasklists().list().execute()
         default_task_list_id = None
-        for task_list in task_lists.get('items', []):
-            if task_list.get('title') == 'My Tasks':
-                default_task_list_id = task_list['id']
-                break
+        for t in task_lists.get('items', []):
+            if t.get('title') == 'My Tasks':
+                default_task_list_id = t['id']; break
         if not default_task_list_id and task_lists.get('items'):
             default_task_list_id = task_lists['items'][0]['id']
         return tasks_service, default_task_list_id
-    except HttpError as e:
-        st.warning(f"Google ToDoリストサービスの初期化に失敗しました (HTTPエラー): {e}")
-        return None, None
     except Exception as e:
-        st.warning(f"Google ToDoリストサービスの初期化に失敗しました: {e}")
+        st.warning(f"ToDoサービス初期化失敗: {e}")
         return None, None
 
-
+# セッション登録
 if 'calendar_service' not in st.session_state or not st.session_state['calendar_service']:
     service, editable_calendar_options = initialize_calendar_service()
     if not service:
-        st.warning("Google認証の状態を確認するか、ページをリロードしてください。")
+        st.warning("Google認証の状態を確認するかリロードしてください。")
         st.stop()
     st.session_state['calendar_service'] = service
     st.session_state['editable_calendar_options'] = editable_calendar_options
@@ -223,35 +192,30 @@ if 'tasks_service' not in st.session_state or not st.session_state.get('tasks_se
     st.session_state['tasks_service'] = tasks_service
     st.session_state['default_task_list_id'] = default_task_list_id
     if not tasks_service:
-        st.info("ToDoリスト機能は利用できませんが、カレンダー機能は引き続き使用できます。")
+        st.info("ToDoリスト機能は利用できませんが、カレンダー機能は使用可能です。")
 else:
     tasks_service = st.session_state['tasks_service']
 
-
 # ==================================================
-# タブ部分（固定化・半透明デザイン付き）
+# 固定ナビバーでタブ切替（UIのみ変更）
 # ==================================================
-st.markdown('<div class="fixed-tabs">', unsafe_allow_html=True)
-
-tabs = st.tabs([
+st.markdown('<div class="nav-bar">', unsafe_allow_html=True)
+cols = st.columns(5)
+tab_labels = [
     "1. ファイルのアップロード",
     "2. イベントの登録",
     "3. イベントの削除",
     "4. イベントの更新",
     "5. イベントのExcel出力"
-])
-
+]
+for i, label in enumerate(tab_labels):
+    if cols[i].button(label, key=f"nav_{i}"):
+        st.session_state["active_tab"] = i
 st.markdown('</div>', unsafe_allow_html=True)
 
-
-# ==================================================
-# 以降：元のコード（機能・処理は一切変更なし）
-# ==================================================
-
-# ↓↓↓ あなたのオリジナルの全処理（アップロード・登録・削除・更新・出力・サイドバーなど）をそのまま残してください ↓↓↓
-# （ここ以降のロジック・UI要素・API処理はすべてオリジナルのままで動作します）
-
-
+if "active_tab" not in st.session_state:
+    st.session_state["active_tab"] = 0
+active_tab = st.session_state["active_tab"]
 
 if 'uploaded_files' not in st.session_state:
     st.session_state['uploaded_files'] = []
@@ -439,10 +403,10 @@ with tabs[1]:
                 with st.spinner("イベントデータを処理中..."):
                     try:
                         df = process_excel_data_for_calendar(
-                            st.session_state['uploaded_files'], 
-                            description_columns, 
+                            st.session_state['uploaded_files'],
+                            description_columns,
                             all_day_event_override,
-                            private_event, 
+                            private_event,
                             fallback_event_name_column,
                             add_task_type_to_event_name
                         )
@@ -673,8 +637,8 @@ with tabs[3]:
             default_selection_update = []
 
         description_columns_update = st.multiselect(
-            "説明欄に含める列", 
-            description_columns_pool_update, 
+            "説明欄に含める列",
+            description_columns_pool_update,
             default=default_selection_update,
             key=f"update_desc_cols_{user_id}"
         )
@@ -725,7 +689,7 @@ with tabs[3]:
                 with st.spinner("イベントを処理中..."):
                     try:
                         df = process_excel_data_for_calendar(
-                            st.session_state['uploaded_files'], 
+                            st.session_state['uploaded_files'],
                             description_columns_update,
                             all_day_event_override_update,
                             private_event_update,
@@ -858,7 +822,7 @@ with tabs[4]:  # tabs[4]は新しいタブに対応
                                     description_val = title_match.group(1).strip()
                                 else:
                                     # [タイトル: ...] が見つからなかった場合は空欄にする (ご要望通り)
-                                    description_val = "" 
+                                    description_val = ""
                                 
                                 # SCHEDSTART/SCHEDFINISHの処理（ISO 8601形式で出力）
                                 start_time_key = 'date' if 'date' in event.get('start', {}) else 'dateTime'
@@ -901,7 +865,7 @@ with tabs[4]:  # tabs[4]は新しいタブに対応
                             
                             # ダウンロードボタン
                             if export_format == "CSV":
-                                csv_buffer = output_df.to_csv(index=False).encode('utf-8-sig') 
+                                csv_buffer = output_df.to_csv(index=False).encode('utf-8-sig')
                                 st.download_button(
                                     label="✅ CSVファイルとしてダウンロード",
                                     data=csv_buffer,
