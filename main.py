@@ -39,97 +39,32 @@ from io import BytesIO
 # ==================================================
 st.set_page_config(page_title="Googleカレンダー一括イベント登録・削除", layout="wide")
 
+st.set_page_config(page_title="Googleカレンダー一括イベント登録・削除", layout="wide")
+
+# CSSによる固定化の定義
+# 既存のst.markdown(...)を以下のシンプルなものに置き換えてください
 st.markdown("""
     <style>
-        /* --- 固定化を阻害する可能性のある要素の強制調整 --- */
-        /* Streamlitのメインブロックが固定要素を隠さないようにする */
-        div[data-testid="stVerticalBlock"] > div:first-child {
-            overflow: visible !important; 
-        }
+        /* Streamlitのヘッダーを無効化（固定ヘッダーと競合するため） */
+        header { visibility: hidden; }
 
-        /* Streamlitのメインコンテンツコンテナに余白を適用 */
+        /* コンテンツの上部に固定領域分の余白を確保 */
         .block-container {
-            padding-top: 130px !important; /* ヘッダー(40px) + タブ(約60px) + 余裕 */
+            padding-top: 130px !important; 
         }
 
-        /* サイドバーの上端を固定ヘッダーの下に設定 */
-        div[data-testid="stSidebar"] {
-            top: 40px; 
-            z-index: 1000;
-        }
-
-        /* --- 固定ヘッダー(ライト／ダーク対応) --- */
-        @media (prefers-color-scheme: light) {
-            .fixed-header {
-                background-color: rgba(249, 249, 249, 0.9);
-                color: #333;
-                border-bottom: 1px solid #ddd;
-                backdrop-filter: blur(8px);
-            }
-        }
-        @media (prefers-color-scheme: dark) {
-            .fixed-header {
-                background-color: rgba(30, 30, 30, 0.85);
-                color: #f0f0f0;
-                border-bottom: 1px solid #333;
-                backdrop-filter: blur(8px);
-            }
-        }
-        .fixed-header {
+        /* st.containerで作成した固定用ヘッダーの固定を強制 */
+        .fixed-header-container {
             position: fixed;
             top: 0;
             left: 0;
-            /* 画面全体幅を強制 */
-            width: 100vw; 
-            text-align: center;
-            padding: 8px 0;
-            font-size: 17px;
-            font-weight: 600;
+            width: 100vw;
             z-index: 999;
+            /* 背景を白または暗くして、下のコンテンツが透けないようにする */
+            background-color: var(--background-color, white); 
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
         }
-
-        /* --- 固定タブバー --- */
-        .fixed-tabs {
-            position: fixed;
-            top: 40px; /* ヘッダーの高さ分下げる */
-            left: 0;
-            /* 画面全体幅を強制 */
-            width: 100vw; 
-            z-index: 998;
-            padding-top: 6px;
-            padding-bottom: 4px;
-            backdrop-filter: blur(8px);
-        }
-
-        @media (prefers-color-scheme: light) {
-            .fixed-tabs {
-                background-color: rgba(249, 249, 249, 0.9);
-                border-bottom: 1px solid rgba(128, 128, 128, 0.3);
-            }
-        }
-        @media (prefers-color-scheme: dark) {
-            .fixed-tabs {
-                background-color: rgba(30, 30, 30, 0.85);
-                border-bottom: 1px solid rgba(80, 80, 80, 0.6);
-            }
-        }
-        
-        /* --- 固定タブバーの中身の左右マージン調整 --- */
-        /* width: 100vwで固定した後の、左右のpaddingを設定し直す */
-        .fixed-tabs > div { 
-            /* st.tabsを内包するStreamlitのコンテナにpaddingを適用 */
-            max-width: 90%; 
-            margin: auto;
-            /* wideレイアウトのデフォルトパディングに合わせて調整 */
-            padding-left: 1rem;
-            padding-right: 1rem;
-        }
-
     </style>
-
-    <div class="fixed-header">
-        📅 Googleカレンダー一括イベント登録・削除
-    </div>
 """, unsafe_allow_html=True)
 
 # ==================================================
@@ -252,18 +187,34 @@ else:
 # ==================================================
 # タブ部分（固定化・半透明デザイン付き）
 # ==================================================
-st.markdown('<div class="fixed-tabs">', unsafe_allow_html=True)
+# ==================================================
+# 🌟 ヘッダーとタブの固定化ロジック
+# ==================================================
+# 1. 固定化用のプレースホルダーを作成し、CSSクラスを適用
+header_placeholder = st.empty()
 
-tabs = st.tabs([
-    "1. ファイルのアップロード",
-    "2. イベントの登録",
-    "3. イベントの削除",
-    "4. イベントの更新",
-    "5. イベントのExcel出力"
-])
-
-st.markdown('</div>', unsafe_allow_html=True)
-
+with header_placeholder.container():
+    # プレースホルダー内のコンテナに固定化CSSクラスを適用
+    st.markdown('<div class="fixed-header-container">', unsafe_allow_html=True)
+    
+    # 📌 以前の固定ヘッダーの内容を再配置
+    st.markdown("""
+        <div style="text-align: center; padding: 8px 0; font-size: 17px; font-weight: 600;">
+            📅 Googleカレンダー一括イベント登録・削除
+        </div>
+    """, unsafe_allow_html=True)
+    
+    # 📌 タブの配置
+    tabs = st.tabs([
+        "1. ファイルのアップロード",
+        "2. イベントの登録",
+        "3. イベントの削除",
+        "4. イベントの更新",
+        "5. イベントのExcel出力"
+    ])
+    
+    st.markdown('</div>', unsafe_allow_html=True) # 固定化コンテナの閉じタグ
+# ==================================================
 
 # ==================================================
 # 以降：元のコード（機能・処理は一切変更なし）
