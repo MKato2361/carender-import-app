@@ -39,32 +39,67 @@ from io import BytesIO
 # ==================================================
 st.set_page_config(page_title="Googleカレンダー一括イベント登録・削除", layout="wide")
 
-st.set_page_config(page_title="Googleカレンダー一括イベント登録・削除", layout="wide")
-
-# CSSによる固定化の定義
-# 既存のst.markdown(...)を以下のシンプルなものに置き換えてください
 st.markdown("""
     <style>
-        /* Streamlitのヘッダーを無効化（固定ヘッダーと競合するため） */
+        /* 1. Streamlit標準ヘッダーを無効化（固定ヘッダーと競合するため） */
         header { visibility: hidden; }
 
-        /* コンテンツの上部に固定領域分の余白を確保 */
-        .block-container {
-            padding-top: 130px !important; 
+        /* 2. 🚨 メインスクロールコンテナのオーバーライド (最重要ハック) */
+        /* これにより、position: fixed が画面全体に対して機能するようになります */
+        div[data-testid="stAppViewContainer"] > section.main {
+            overflow: visible !important;
         }
-
-        /* st.containerで作成した固定用ヘッダーの固定を強制 */
-        .fixed-header-container {
+        
+        /* 3. コンテンツ位置調整（固定領域分の余白） */
+        .block-container {
+            padding-top: 130px !important; /* 固定ヘッダーとタブバーの合計高さ分の余白 */
+        }
+        
+        /* --- 固定ヘッダー --- */
+        .fixed-header {
             position: fixed;
             top: 0;
             left: 0;
-            width: 100vw;
-            z-index: 999;
-            /* 背景を白または暗くして、下のコンテンツが透けないようにする */
-            background-color: var(--background-color, white); 
+            width: 100vw; /* 画面幅全体に強制 */
+            z-index: 1000;
+            text-align: center;
+            padding: 8px 0;
+            font-size: 17px;
+            font-weight: 600;
+            /* 背景色: ダークモード／ライトモードに対応したデフォルトのサブ背景色を使用 */
+            background-color: var(--secondary-background-color, #f0f0f0); 
             box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
         }
+
+        /* --- 固定タブバー --- */
+        .fixed-tabs {
+            position: fixed;
+            top: 40px; /* ヘッダーの高さ分下げる */
+            left: 0;
+            width: 100vw; /* 画面幅全体に強制 */
+            z-index: 999;
+            padding-top: 6px;
+            padding-bottom: 4px;
+            /* 背景を設定してコンテンツが透けないように */
+            background-color: var(--secondary-background-color, #f0f0f0); 
+            border-bottom: 1px solid rgba(128, 128, 128, 0.3);
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+        }
+        
+        /* 4. 固定タブバー内の要素の幅を調整 */
+        .fixed-tabs > div { 
+             /* st.tabsコンポーネントが内部に持つコンテナの幅と中央揃えを調整 */
+             max-width: 100%;
+             margin: 0 auto;
+             padding-left: 1rem;
+             padding-right: 1rem;
+        }
+        
     </style>
+
+    <div class="fixed-header">
+        📅 Googleカレンダー一括イベント登録・削除
+    </div>
 """, unsafe_allow_html=True)
 
 # ==================================================
@@ -187,42 +222,17 @@ else:
 # ==================================================
 # タブ部分（固定化・半透明デザイン付き）
 # ==================================================
-# ==================================================
-# 🌟 ヘッダーとタブの固定化ロジック
-# ==================================================
-# 1. 固定化用のプレースホルダーを作成し、CSSクラスを適用
-header_placeholder = st.empty()
+st.markdown('<div class="fixed-tabs">', unsafe_allow_html=True)
 
-with header_placeholder.container():
-    # プレースホルダー内のコンテナに固定化CSSクラスを適用
-    st.markdown('<div class="fixed-header-container">', unsafe_allow_html=True)
-    
-    # 📌 以前の固定ヘッダーの内容を再配置
-    st.markdown("""
-        <div style="text-align: center; padding: 8px 0; font-size: 17px; font-weight: 600;">
-            📅 Googleカレンダー一括イベント登録・削除
-        </div>
-    """, unsafe_allow_html=True)
-    
-    # 📌 タブの配置
-    tabs = st.tabs([
-        "1. ファイルのアップロード",
-        "2. イベントの登録",
-        "3. イベントの削除",
-        "4. イベントの更新",
-        "5. イベントのExcel出力"
-    ])
-    
-    st.markdown('</div>', unsafe_allow_html=True) # 固定化コンテナの閉じタグ
-# ==================================================
+tabs = st.tabs([
+    "1. ファイルのアップロード",
+    "2. イベントの登録",
+    "3. イベントの削除",
+    "4. イベントの更新",
+    "5. イベントのExcel出力"
+])
 
-# ==================================================
-# 以降：元のコード（機能・処理は一切変更なし）
-# ==================================================
-
-# ↓↓↓ あなたのオリジナルの全処理（アップロード・登録・削除・更新・出力・サイドバーなど）をそのまま残してください ↓↓↓
-# （ここ以降のロジック・UI要素・API処理はすべてオリジナルのままで動作します）
-
+st.markdown('</div>', unsafe_allow_html=True)
 
 
 if 'uploaded_files' not in st.session_state:
