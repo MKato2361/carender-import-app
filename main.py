@@ -260,10 +260,6 @@ if 'uploaded_files' not in st.session_state:
 
 with tabs[0]:
     st.subheader("ファイルをアップロード")
-
-# st.expander() で折りたたみ可能なセクションを作成し、タイトルを指定
-with st.expander("📝 作業指示書と予定の登録について（クリックで展開）"):
-    # この with ブロック内のコンテンツが折りたたまれます
     st.info("""
     **☀作業指示書一覧をアップロードすると管理番号+物件名をイベント名として任意のカレンダーに登録します。**
     
@@ -275,11 +271,6 @@ with st.expander("📝 作業指示書と予定の登録について（クリッ
 
     **☀ToDoリストを作成すると、点検通知のリマインドが可能です（ToDoとしてイベント登録されます）**
     """)
-
-# 必要に応じて初期状態で展開することも可能
-# with st.expander("詳細設定", expanded=True):
-#     st.write("初期状態で開いた状態のコンテンツです。")
-
 
     def get_local_excel_files():
         current_dir = Path(__file__).parent
