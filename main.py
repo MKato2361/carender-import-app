@@ -38,20 +38,19 @@ from io import BytesIO
 # 🌟 ページ設定 + デザイン強化（ヘッダー＋固定タブ）
 # ==================================================
 st.set_page_config(page_title="Googleカレンダー一括イベント登録・削除", layout="wide")
-
 st.markdown("""
     <style>
         /* 1. Streamlit標準ヘッダーを無効化（固定ヘッダーと競合するため） */
         header { visibility: hidden; }
 
-        /* 2. 🚨 メインスクロールコンテナのオーバーライド (最重要ハック) */
+        /* 2. メインスクロールコンテナのオーバーライド (必須ハック) */
         div[data-testid="stAppViewContainer"] > section.main {
             overflow: visible !important;
         }
         
         /* 3. コンテンツ位置調整（固定領域分の余白） */
         .block-container {
-            padding-top: 130px !important; /* 固定領域の合計高さ分の余白 */
+            padding-top: 130px !important; 
         }
         
         /* --- 固定ヘッダー --- */
@@ -69,27 +68,37 @@ st.markdown("""
             box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
         }
 
-        /* --- 🚨 修正: st.tabs の内部コンテナを直接固定化 --- */
-        /* fixed-tabs ラッパー内の stTabs コンポーネントを固定 */
+        /* --- 🚨 最終修正: st.tabs のコンテナを直接固定化し、インラインスタイルを無効化 --- */
         .fixed-tabs div[data-testid="stTabs"] {
-            position: fixed;
-            top: 40px; /* ヘッダーの高さ分下げる (fixed-header の高さに依存) */
-            left: 0;
-            width: 100vw; 
-            z-index: 999; /* ヘッダーより少し低く */
+            /* 1. 固定化の適用 */
+            position: fixed !important; /* 優先度を上げて固定化を強制 */
+            top: 40px !important; /* ヘッダーの高さ分下げる */
+            left: 0 !important;
+            width: 100vw !important; 
+            z-index: 999 !important;
             
-            /* 背景を設定してコンテンツが透けないように */
+            /* 2. インラインで設定されたスクロールを無効化 (最重要ハック) */
+            /* Streamlitが st.tabs に 'overflow: scroll' や 'flex-grow: 1' などを設定している場合に対処 */
+            overflow: visible !important;
+            flex-grow: 0 !important;
+            flex-shrink: 0 !important;
+            min-height: auto !important;
+            
+            /* 3. 装飾の再適用 */
             background-color: var(--secondary-background-color, #f0f0f0); 
             border-bottom: 1px solid rgba(128, 128, 128, 0.3);
             box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
-            padding: 6px 1rem 4px 1rem; /* 左右の余白は Streamlit のデフォルトに合わせる */
+            padding: 6px 1rem 4px 1rem;
         }
         
-        /* 以前の .fixed-tabs は不要になるため、装飾用のラッパーとして残します */
-        .fixed-tabs {
-            /* スクロールを発生させないように高さのみ調整 */
-            height: 50px; 
+        /* 4. タブ内のボタン要素が固定タブからはみ出さないように調整 */
+        .fixed-tabs div[data-testid="stTabs"] > div:first-child {
+            width: 100%;
+            display: flex; /* タブボタンが横並びになるように */
+            flex-wrap: nowrap; /* タブボタンが折り返さないように */
+            overflow-x: auto; /* タブが多い場合のみ横スクロールを許可 */
         }
+        
 
     </style>
 
