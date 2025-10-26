@@ -45,14 +45,13 @@ st.markdown("""
         header { visibility: hidden; }
 
         /* 2. 🚨 メインスクロールコンテナのオーバーライド (最重要ハック) */
-        /* これにより、position: fixed が画面全体に対して機能するようになります */
         div[data-testid="stAppViewContainer"] > section.main {
             overflow: visible !important;
         }
         
         /* 3. コンテンツ位置調整（固定領域分の余白） */
         .block-container {
-            padding-top: 130px !important; /* 固定ヘッダーとタブバーの合計高さ分の余白 */
+            padding-top: 130px !important; /* 固定領域の合計高さ分の余白 */
         }
         
         /* --- 固定ヘッダー --- */
@@ -60,48 +59,44 @@ st.markdown("""
             position: fixed;
             top: 0;
             left: 0;
-            width: 100vw; /* 画面幅全体に強制 */
+            width: 100vw;
             z-index: 1000;
             text-align: center;
             padding: 8px 0;
             font-size: 17px;
             font-weight: 600;
-            /* 背景色: ダークモード／ライトモードに対応したデフォルトのサブ背景色を使用 */
             background-color: var(--secondary-background-color, #f0f0f0); 
             box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
         }
 
-        /* --- 固定タブバー --- */
-        .fixed-tabs {
+        /* --- 🚨 修正: st.tabs の内部コンテナを直接固定化 --- */
+        /* fixed-tabs ラッパー内の stTabs コンポーネントを固定 */
+        .fixed-tabs div[data-testid="stTabs"] {
             position: fixed;
-            top: 40px; /* ヘッダーの高さ分下げる */
+            top: 40px; /* ヘッダーの高さ分下げる (fixed-header の高さに依存) */
             left: 0;
-            width: 100vw; /* 画面幅全体に強制 */
-            z-index: 999;
-            padding-top: 6px;
-            padding-bottom: 4px;
+            width: 100vw; 
+            z-index: 999; /* ヘッダーより少し低く */
+            
             /* 背景を設定してコンテンツが透けないように */
             background-color: var(--secondary-background-color, #f0f0f0); 
             border-bottom: 1px solid rgba(128, 128, 128, 0.3);
             box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+            padding: 6px 1rem 4px 1rem; /* 左右の余白は Streamlit のデフォルトに合わせる */
         }
         
-        /* 4. 固定タブバー内の要素の幅を調整 */
-        .fixed-tabs > div { 
-             /* st.tabsコンポーネントが内部に持つコンテナの幅と中央揃えを調整 */
-             max-width: 100%;
-             margin: 0 auto;
-             padding-left: 1rem;
-             padding-right: 1rem;
+        /* 以前の .fixed-tabs は不要になるため、装飾用のラッパーとして残します */
+        .fixed-tabs {
+            /* スクロールを発生させないように高さのみ調整 */
+            height: 50px; 
         }
-        
+
     </style>
 
     <div class="fixed-header">
         📅 Googleカレンダー一括イベント登録・削除
     </div>
 """, unsafe_allow_html=True)
-
 # ==================================================
 # Firebase 初期化・認証処理（元コードそのまま）
 # ==================================================
