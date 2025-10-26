@@ -39,70 +39,131 @@ from pathlib import Path
 from io import BytesIO
 
 # ==================================================
-# 🌟 デザイン（固定ヘッダー＋固定タブ風ナビ）
+# 🌟 デザイン拡張：固定ヘッダー + 固定ナビタブ（タブ風強化）
 # ==================================================
 st.set_page_config(page_title="Googleカレンダー一括イベント登録・削除", layout="wide")
 
-st.markdown('''
+st.markdown("""
 <style>
-/* 固定ヘッダー */
+/* ===== 固定ヘッダー ===== */
 .fixed-header {
     position: fixed;
     top: 0; left: 0; width: 100%;
     text-align: center;
-    padding: 8px 0;
+    padding: 10px 0;
     font-size: 17px; font-weight: 600;
-    z-index: 999; backdrop-filter: blur(8px);
+    z-index: 999;
+    backdrop-filter: blur(10px);
 }
 @media (prefers-color-scheme: light) {
     .fixed-header {
-        background-color: rgba(249,249,249,0.9);
-        color: #333; border-bottom: 1px solid #ddd;
+        background-color: rgba(255,255,255,0.85);
+        color: #222;
+        border-bottom: 1px solid #ddd;
     }
 }
 @media (prefers-color-scheme: dark) {
     .fixed-header {
-        background-color: rgba(30,30,30,0.85);
-        color: #f0f0f0; border-bottom: 1px solid #333;
+        background-color: rgba(25,25,25,0.85);
+        color: #eee;
+        border-bottom: 1px solid #444;
     }
 }
 
-/* ナビバー */
+/* ===== タブ風ナビバー ===== */
 .nav-bar {
     position: fixed;
-    top: 42px; left: 0; width: 100%;
-    display: flex; justify-content: center; gap: 6px;
-    padding: 6px; z-index: 998; backdrop-filter: blur(8px);
+    top: 50px; left: 0; width: 100%;
+    display: flex; justify-content: center;
+    gap: 8px; padding: 8px 0;
+    z-index: 998; backdrop-filter: blur(12px);
 }
 @media (prefers-color-scheme: light) {
     .nav-bar {
-        background-color: rgba(249,249,249,0.9);
-        border-bottom: 1px solid rgba(128,128,128,0.3);
+        background-color: rgba(250,250,250,0.8);
+        border-bottom: 1px solid rgba(180,180,180,0.4);
     }
 }
 @media (prefers-color-scheme: dark) {
     .nav-bar {
-        background-color: rgba(30,30,30,0.85);
-        border-bottom: 1px solid rgba(80,80,80,0.6);
+        background-color: rgba(30,30,30,0.75);
+        border-bottom: 1px solid rgba(100,100,100,0.5);
     }
 }
 
-/* ボタン */
-div[data-testid="column"] > div > button {
-    border-radius: 8px; padding: 4px 10px;
-    font-size: 13px; white-space: nowrap;
-    transition: all 0.2s ease-in-out;
+/* ===== タブボタンデザイン ===== */
+.tab-button {
+    border: none;
+    border-radius: 10px 10px 0 0;
+    padding: 6px 16px;
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.25s ease-in-out;
+    font-weight: 500;
 }
-div[data-testid="column"] > div > button:hover {
-    transform: translateY(-1px);
+.tab-button:hover {
+    transform: translateY(-2px);
+}
+.tab-button-active {
+    background-color: rgba(64,128,255,0.15);
+    border-bottom: 2px solid #4a8df0;
+    font-weight: 600;
+}
+@media (prefers-color-scheme: dark) {
+    .tab-button-active {
+        background-color: rgba(100,150,255,0.15);
+        border-bottom: 2px solid #6ea8ff;
+    }
 }
 
-/* コンテンツ余白 */
-.block-container { padding-top: 110px !important; }
+/* ===== コンテンツ位置調整 ===== */
+.block-container {
+    padding-top: 120px !important;
+}
 </style>
 
 <div class="fixed-header">📅 Googleカレンダー一括イベント登録・削除</div>
-''', unsafe_allow_html=True)
+""", unsafe_allow_html=True)
+
+
+# ==================================================
+# タブ風ナビバー
+# ==================================================
+tab_labels = [
+    "1. ファイルのアップロード",
+    "2. イベントの登録",
+    "3. イベントの削除",
+    "4. イベントの更新",
+    "5. イベントのExcel出力"
+]
+
+if "active_tab" not in st.session_state:
+    st.session_state["active_tab"] = 0
+
+# HTMLボタンでタブを描画（タブ風デザイン）
+nav_html = '<div class="nav-bar">'
+for i, label in enumerate(tab_labels):
+    active_class = "tab-button tab-button-active" if i == st.session_state["active_tab"] else "tab-button"
+    nav_html += f"""
+        <form action="" method="get" style="display:inline;">
+            <button class="{active_class}" name="tab" value="{i}">{label}</button>
+        </form>
+    """
+nav_html += "</div>"
+
+st.markdown(nav_html, unsafe_allow_html=True)
+
+# URLパラメータから選択タブを更新
+query_params = st.experimental_get_query_params()
+if "tab" in query_params:
+    try:
+        tab_index = int(query_params["tab"][0])
+        if 0 <= tab_index < len(tab_labels):
+            st.session_state["active_tab"] = tab_index
+    except:
+        pass
+
+active_tab = st.session_state["active_tab"]
 
 # ==================================================
 # Firebase初期化・認証（機能変更なし）
