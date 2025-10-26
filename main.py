@@ -244,7 +244,9 @@ for i, label in enumerate(tab_labels):
     """
 nav_html += "</div>"
 
+# 🔥 unsafe_allow_html=True を付ける
 st.markdown(nav_html, unsafe_allow_html=True)
+
 
 # URLパラメータから選択タブを更新
 query_params = st.experimental_get_query_params()
