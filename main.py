@@ -38,74 +38,79 @@ from io import BytesIO
 # 🌟 ページ設定 + デザイン強化（ヘッダー＋固定タブ）
 # ==================================================
 st.set_page_config(page_title="Googleカレンダー一括イベント登録・削除", layout="wide")
+
 st.markdown("""
     <style>
-        /* 1. Streamlit標準ヘッダーを無効化（固定ヘッダーと競合するため） */
-        header { visibility: hidden; }
-
-        /* 2. メインスクロールコンテナのオーバーライド (必須ハック) */
-        div[data-testid="stAppViewContainer"] > section.main {
-            overflow: visible !important;
+        /* --- 固定ヘッダー（ライト／ダーク対応） --- */
+        @media (prefers-color-scheme: light) {
+            .fixed-header {
+                background-color: rgba(249, 249, 249, 0.9);
+                color: #333;
+                border-bottom: 1px solid #ddd;
+                backdrop-filter: blur(8px);
+            }
         }
-        
-        /* 3. コンテンツ位置調整（固定領域分の余白） */
-        .block-container {
-            padding-top: 130px !important; 
+        @media (prefers-color-scheme: dark) {
+            .fixed-header {
+                background-color: rgba(30, 30, 30, 0.85);
+                color: #f0f0f0;
+                border-bottom: 1px solid #333;
+                backdrop-filter: blur(8px);
+            }
         }
-        
-        /* --- 固定ヘッダー --- */
         .fixed-header {
             position: fixed;
             top: 0;
             left: 0;
-            width: 100vw;
-            z-index: 1000;
+            width: 100%;
             text-align: center;
             padding: 8px 0;
             font-size: 17px;
             font-weight: 600;
-            background-color: var(--secondary-background-color, #f0f0f0); 
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            z-index: 999;
         }
 
-        /* --- 🚨 最終修正: st.tabs のコンテナを直接固定化し、インラインスタイルを無効化 --- */
-        .fixed-tabs div[data-testid="stTabs"] {
-            /* 1. 固定化の適用 */
-            position: fixed !important; /* 優先度を上げて固定化を強制 */
-            top: 40px !important; /* ヘッダーの高さ分下げる */
-            left: 0 !important;
-            width: 100vw !important; 
-            z-index: 999 !important;
-            
-            /* 2. インラインで設定されたスクロールを無効化 (最重要ハック) */
-            /* Streamlitが st.tabs に 'overflow: scroll' や 'flex-grow: 1' などを設定している場合に対処 */
-            overflow: visible !important;
-            flex-grow: 0 !important;
-            flex-shrink: 0 !important;
-            min-height: auto !important;
-            
-            /* 3. 装飾の再適用 */
-            background-color: var(--secondary-background-color, #f0f0f0); 
-            border-bottom: 1px solid rgba(128, 128, 128, 0.3);
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
-            padding: 6px 1rem 4px 1rem;
-        }
-        
-        /* 4. タブ内のボタン要素が固定タブからはみ出さないように調整 */
-        .fixed-tabs div[data-testid="stTabs"] > div:first-child {
+        /* --- 固定タブバー --- */
+        .fixed-tabs {
+            position: fixed;
+            top: 40px; /* ヘッダーの高さ分下げる */
+            left: 0;
             width: 100%;
-            display: flex; /* タブボタンが横並びになるように */
-            flex-wrap: nowrap; /* タブボタンが折り返さないように */
-            overflow-x: auto; /* タブが多い場合のみ横スクロールを許可 */
+            z-index: 998;
+            padding-top: 6px;
+            padding-bottom: 4px;
+            backdrop-filter: blur(8px);
         }
-        
 
+        @media (prefers-color-scheme: light) {
+            .fixed-tabs {
+                background-color: rgba(249, 249, 249, 0.9);
+                border-bottom: 1px solid rgba(128, 128, 128, 0.3);
+            }
+        }
+        @media (prefers-color-scheme: dark) {
+            .fixed-tabs {
+                background-color: rgba(30, 30, 30, 0.85);
+                border-bottom: 1px solid rgba(80, 80, 80, 0.6);
+            }
+        }
+
+        /* --- コンテンツ位置調整（固定領域分の余白） --- */
+        .block-container {
+            padding-top: 130px !important;
+        }
     </style>
 
     <div class="fixed-header">
         📅 Googleカレンダー一括イベント登録・削除
     </div>
 """, unsafe_allow_html=True)
+
+
+# ---- st.title() は削除（非表示） ----
+# st.title("📅 Googleカレンダー一括イベント登録・削除")
+
+
 # ==================================================
 # Firebase 初期化・認証処理（元コードそのまま）
 # ==================================================
@@ -237,6 +242,15 @@ tabs = st.tabs([
 ])
 
 st.markdown('</div>', unsafe_allow_html=True)
+
+
+# ==================================================
+# 以降：元のコード（機能・処理は一切変更なし）
+# ==================================================
+
+# ↓↓↓ あなたのオリジナルの全処理（アップロード・登録・削除・更新・出力・サイドバーなど）をそのまま残してください ↓↓↓
+# （ここ以降のロジック・UI要素・API処理はすべてオリジナルのままで動作します）
+
 
 
 if 'uploaded_files' not in st.session_state:
