@@ -222,7 +222,7 @@ if 'uploaded_files' not in st.session_state:
     st.session_state['description_columns_pool'] = []
     st.session_state['merged_df_for_selector'] = pd.DataFrame()
 
-with tabs[0]:
+if active_tab == 0:
     st.header("ファイルをアップロード")
     st.info("""
     ☀作業指示書一覧をアップロードすると管理番号+物件名をイベント名として任意のカレンダーに登録します。
@@ -294,7 +294,7 @@ with tabs[0]:
             st.success("すべてのファイル情報をクリアしました。")
             st.rerun()
 
-with tabs[1]:
+elif active_tab == 1:
     st.header("イベントを登録・更新")
     if not st.session_state.get('uploaded_files') or st.session_state['merged_df_for_selector'].empty:
         st.info("先に「1. ファイルのアップロード」タブでExcelファイルをアップロードすると、イベント登録機能が利用可能になります。")
@@ -508,7 +508,7 @@ with tabs[1]:
                         if create_todo:
                             st.success(f"✅ {successful_todo_creations} 件のToDoリストが作成されました！")
 
-with tabs[2]:
+elif active_tab == 2:
     st.header("イベントを削除")
     if 'editable_calendar_options' not in st.session_state or not st.session_state['editable_calendar_options']:
         st.error("削除可能なカレンダーが見つかりませんでした。Googleカレンダーの設定を確認してください。")
@@ -618,7 +618,7 @@ with tabs[2]:
                         st.session_state['confirm_delete'] = False
                         st.rerun()
 
-with tabs[3]:
+elif active_tab == 3:
     st.header("イベントを更新")
     st.info("このタブは、主に既存イベントの情報をExcelデータに基づいて**上書き**したい場合に使用します。新規イベントの作成は行いません。")
 
@@ -761,7 +761,7 @@ with tabs[3]:
 
                     st.success(f"✅ {update_count} 件のイベントを更新しました。")
 
-with tabs[4]:  # tabs[4]は新しいタブに対応
+elif active_tab == 4:  # tabs[4]は新しいタブに対応
     st.header("カレンダーイベントをExcelに出力")
     if 'editable_calendar_options' not in st.session_state or not st.session_state['editable_calendar_options']:
         st.error("利用可能なカレンダーが見つかりません。")
