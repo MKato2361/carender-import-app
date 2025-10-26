@@ -41,6 +41,24 @@ st.set_page_config(page_title="Googleカレンダー一括イベント登録・�
 
 st.markdown("""
     <style>
+        /* --- 固定化を阻害する可能性のある要素の強制調整 --- */
+        /* Streamlitのメインブロックが固定要素を隠さないようにする */
+        div[data-testid="stVerticalBlock"] > div:first-child {
+            overflow: visible !important; 
+        }
+
+        /* Streamlitのメインコンテンツコンテナに余白を適用 */
+        .block-container {
+            padding-top: 130px !important; /* ヘッダー(40px) + タブ(約60px) + 余裕 */
+        }
+
+        /* サイドバーの上端を固定ヘッダーの下に設定 */
+        div[data-testid="stSidebar"] {
+            top: 40px; 
+            z-index: 1000;
+        }
+
+        /* --- 固定ヘッダー(ライト／ダーク対応) --- */
         @media (prefers-color-scheme: light) {
             .fixed-header {
                 background-color: rgba(249, 249, 249, 0.9);
@@ -61,7 +79,8 @@ st.markdown("""
             position: fixed;
             top: 0;
             left: 0;
-            width: 100%;
+            /* 画面全体幅を強制 */
+            width: 100vw; 
             text-align: center;
             padding: 8px 0;
             font-size: 17px;
@@ -74,7 +93,7 @@ st.markdown("""
             position: fixed;
             top: 40px; /* ヘッダーの高さ分下げる */
             left: 0;
-            /* width: 100%; の代わりに 100vw を試行 */
+            /* 画面全体幅を強制 */
             width: 100vw; 
             z-index: 998;
             padding-top: 6px;
@@ -94,35 +113,24 @@ st.markdown("""
                 border-bottom: 1px solid rgba(80, 80, 80, 0.6);
             }
         }
-
-        /* 🚨 追加: Streamlitのコンテナ構造を上書きして固定を強制する */
-        div[data-testid="stVerticalBlock"] > div:first-child {
-            overflow: visible !important; 
-        }
         
-        /* 🚨 追加: 固定タブバーの左右の余白を強制的に取り除く */
-        .fixed-tabs {
-            left: 0 !important;
-            right: 0 !important;
-            padding-left: 1rem; /* Streamlitのデフォルト余白に合わせて調整 */
+        /* --- 固定タブバーの中身の左右マージン調整 --- */
+        /* width: 100vwで固定した後の、左右のpaddingを設定し直す */
+        .fixed-tabs > div { 
+            /* st.tabsを内包するStreamlitのコンテナにpaddingを適用 */
+            max-width: 90%; 
+            margin: auto;
+            /* wideレイアウトのデフォルトパディングに合わせて調整 */
+            padding-left: 1rem;
             padding-right: 1rem;
         }
 
-        /* --- コンテンツ位置調整（固定領域分の余白） --- */
-        .block-container {
-            /* padding-top: 130px が適切に見えるためそのまま */
-            padding-top: 130px !important; 
-        }
     </style>
 
     <div class="fixed-header">
         📅 Googleカレンダー一括イベント登録・削除
     </div>
 """, unsafe_allow_html=True)
-
-# ---- st.title() は削除（非表示） ----
-# st.title("📅 Googleカレンダー一括イベント登録・削除")
-
 
 # ==================================================
 # Firebase 初期化・認証処理（元コードそのまま）
