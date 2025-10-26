@@ -66,7 +66,7 @@ st.markdown("""
             text-align: center;
             padding: 8px 0;
             font-size: 10px;
-            font-weight: 600;
+            font-weight: 200;
             z-index: 999;
         }
 
