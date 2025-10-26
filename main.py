@@ -331,7 +331,6 @@ if active_tab == 0:
             st.session_state['description_columns_pool'] = []
             st.success("すべてのファイル情報をクリアしました。")
             st.rerun()
-elif active_tab == 0:
 
 if active_tab == 1:
     st.header("イベントを登録・更新")
