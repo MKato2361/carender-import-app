@@ -42,7 +42,6 @@ st.set_page_config(page_title="Googleカレンダー一括イベント登録・�
 st.markdown("""
    st.markdown("""
     <style>
-        /* --- 固定ヘッダー（ライト／ダーク対応） --- */
         @media (prefers-color-scheme: light) {
             .fixed-header {
                 background-color: rgba(249, 249, 249, 0.9);
