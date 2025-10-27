@@ -398,12 +398,31 @@ with tabs[1]:
         # ---------------------------------------------------------
         # カレンダー選択
         # ---------------------------------------------------------
+        calendar_options = list(st.session_state['editable_calendar_options'].keys())
+        
+        # ✅ ユーザー設定から前回の選択を取得
+        saved_calendar_name = get_user_setting(user_id, 'selected_calendar_name')
+        
+        # ✅ デフォルトインデックスを計算
+        try:
+            default_index = calendar_options.index(saved_calendar_name)
+        except ValueError:
+            # 前回の設定がリストにない場合（カレンダーが削除されたなど）、最初の項目をデフォルトとする
+            default_index = 0
+            
         selected_calendar_name = st.selectbox(
             "登録先カレンダーを選択",
-            list(st.session_state['editable_calendar_options'].keys()),
+            calendar_options,
+            index=default_index,  # 👈 デフォルトインデックスを適用
             key="reg_calendar_select"
         )
         calendar_id = st.session_state['editable_calendar_options'][selected_calendar_name]
+
+        # ✅ 選択されたカレンダーをユーザー設定に保存
+        # セレクトボックスが変更された時点で設定を更新（Streamlitの再実行で実行される）
+        set_user_setting(user_id, 'selected_calendar_name', selected_calendar_name)
+        save_user_setting_to_firestore(user_id, 'selected_calendar_name', selected_calendar_name)
+
 
         # ---------------------------------------------------------
         # 設定を取得して、展開状態を制御
@@ -412,15 +431,12 @@ with tabs[1]:
         saved_description_cols = get_user_setting(user_id, 'description_columns_selected')
         saved_event_name_col = get_user_setting(user_id, 'event_name_col_selected')
         saved_task_type_flag = get_user_setting(user_id, 'add_task_type_to_event_name')
-        
-        # ToDo設定の保存状態を取得（展開制御用に追加）
         saved_create_todo_flag = get_user_setting(user_id, 'create_todo_checkbox_state')
 
         # ✅ 未設定なら展開、設定済みなら閉じる
         expand_event_setting = not bool(saved_description_cols)
         expand_name_setting = not (saved_event_name_col or saved_task_type_flag)
-        # ToDo設定はデフォルトで閉じる（要望に合わせる）
-        expand_todo_setting = bool(saved_create_todo_flag) # 設定がONなら展開する
+        expand_todo_setting = bool(saved_create_todo_flag)
 
         # ---------------------------------------------------------
         # 🧩 イベント設定（折りたたみ）
@@ -467,18 +483,16 @@ with tabs[1]:
                 st.info("「管理番号」と「物件名」のデータが両方存在するため、それらがイベント名として使用されます。")
 
         # ---------------------------------------------------------
-        # 🧩 ToDoリスト連携設定（折りたたみ） - ここに移動し、expanderで囲みます
+        # 🧩 ToDoリスト連携設定（折りたたみ）
         # ---------------------------------------------------------
-        st.markdown("✅ ToDoリスト連携設定 (オプション)")
-        with st.expander("ToDoリスト作成オプション", expanded=expand_todo_setting): # デフォルトは閉じる
-            # チェックボックスのキーを修正し、デフォルト値にsaved_create_todo_flagを使用（今回はTrue/Falseを保存していると仮定）
+        st.subheader("✅ ToDoリスト連携設定 (オプション)")
+        with st.expander("ToDoリスト作成オプション", expanded=expand_todo_setting):
             create_todo = st.checkbox(
                 "このイベントに対応するToDoリストを作成する", 
                 value=saved_create_todo_flag if saved_create_todo_flag is not None else False, 
                 key="create_todo_checkbox"
             )
 
-            # ToDo設定の値をセッションステートに保存（展開制御のため、ここで保存ロジックを追加）
             set_user_setting(user_id, 'create_todo_checkbox_state', create_todo)
             save_user_setting_to_firestore(user_id, 'create_todo_checkbox_state', create_todo)
 
@@ -518,7 +532,6 @@ with tabs[1]:
 
         if st.button("Googleカレンダーに登録・更新する"):
             # ⚙️ ユーザー設定の保存
-            # ToDo関連の保存はexpander内で実行したため、ここではイベント設定のみ
             set_user_setting(user_id, 'description_columns_selected', description_columns)
             set_user_setting(user_id, 'event_name_col_selected', selected_event_name_col)
             set_user_setting(user_id, 'add_task_type_to_event_name', add_task_type_to_event_name)
@@ -548,7 +561,6 @@ with tabs[1]:
                     progress = st.progress(0)
                     successful_operations = 0
 
-                    # (中略: イベント取得と処理のロジックは変更なし)
                     worksheet_to_event = {}
                     time_min = (datetime.now(timezone.utc) - timedelta(days=365*2)).isoformat()
                     time_max = (datetime.now(timezone.utc) + timedelta(days=365*2)).isoformat()
@@ -601,9 +613,6 @@ with tabs[1]:
                         progress.progress((i + 1) / len(df))
 
                     st.success(f"✅ {successful_operations} 件のイベントが処理されました。")
-        
-        # ⛔ 以前、この下にToDo設定のコードブロックがありましたが、上に移動しました。
-
 
 with tabs[2]:
     st.subheader("イベントを削除")
