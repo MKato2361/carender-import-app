@@ -101,11 +101,34 @@ st.markdown("""
             padding-bottom: 0rem !important;
             margin-bottom: 0rem !important;
         }
-    </style>
 
-    <div class="fixed-header">
-        📅 Googleカレンダー一括イベント登録・削除
-    </div>
+        /* --- Streamlitのメイン領域全体から下余白を削除 --- */
+        main, section[data-testid="stSidebar"], section[data-testid="stSidebarNav"] {
+            padding-bottom: 0rem !important;
+            margin-bottom: 0rem !important;
+        }
+
+        /* --- 最後のブロック要素の下にできる余白を削除 --- */
+        div[data-testid="stVerticalBlock"] > div:last-child {
+            margin-bottom: 0rem !important;
+            padding-bottom: 0rem !important;
+        }
+
+        /* --- ファイルアップロードやエクスパンダー後の隙間を削除 --- */
+        div[data-testid="stFileUploader"] {
+            margin-bottom: 0rem !important;
+        }
+
+        div[data-testid="stExpander"] {
+            margin-bottom: 0rem !important;
+        }
+
+        /* --- タブ領域の末尾余白も削除 --- */
+        div[data-testid="stTabs"] {
+            margin-bottom: 0rem !important;
+            padding-bottom: 0rem !important;
+        }
+    </style>
 """, unsafe_allow_html=True)
 
 
