@@ -380,7 +380,7 @@ with tabs[0]:
 with tabs[1]:
     st.subheader("イベントを登録・更新")
 
-    # 🛠️ まずは安全のため、必要な変数を初期化
+    # 🛠️ 安全のため初期化
     description_columns = []
     selected_event_name_col = None
     add_task_type_to_event_name = False
@@ -388,11 +388,9 @@ with tabs[1]:
     private_event = True
     fallback_event_name_column = None
 
-    # 📂 ファイルがまだアップロードされていない場合
     if not st.session_state.get('uploaded_files') or st.session_state['merged_df_for_selector'].empty:
-        st.info("先に「1. ファイルのアップロード」タブでExcelファイルをアップロードすると、イベント登録機能が利用可能になります。")
+        st.info("先に「1. ファイルのアップロード」タブでExcelファイルをアップロードしてください。")
 
-    # 🗓️ カレンダー設定の確認
     elif not st.session_state['editable_calendar_options']:
         st.error("登録可能なカレンダーが見つかりませんでした。Googleカレンダーの設定を確認してください。")
 
@@ -408,56 +406,63 @@ with tabs[1]:
         calendar_id = st.session_state['editable_calendar_options'][selected_calendar_name]
 
         # ---------------------------------------------------------
-        # イベント設定セクション
+        # 設定を取得して、展開状態を制御
         # ---------------------------------------------------------
-        st.subheader("📝 イベント設定")
-        all_day_event_override = st.checkbox("終日イベントとして登録", value=False)
-        private_event = st.checkbox("非公開イベントとして登録", value=True)
-
-        # 🔹 利用可能な列リストの準備
         description_columns_pool = st.session_state.get('description_columns_pool', [])
-        saved_defaults = get_user_setting(user_id, 'description_columns_selected')
-        default_selection = [col for col in saved_defaults if col in description_columns_pool] if saved_defaults else []
+        saved_description_cols = get_user_setting(user_id, 'description_columns_selected')
+        saved_event_name_col = get_user_setting(user_id, 'event_name_col_selected')
+        saved_task_type_flag = get_user_setting(user_id, 'add_task_type_to_event_name')
 
-        # 🔹 multiselectで説明列を選択
-        description_columns = st.multiselect(
-            "説明欄に含める列（複数選択可）",
-            description_columns_pool,
-            default=default_selection,
-            key=f"description_selector_register_{user_id}"
-        )
+        # ✅ 未設定なら展開、設定済みなら閉じる
+        expand_event_setting = not bool(saved_description_cols)
+        expand_name_setting = not (saved_event_name_col or saved_task_type_flag)
 
-        # イベント名設定
-        has_mng_data, has_name_data = check_event_name_columns(st.session_state['merged_df_for_selector'])
-        selected_event_name_col = get_user_setting(user_id, 'event_name_col_selected')
+        # ---------------------------------------------------------
+        # 🧩 イベント設定（折りたたみ）
+        # ---------------------------------------------------------
+        with st.expander("📝 イベント設定", expanded=expand_event_setting):
+            all_day_event_override = st.checkbox("終日イベントとして登録", value=False)
+            private_event = st.checkbox("非公開イベントとして登録", value=True)
 
-        st.subheader("イベント名の生成設定")
-        add_task_type_to_event_name = st.checkbox(
-            "イベント名の先頭に作業タイプを追加する",
-            value=get_user_setting(user_id, 'add_task_type_to_event_name'),
-            key=f"add_task_type_checkbox_{user_id}"
-        )
-
-        # 「管理番号」または「物件名」がない場合は代替列を選択
-        if not (has_mng_data and has_name_data):
-            available_event_name_cols = get_available_columns_for_event_name(st.session_state['merged_df_for_selector'])
-            event_name_options = ["選択しない"] + available_event_name_cols
-            default_index = event_name_options.index(selected_event_name_col) if selected_event_name_col in event_name_options else 0
-
-            selected_event_name_col = st.selectbox(
-                "イベント名として使用する代替列を選択してください:",
-                options=event_name_options,
-                index=default_index,
-                key=f"event_name_selector_register_{user_id}"
+            default_selection = [col for col in (saved_description_cols or []) if col in description_columns_pool]
+            description_columns = st.multiselect(
+                "説明欄に含める列（複数選択可）",
+                description_columns_pool,
+                default=default_selection,
+                key=f"description_selector_register_{user_id}"
             )
 
-            if selected_event_name_col != "選択しない":
-                fallback_event_name_column = selected_event_name_col
-        else:
-            st.info("「管理番号」と「物件名」のデータが両方存在するため、それらがイベント名として使用されます。")
+        # ---------------------------------------------------------
+        # 🧩 イベント名の生成設定（折りたたみ）
+        # ---------------------------------------------------------
+        with st.expander("🧱 イベント名の生成設定", expanded=expand_name_setting):
+            has_mng_data, has_name_data = check_event_name_columns(st.session_state['merged_df_for_selector'])
+            selected_event_name_col = saved_event_name_col
+            add_task_type_to_event_name = st.checkbox(
+                "イベント名の先頭に作業タイプを追加する",
+                value=saved_task_type_flag,
+                key=f"add_task_type_checkbox_{user_id}"
+            )
+
+            if not (has_mng_data and has_name_data):
+                available_event_name_cols = get_available_columns_for_event_name(st.session_state['merged_df_for_selector'])
+                event_name_options = ["選択しない"] + available_event_name_cols
+                default_index = event_name_options.index(selected_event_name_col) if selected_event_name_col in event_name_options else 0
+
+                selected_event_name_col = st.selectbox(
+                    "イベント名として使用する代替列を選択してください:",
+                    options=event_name_options,
+                    index=default_index,
+                    key=f"event_name_selector_register_{user_id}"
+                )
+
+                if selected_event_name_col != "選択しない":
+                    fallback_event_name_column = selected_event_name_col
+            else:
+                st.info("「管理番号」と「物件名」のデータが両方存在するため、それらがイベント名として使用されます。")
 
         # ---------------------------------------------------------
-        # 登録・更新ボタン
+        # 登録ボタン
         # ---------------------------------------------------------
         st.subheader("➡️ イベント登録・更新実行")
 
@@ -491,7 +496,6 @@ with tabs[1]:
                     st.info(f"{len(df)} 件のイベントを処理します。")
                     progress = st.progress(0)
                     successful_operations = 0
-                    successful_todo_creations = 0
 
                     worksheet_to_event = {}
                     time_min = (datetime.now(timezone.utc) - timedelta(days=365*2)).isoformat()
@@ -544,7 +548,8 @@ with tabs[1]:
 
                         progress.progress((i + 1) / len(df))
 
-                    st.success(f"✅ {successful_operations} 件のイベントが処理されました (新規登録/更新)。")
+                    st.success(f"✅ {successful_operations} 件のイベントが処理されました。")
+
 
             st.subheader("✅ ToDoリスト連携設定 (オプション)")
             create_todo = st.checkbox("このイベントに対応するToDoリストを作成する", value=False, key="create_todo_checkbox")
