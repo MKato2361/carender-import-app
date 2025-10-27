@@ -41,137 +41,56 @@ st.set_page_config(page_title="Googleカレンダー一括イベント登録・�
 
 st.markdown("""
     <style>
-        /* --- 固定ヘッダー（ライト／ダーク対応） --- */
+        /* ===== 固定ヘッダー（stickyに変更） ===== */
         @media (prefers-color-scheme: light) {
-            .fixed-header {
-                background-color: rgba(249, 249, 249, 0.9);
+            .header-bar {
+                background-color: rgba(249, 249, 249, 0.95);
                 color: #333;
-                border-bottom: 1px solid #ddd;
-                backdrop-filter: blur(8px);
+                border-bottom: 1px solid #ccc;
             }
         }
         @media (prefers-color-scheme: dark) {
-            .fixed-header {
-                background-color: rgba(30, 30, 30, 0.85);
-                color: #f0f0f0;
-                border-bottom: 1px solid #333;
-                backdrop-filter: blur(8px);
+            .header-bar {
+                background-color: rgba(30, 30, 30, 0.9);
+                color: #eee;
+                border-bottom: 1px solid #444;
             }
         }
-        .fixed-header {
-            position: fixed;
+
+        .header-bar {
+            position: sticky;       /* ← fixed ではなく sticky に */
             top: 0;
-            left: 0;
             width: 100%;
             text-align: center;
+            font-weight: 500;
+            font-size: 14px;
             padding: 8px 0;
-            font-size: 10px;
-            font-weight: 200;
-            z-index: 999;
+            z-index: 10;
+            backdrop-filter: blur(6px);
         }
 
-        /* --- 固定タブバー --- */
-        .fixed-tabs {
-            position: fixed;
-            top: 1px; /* ヘッダーの高さ分下げる */
-            left: 0;
-            width: 100%;
-            z-index: 998;
-            padding-top: 6px;
-            padding-bottom: 4px;
-            backdrop-filter: blur(8px);
-        }
-
-        @media (prefers-color-scheme: light) {
-            .fixed-tabs {
-                background-color: rgba(249, 249, 249, 0.9);
-                border-bottom: 1px solid rgba(128, 128, 128, 0.3);
-            }
-        }
-        @media (prefers-color-scheme: dark) {
-            .fixed-tabs {
-                background-color: rgba(30, 30, 30, 0.85);
-                border-bottom: 1px solid rgba(80, 80, 80, 0.6);
-            }
-        }
-
-        /* --- コンテンツ位置調整（固定領域分の余白） --- */
-        .block-container {
-            padding-top: 60px !important;
-            padding-bottom: 0rem !important;
-            margin-bottom: 0rem !important;
-        }
-
-        /* --- Streamlitのメイン領域全体から下余白を削除 --- */
-        main, section[data-testid="stSidebar"], section[data-testid="stSidebarNav"] {
-            padding-bottom: 0rem !important;
-            margin-bottom: 0rem !important;
-        }
-
-        /* --- 最後のブロック要素の下にできる余白を削除 --- */
-        div[data-testid="stVerticalBlock"] > div:last-child {
-            margin-bottom: 0rem !important;
-            padding-bottom: 0rem !important;
-        }
-
-        /* --- ファイルアップロードやエクスパンダー後の隙間を削除 --- */
-        div[data-testid="stFileUploader"] {
-            margin-bottom: 0rem !important;
-        }
-
-        div[data-testid="stExpander"] {
-            margin-bottom: 0rem !important;
-        }
-
-        /* --- タブ領域の末尾余白も削除 --- */
+        /* ===== タブバーを固定風に見せる ===== */
         div[data-testid="stTabs"] {
-            margin-bottom: 0rem !important;
-            padding-bottom: 0rem !important;
-        }
-        html, body {
-        height: 100%;
-        overflow-y: auto !important;
-        }
-        /* ===== 全体レイアウト調整 ===== */
-        html, body, main {
-            height: 100% !important;
-            min-height: 100% !important;
-            padding-bottom: 0 !important;
-            margin-bottom: 0 !important;
-            overflow-y: auto !important;
+            position: sticky;
+            top: 42px; /* ヘッダーの高さ分下げる */
+            background-color: inherit;
+            z-index: 9;
+            border-bottom: 1px solid rgba(128, 128, 128, 0.3);
+            padding-top: 4px;
+            padding-bottom: 4px;
+            backdrop-filter: blur(6px);
         }
 
-        /* ===== Streamlitメインコンテナの余白除去 ===== */
+        /* ===== ページ全体の余白をリセット ===== */
         .block-container {
-            padding-top: 40px !important;   /* 固定ヘッダー分 */
+            padding-top: 0 !important;
             padding-bottom: 0 !important;
             margin-bottom: 0 !important;
         }
 
-        /* ===== タブ・エクスパンダー・アップローダーの下余白を削除 ===== */
-        div[data-testid="stTabs"],
-        div[data-testid="stExpander"],
-        div[data-testid="stFileUploader"],
-        div[data-testid="stVerticalBlock"] > div:last-child {
-            margin-bottom: 0 !important;
-            padding-bottom: 0 !important;
-        }
-
-        /* ===== mainタグの中にできる謎スペースを消す ===== */
-        section[data-testid="stVerticalBlock"],
-        section[data-testid="stMainBlockContainer"] {
-            margin-bottom: 0 !important;
-            padding-bottom: 0 !important;
-        }
-
-        /* ===== ページ下端に透明スペーサーを消す ===== */
         footer, div[data-testid="stBottomBlockContainer"] {
             display: none !important;
-            height: 0 !important;
-            margin: 0 !important;
-            padding: 0 !important;
         }
-
     </style>
 """, unsafe_allow_html=True)
 
