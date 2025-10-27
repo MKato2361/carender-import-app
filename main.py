@@ -412,10 +412,15 @@ with tabs[1]:
         saved_description_cols = get_user_setting(user_id, 'description_columns_selected')
         saved_event_name_col = get_user_setting(user_id, 'event_name_col_selected')
         saved_task_type_flag = get_user_setting(user_id, 'add_task_type_to_event_name')
+        
+        # ToDo設定の保存状態を取得（展開制御用に追加）
+        saved_create_todo_flag = get_user_setting(user_id, 'create_todo_checkbox_state')
 
         # ✅ 未設定なら展開、設定済みなら閉じる
         expand_event_setting = not bool(saved_description_cols)
         expand_name_setting = not (saved_event_name_col or saved_task_type_flag)
+        # ToDo設定はデフォルトで閉じる（要望に合わせる）
+        expand_todo_setting = bool(saved_create_todo_flag) # 設定がONなら展開する
 
         # ---------------------------------------------------------
         # 🧩 イベント設定（折りたたみ）
@@ -462,12 +467,58 @@ with tabs[1]:
                 st.info("「管理番号」と「物件名」のデータが両方存在するため、それらがイベント名として使用されます。")
 
         # ---------------------------------------------------------
+        # 🧩 ToDoリスト連携設定（折りたたみ） - ここに移動し、expanderで囲みます
+        # ---------------------------------------------------------
+        st.subheader("✅ ToDoリスト連携設定 (オプション)")
+        with st.expander("ToDoリスト作成オプション", expanded=expand_todo_setting): # デフォルトは閉じる
+            # チェックボックスのキーを修正し、デフォルト値にsaved_create_todo_flagを使用（今回はTrue/Falseを保存していると仮定）
+            create_todo = st.checkbox(
+                "このイベントに対応するToDoリストを作成する", 
+                value=saved_create_todo_flag if saved_create_todo_flag is not None else False, 
+                key="create_todo_checkbox"
+            )
+
+            # ToDo設定の値をセッションステートに保存（展開制御のため、ここで保存ロジックを追加）
+            set_user_setting(user_id, 'create_todo_checkbox_state', create_todo)
+            save_user_setting_to_firestore(user_id, 'create_todo_checkbox_state', create_todo)
+
+
+            fixed_todo_types = ["点検通知"]
+            if create_todo:
+                st.markdown(f"以下のToDoが**常にすべて**作成されます: `{', '.join(fixed_todo_types)}`")
+            else:
+                st.markdown(f"ToDoリストの作成は無効です。")
+
+            deadline_offset_options = {
+                "2週間前": 14,
+                "10日前": 10,
+                "1週間前": 7,
+                "カスタム日数前": None
+            }
+            selected_offset_key = st.selectbox(
+                "ToDoリストの期限をイベント開始日の何日前に設定しますか？",
+                list(deadline_offset_options.keys()),
+                disabled=not create_todo,
+                key="deadline_offset_select"
+            )
+
+            custom_offset_days = None
+            if selected_offset_key == "カスタム日数前":
+                custom_offset_days = st.number_input(
+                    "何日前に設定しますか？ (日数)",
+                    min_value=0,
+                    value=3,
+                    disabled=not create_todo,
+                    key="custom_offset_input"
+                )
+        # ---------------------------------------------------------
         # 登録ボタン
         # ---------------------------------------------------------
         st.subheader("➡️ イベント登録・更新実行")
 
         if st.button("Googleカレンダーに登録・更新する"):
             # ⚙️ ユーザー設定の保存
+            # ToDo関連の保存はexpander内で実行したため、ここではイベント設定のみ
             set_user_setting(user_id, 'description_columns_selected', description_columns)
             set_user_setting(user_id, 'event_name_col_selected', selected_event_name_col)
             set_user_setting(user_id, 'add_task_type_to_event_name', add_task_type_to_event_name)
@@ -497,6 +548,7 @@ with tabs[1]:
                     progress = st.progress(0)
                     successful_operations = 0
 
+                    # (中略: イベント取得と処理のロジックは変更なし)
                     worksheet_to_event = {}
                     time_min = (datetime.now(timezone.utc) - timedelta(days=365*2)).isoformat()
                     time_max = (datetime.now(timezone.utc) + timedelta(days=365*2)).isoformat()
@@ -549,40 +601,8 @@ with tabs[1]:
                         progress.progress((i + 1) / len(df))
 
                     st.success(f"✅ {successful_operations} 件のイベントが処理されました。")
-
-
-            st.subheader("✅ ToDoリスト連携設定 (オプション)")
-            create_todo = st.checkbox("このイベントに対応するToDoリストを作成する", value=False, key="create_todo_checkbox")
-
-            fixed_todo_types = ["点検通知"]
-            if create_todo:
-                st.markdown(f"以下のToDoが**常にすべて**作成されます: `{', '.join(fixed_todo_types)}`")
-            else:
-                st.markdown(f"ToDoリストの作成は無効です。")
-
-            deadline_offset_options = {
-                "2週間前": 14,
-                "10日前": 10,
-                "1週間前": 7,
-                "カスタム日数前": None
-            }
-            selected_offset_key = st.selectbox(
-                "ToDoリストの期限をイベント開始日の何日前に設定しますか？",
-                list(deadline_offset_options.keys()),
-                disabled=not create_todo,
-                key="deadline_offset_select"
-            )
-
-            custom_offset_days = None
-            if selected_offset_key == "カスタム日数前":
-                custom_offset_days = st.number_input(
-                    "何日前に設定しますか？ (日数)",
-                    min_value=0,
-                    value=3,
-                    disabled=not create_todo,
-                    key="custom_offset_input"
-                )
-
+        
+        # ⛔ 以前、この下にToDo設定のコードブロックがありましたが、上に移動しました。
 
 
 with tabs[2]:
