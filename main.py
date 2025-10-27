@@ -409,8 +409,8 @@ with tabs[1]:
     if not st.session_state.get('uploaded_files') or st.session_state['merged_df_for_selector'].empty:
         st.info("先に「1. ファイルのアップロード」タブでExcelファイルをアップロードすると、イベント登録機能が利用可能になります。")
 
-            st.subheader("➡️ イベント登録・更新実行")
-            if st.button("Googleカレンダーに登録・更新する"):
+    st.subheader("➡️ イベント登録・更新実行")
+        if st.button("Googleカレンダーに登録・更新する"):
                 set_user_setting(user_id, 'description_columns_selected', description_columns)
                 set_user_setting(user_id, 'event_name_col_selected', selected_event_name_col)
                 set_user_setting(user_id, 'add_task_type_to_event_name', add_task_type_to_event_name)
