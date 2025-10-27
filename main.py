@@ -408,98 +408,6 @@ with tabs[1]:
     st.subheader("イベントを登録・更新")
     if not st.session_state.get('uploaded_files') or st.session_state['merged_df_for_selector'].empty:
         st.info("先に「1. ファイルのアップロード」タブでExcelファイルをアップロードすると、イベント登録機能が利用可能になります。")
-    else:
-        st.subheader("📝 イベント設定")
-        all_day_event_override = st.checkbox("終日イベントとして登録", value=False)
-        private_event = st.checkbox("非公開イベントとして登録", value=True)
-
-        # 修正箇所: ユーザー設定を読み込み、利用可能な列にフィルタリング
-        description_columns_pool = st.session_state.get('description_columns_pool', [])
-        saved_defaults = get_user_setting(user_id, 'description_columns_selected')
-        if saved_defaults:
-            default_selection = [col for col in saved_defaults if col in description_columns_pool]
-        else:
-            default_selection = []
-
-        description_columns = st.multiselect(
-            "説明欄に含める列（複数選択可）",
-            description_columns_pool,
-            default=default_selection,
-            key=f"description_selector_register_{user_id}"
-        )
-
-        fallback_event_name_column = None
-        has_mng_data, has_name_data = check_event_name_columns(st.session_state['merged_df_for_selector'])
-        selected_event_name_col = get_user_setting(user_id, 'event_name_col_selected')
-
-        st.subheader("イベント名の生成設定")
-        add_task_type_to_event_name = st.checkbox(
-            "イベント名の先頭に作業タイプを追加する",
-            value=get_user_setting(user_id, 'add_task_type_to_event_name'),
-            key=f"add_task_type_checkbox_{user_id}"
-        )
-
-        if not (has_mng_data and has_name_data):
-            if not has_mng_data and not has_name_data:
-                st.info("ファイルに「管理番号」と「物件名」のデータが見つかりませんでした。イベント名に使用する列を選択してください。")
-            elif not has_mng_data:
-                st.info("ファイルに「管理番号」のデータが見つかりませんでした。物件名と合わせてイベント名に使用する列を選択できます。")
-            elif not has_name_data:
-                st.info("ファイルに「物件名」のデータが見つかりませんでした。管理番号と合わせてイベント名に使用する列を選択できます。")
-
-            available_event_name_cols = get_available_columns_for_event_name(st.session_state['merged_df_for_selector'])
-            event_name_options = ["選択しない"] + available_event_name_cols
-            default_index = event_name_options.index(selected_event_name_col) if selected_event_name_col in event_name_options else 0
-
-            selected_event_name_col = st.selectbox(
-                "イベント名として使用する代替列を選択してください:",
-                options=event_name_options,
-                index=default_index,
-                key=f"event_name_selector_register_{user_id}"
-            )
-
-            if selected_event_name_col != "選択しない":
-                fallback_event_name_column = selected_event_name_col
-        else:
-            st.info("「管理番号」と「物件名」のデータが両方存在するため、それらがイベント名として使用されます。")
-
-        if not st.session_state['editable_calendar_options']:
-            st.error("登録可能なカレンダーが見つかりませんでした。Googleカレンダーの設定を確認してください。")
-        else:
-            selected_calendar_name = st.selectbox("登録先カレンダーを選択", list(st.session_state['editable_calendar_options'].keys()), key="reg_calendar_select")
-            calendar_id = st.session_state['editable_calendar_options'][selected_calendar_name]
-
-            st.subheader("✅ ToDoリスト連携設定 (オプション)")
-            create_todo = st.checkbox("このイベントに対応するToDoリストを作成する", value=False, key="create_todo_checkbox")
-
-            fixed_todo_types = ["点検通知"]
-            if create_todo:
-                st.markdown(f"以下のToDoが**常にすべて**作成されます: `{', '.join(fixed_todo_types)}`")
-            else:
-                st.markdown(f"ToDoリストの作成は無効です。")
-
-            deadline_offset_options = {
-                "2週間前": 14,
-                "10日前": 10,
-                "1週間前": 7,
-                "カスタム日数前": None
-            }
-            selected_offset_key = st.selectbox(
-                "ToDoリストの期限をイベント開始日の何日前に設定しますか？",
-                list(deadline_offset_options.keys()),
-                disabled=not create_todo,
-                key="deadline_offset_select"
-            )
-
-            custom_offset_days = None
-            if selected_offset_key == "カスタム日数前":
-                custom_offset_days = st.number_input(
-                    "何日前に設定しますか？ (日数)",
-                    min_value=0,
-                    value=3,
-                    disabled=not create_todo,
-                    key="custom_offset_input"
-                )
 
             st.subheader("➡️ イベント登録・更新実行")
             if st.button("Googleカレンダーに登録・更新する"):
@@ -617,6 +525,100 @@ with tabs[1]:
                         st.success(f"✅ {successful_operations} 件のイベントが処理されました (新規登録/更新)。")
                         if create_todo:
                             st.success(f"✅ {successful_todo_creations} 件のToDoリストが作成されました！")
+    else:
+        st.subheader("📝 イベント設定")
+        all_day_event_override = st.checkbox("終日イベントとして登録", value=False)
+        private_event = st.checkbox("非公開イベントとして登録", value=True)
+
+        # 修正箇所: ユーザー設定を読み込み、利用可能な列にフィルタリング
+        description_columns_pool = st.session_state.get('description_columns_pool', [])
+        saved_defaults = get_user_setting(user_id, 'description_columns_selected')
+        if saved_defaults:
+            default_selection = [col for col in saved_defaults if col in description_columns_pool]
+        else:
+            default_selection = []
+
+        description_columns = st.multiselect(
+            "説明欄に含める列（複数選択可）",
+            description_columns_pool,
+            default=default_selection,
+            key=f"description_selector_register_{user_id}"
+        )
+
+        fallback_event_name_column = None
+        has_mng_data, has_name_data = check_event_name_columns(st.session_state['merged_df_for_selector'])
+        selected_event_name_col = get_user_setting(user_id, 'event_name_col_selected')
+
+        st.subheader("イベント名の生成設定")
+        add_task_type_to_event_name = st.checkbox(
+            "イベント名の先頭に作業タイプを追加する",
+            value=get_user_setting(user_id, 'add_task_type_to_event_name'),
+            key=f"add_task_type_checkbox_{user_id}"
+        )
+
+        if not (has_mng_data and has_name_data):
+            if not has_mng_data and not has_name_data:
+                st.info("ファイルに「管理番号」と「物件名」のデータが見つかりませんでした。イベント名に使用する列を選択してください。")
+            elif not has_mng_data:
+                st.info("ファイルに「管理番号」のデータが見つかりませんでした。物件名と合わせてイベント名に使用する列を選択できます。")
+            elif not has_name_data:
+                st.info("ファイルに「物件名」のデータが見つかりませんでした。管理番号と合わせてイベント名に使用する列を選択できます。")
+
+            available_event_name_cols = get_available_columns_for_event_name(st.session_state['merged_df_for_selector'])
+            event_name_options = ["選択しない"] + available_event_name_cols
+            default_index = event_name_options.index(selected_event_name_col) if selected_event_name_col in event_name_options else 0
+
+            selected_event_name_col = st.selectbox(
+                "イベント名として使用する代替列を選択してください:",
+                options=event_name_options,
+                index=default_index,
+                key=f"event_name_selector_register_{user_id}"
+            )
+
+            if selected_event_name_col != "選択しない":
+                fallback_event_name_column = selected_event_name_col
+        else:
+            st.info("「管理番号」と「物件名」のデータが両方存在するため、それらがイベント名として使用されます。")
+
+        if not st.session_state['editable_calendar_options']:
+            st.error("登録可能なカレンダーが見つかりませんでした。Googleカレンダーの設定を確認してください。")
+        else:
+            selected_calendar_name = st.selectbox("登録先カレンダーを選択", list(st.session_state['editable_calendar_options'].keys()), key="reg_calendar_select")
+            calendar_id = st.session_state['editable_calendar_options'][selected_calendar_name]
+
+            st.subheader("✅ ToDoリスト連携設定 (オプション)")
+            create_todo = st.checkbox("このイベントに対応するToDoリストを作成する", value=False, key="create_todo_checkbox")
+
+            fixed_todo_types = ["点検通知"]
+            if create_todo:
+                st.markdown(f"以下のToDoが**常にすべて**作成されます: `{', '.join(fixed_todo_types)}`")
+            else:
+                st.markdown(f"ToDoリストの作成は無効です。")
+
+            deadline_offset_options = {
+                "2週間前": 14,
+                "10日前": 10,
+                "1週間前": 7,
+                "カスタム日数前": None
+            }
+            selected_offset_key = st.selectbox(
+                "ToDoリストの期限をイベント開始日の何日前に設定しますか？",
+                list(deadline_offset_options.keys()),
+                disabled=not create_todo,
+                key="deadline_offset_select"
+            )
+
+            custom_offset_days = None
+            if selected_offset_key == "カスタム日数前":
+                custom_offset_days = st.number_input(
+                    "何日前に設定しますか？ (日数)",
+                    min_value=0,
+                    value=3,
+                    disabled=not create_todo,
+                    key="custom_offset_input"
+                )
+
+
 
 with tabs[2]:
     st.subheader("イベントを削除")
