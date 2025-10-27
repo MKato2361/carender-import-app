@@ -34,188 +34,127 @@ from pathlib import Path
 from io import BytesIO
 
 
-# ==================================================
-# 🌟 ページ設定 + デザイン強化（ヘッダー＋固定タブ）
-# ==================================================
 st.set_page_config(page_title="Googleカレンダー一括イベント登録・削除", layout="wide")
 
 st.markdown("""
-    <style>
-        /* ===== 固定ヘッダー（stickyに変更） ===== */
-        @media (prefers-color-scheme: light) {
-            .header-bar {
-                background-color: rgba(249, 249, 249, 0.95);
-                color: #333;
-                border-bottom: 1px solid #ccc;
-            }
-        }
-        @media (prefers-color-scheme: dark) {
-            .header-bar {
-                background-color: rgba(30, 30, 30, 0.9);
-                color: #eee;
-                border-bottom: 1px solid #444;
-            }
-        }
+<style>
+/* ===== カラーテーマ別（ライト／ダーク） ===== */
+@media (prefers-color-scheme: light) {
+    .header-bar {
+        background-color: rgba(249, 249, 249, 0.95);
+        color: #333;
+        border-bottom: 1px solid #ccc;
+    }
+}
+@media (prefers-color-scheme: dark) {
+    .header-bar {
+        background-color: rgba(30, 30, 30, 0.9);
+        color: #eee;
+        border-bottom: 1px solid #444;
+    }
+}
 
-        .header-bar {
-            position: sticky;       /* ← fixed ではなく sticky に */
-            top: 0;
-            width: 100%;
-            text-align: center;
-            font-weight: 500;
-            font-size: 14px;
-            padding: 8px 0;
-            z-index: 10;
-            backdrop-filter: blur(6px);
-        }
-        @supports (-webkit-touch-callout: none) {
-        /* iOS系ブラウザだけ適用 */
-        .header-bar, div[data-testid="stTabs"] {
-        position: static !important;
-        top: auto !important;
-        }
-        }
+/* ===== ヘッダー ===== */
+.header-bar {
+    position: sticky;
+    top: 0;
+    width: 100%;
+    text-align: center;
+    font-weight: 500;
+    font-size: 14px;
+    padding: 8px 0;
+    z-index: 20;
+    backdrop-filter: blur(6px);
+}
 
+/* ===== タブバー（sticky風） ===== */
+div[data-testid="stTabs"] {
+    position: sticky;
+    top: 42px; /* ヘッダー高さ分 */
+    z-index: 15;
+    background-color: inherit;
+    border-bottom: 1px solid rgba(128, 128, 128, 0.3);
+    padding-top: 4px;
+    padding-bottom: 4px;
+    backdrop-filter: blur(6px);
+}
 
-        /* ===== タブバーを固定風に見せる ===== */
-        div[data-testid="stTabs"] {
-            position: sticky;
-            top: 42px; /* ヘッダーの高さ分下げる */
-            background-color: inherit;
-            z-index: 9;
-            border-bottom: 1px solid rgba(128, 128, 128, 0.3);
-            padding-top: 4px;
-            padding-bottom: 4px;
-            backdrop-filter: blur(6px);
-        }
+/* ===== Streamlit レイアウト調整 ===== */
+.block-container,
+section[data-testid="stMainBlockContainer"],
+main {
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+    margin-bottom: 0 !important;
+    height: auto !important;
+    min-height: 100vh !important;
+    overflow: visible !important;
+}
 
-        /* ===== ページ全体の余白をリセット ===== */
-        .block-container {
-            padding-top: 0 !important;
-            padding-bottom: 0 !important;
-            margin-bottom: 0 !important;
-        }
+/* ===== 不要なフッターや透明ブロックを削除 ===== */
+footer, div[data-testid="stBottomBlockContainer"] {
+    display: none !important;
+    height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+}
 
-        footer, div[data-testid="stBottomBlockContainer"] {
-            display: none !important;
-        }
-        /* ===== ページ全体の高さ制御 ===== */
-        html, body, main, #root {
-            height: auto !important;
-            min-height: 0 !important;
-            padding-bottom: 0 !important;
-            margin-bottom: 0 !important;
-            overflow-y: auto !important;
-        }
+/* ===== ページ全体の高さ／スクロール制御 ===== */
+html, body, #root {
+    height: auto !important;
+    min-height: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
+    overscroll-behavior: none !important;
+    -webkit-overflow-scrolling: touch !important;
+}
 
-        /* ===== Streamlitのメインコンテナを余白ゼロ化 ===== */
-        .block-container, section[data-testid="stMainBlockContainer"] {
-            padding-bottom: 0 !important;
-            margin-bottom: 0 !important;
-        }
+/* ===== 最後のブロックの余白除去 ===== */
+div[data-testid="stVerticalBlock"] > div:last-child {
+    margin-bottom: 0 !important;
+    padding-bottom: 0 !important;
+}
 
-        /* ===== 最後の要素が余白を作らないようにする ===== */
-        div[data-testid="stVerticalBlock"] > div:last-child {
-            margin-bottom: 0 !important;
-            padding-bottom: 0 !important;
-        }
-
-        /* ===== 下に自動で生成される透明スペーサーを消す ===== */
-        div[data-testid="stBottomBlockContainer"],
-        footer {
-            display: none !important;
-            height: 0 !important;
-            margin: 0 !important;
-            padding: 0 !important;
-        }
-
-        /* ===== Sticky化したタブ・ヘッダーを上に維持 ===== */
-        .header-bar {
-            position: sticky;
-            top: 0;
-            z-index: 10;
-        }
-        div[data-testid="stTabs"] {
-            position: sticky;
-            top: 40px;
-            z-index: 9;
-        }
-        /* ===== iOS Safari / Chrome 用 下余白対策 ===== */
-        html, body {
-            height: 100% !important;
-            min-height: 100% !important;
-            margin: 0 !important;
-            padding: 0 !important;
-            overflow-x: hidden !important;
-            overscroll-behavior-y: contain !important;
-            -webkit-overflow-scrolling: touch !important; /* ← iOS特有の慣性スクロール対策 */
-        }
-
-        /* Sticky要素が引き起こす下の空白を消す */
-        main, section, .block-container {
-            min-height: auto !important;
-            height: auto !important;
-            padding-bottom: 0 !important;
-            margin-bottom: 0 !important;
-        }
-
-        /* iOSで勝手に追加されるsafe area余白を無効化 */
-        body {
-            padding-bottom: env(safe-area-inset-bottom, 0px);
-            background-color: transparent !important;
-        }
-
-        /* Streamlitが生成する透明footerを消す */
-        div[data-testid="stBottomBlockContainer"], footer {
-            display: none !important;
-            height: 0 !important;
-            margin: 0 !important;
-            padding: 0 !important;
-        }
-
-        /* スクロール下端に余計なbounce（ゴムのような動き）を防止 */
-        html {
-            overscroll-behavior: none !important;
-        }
-        html, body {
-        overflow-y: visible !important;
-        height: auto !important;
+/* ===== iOS専用: Stickyによる余白対策 ===== */
+@supports (-webkit-touch-callout: none) {
+    html, body {
+        height: 100% !important;
         min-height: 100% !important;
+        overflow-x: hidden !important;
+        overflow-y: auto !important;
+        overscroll-behavior-y: contain !important;
+        -webkit-overflow-scrolling: touch !important;
+    }
+
+    .header-bar, div[data-testid="stTabs"] {
+        position: static !important; /* iOSで固定解除 */
+        top: auto !important;
     }
 
     main, section[data-testid="stMainBlockContainer"], .block-container {
-        overflow: visible !important;
         height: auto !important;
-        min-height: 100vh !important; /* コンテンツの高さに合わせて伸びる */
+        min-height: auto !important;
+        padding-bottom: 0 !important;
+        margin-bottom: 0 !important;
     }
 
-    /* === iOS Safari/Chrome のみ下余白対策を再適用 === */
-    @supports (-webkit-touch-callout: none) {
-        html, body {
-            height: 100% !important;
-            min-height: 100% !important;
-            overflow-x: hidden !important;
-            overscroll-behavior-y: contain !important;
-            -webkit-overflow-scrolling: touch !important;
-        }
-
-        main, section[data-testid="stMainBlockContainer"], .block-container {
-            height: auto !important;
-            min-height: auto !important;
-            padding-bottom: 0 !important;
-            margin-bottom: 0 !important;
-        }
-
-        div[data-testid="stBottomBlockContainer"], footer {
-            display: none !important;
-            height: 0 !important;
-        }
+    footer, div[data-testid="stBottomBlockContainer"] {
+        display: none !important;
+        height: 0 !important;
     }
-    </style>
 
-    <div class="header-bar">
-        📅 Googleカレンダー一括イベント登録・削除
-        </div>
+    body {
+        padding-bottom: env(safe-area-inset-bottom, 0px);
+        background-color: transparent !important;
+    }
+}
+</style>
+
+<div class="header-bar">
+📅 Googleカレンダー一括イベント登録・削除
+</div>
 """, unsafe_allow_html=True)
 
 # ==================================================
