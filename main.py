@@ -92,12 +92,10 @@ st.markdown("""
             display: none !important;
         }
     </style>
-""", unsafe_allow_html=True)
 
-
-# ---- st.title() は削除（非表示） ----
-# st.title("📅 Googleカレンダー一括イベント登録・削除")
-
+    <div class="header-bar">
+        📅 Googleカレンダー一括イベント登録・削除
+    </div>
 
 # ==================================================
 # Firebase 初期化・認証処理（元コードそのまま）
