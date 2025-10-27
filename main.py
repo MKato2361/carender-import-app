@@ -98,6 +98,8 @@ st.markdown("""
         /* --- コンテンツ位置調整（固定領域分の余白） --- */
         .block-container {
             padding-top: 40px !important;
+            padding-bottom: 0rem !important;
+            margin-bottom: 0rem !important;
         }
     </style>
 
