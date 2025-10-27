@@ -91,6 +91,47 @@ st.markdown("""
         footer, div[data-testid="stBottomBlockContainer"] {
             display: none !important;
         }
+        /* ===== ページ全体の高さ制御 ===== */
+        html, body, main, #root {
+            height: auto !important;
+            min-height: 0 !important;
+            padding-bottom: 0 !important;
+            margin-bottom: 0 !important;
+            overflow-y: auto !important;
+        }
+
+        /* ===== Streamlitのメインコンテナを余白ゼロ化 ===== */
+        .block-container, section[data-testid="stMainBlockContainer"] {
+            padding-bottom: 0 !important;
+            margin-bottom: 0 !important;
+        }
+
+        /* ===== 最後の要素が余白を作らないようにする ===== */
+        div[data-testid="stVerticalBlock"] > div:last-child {
+            margin-bottom: 0 !important;
+            padding-bottom: 0 !important;
+        }
+
+        /* ===== 下に自動で生成される透明スペーサーを消す ===== */
+        div[data-testid="stBottomBlockContainer"],
+        footer {
+            display: none !important;
+            height: 0 !important;
+            margin: 0 !important;
+            padding: 0 !important;
+        }
+
+        /* ===== Sticky化したタブ・ヘッダーを上に維持 ===== */
+        .header-bar {
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+        div[data-testid="stTabs"] {
+            position: sticky;
+            top: 40px;
+            z-index: 9;
+        }
     </style>
 
     <div class="header-bar">
