@@ -409,6 +409,13 @@ with tabs[1]:
     if not st.session_state.get('uploaded_files') or st.session_state['merged_df_for_selector'].empty:
         st.info("先に「1. ファイルのアップロード」タブでExcelファイルをアップロードすると、イベント登録機能が利用可能になります。")
 
+    if not st.session_state['editable_calendar_options']:
+            st.error("登録可能なカレンダーが見つかりませんでした。Googleカレンダーの設定を確認してください。")
+    else:
+            selected_calendar_name = st.selectbox("登録先カレンダーを選択", list(st.session_state['editable_calendar_options'].keys()), key="reg_calendar_select")
+            calendar_id = st.session_state['editable_calendar_options'][selected_calendar_name]
+
+
     st.subheader("➡️ イベント登録・更新実行")
     if st.button("Googleカレンダーに登録・更新する"):
                 set_user_setting(user_id, 'description_columns_selected', description_columns)
@@ -579,12 +586,6 @@ with tabs[1]:
                 fallback_event_name_column = selected_event_name_col
         else:
             st.info("「管理番号」と「物件名」のデータが両方存在するため、それらがイベント名として使用されます。")
-
-        if not st.session_state['editable_calendar_options']:
-            st.error("登録可能なカレンダーが見つかりませんでした。Googleカレンダーの設定を確認してください。")
-        else:
-            selected_calendar_name = st.selectbox("登録先カレンダーを選択", list(st.session_state['editable_calendar_options'].keys()), key="reg_calendar_select")
-            calendar_id = st.session_state['editable_calendar_options'][selected_calendar_name]
 
             st.subheader("✅ ToDoリスト連携設定 (オプション)")
             create_todo = st.checkbox("このイベントに対応するToDoリストを作成する", value=False, key="create_todo_checkbox")
