@@ -95,7 +95,8 @@ st.markdown("""
 
     <div class="header-bar">
         📅 Googleカレンダー一括イベント登録・削除
-    </div>
+        </div>
+""", unsafe_allow_html=True)
 
 # ==================================================
 # Firebase 初期化・認証処理（元コードそのまま）
