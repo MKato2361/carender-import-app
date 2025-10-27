@@ -128,6 +128,11 @@ st.markdown("""
             margin-bottom: 0rem !important;
             padding-bottom: 0rem !important;
         }
+        html, body {
+        height: 100%;
+        overflow-y: auto !important;
+        }
+
     </style>
 """, unsafe_allow_html=True)
 
