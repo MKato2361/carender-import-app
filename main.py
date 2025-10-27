@@ -469,7 +469,7 @@ with tabs[1]:
         # ---------------------------------------------------------
         # 🧩 ToDoリスト連携設定（折りたたみ） - ここに移動し、expanderで囲みます
         # ---------------------------------------------------------
-        st.subheader("✅ ToDoリスト連携設定 (オプション)")
+        st.markdown("✅ ToDoリスト連携設定 (オプション)")
         with st.expander("ToDoリスト作成オプション", expanded=expand_todo_setting): # デフォルトは閉じる
             # チェックボックスのキーを修正し、デフォルト値にsaved_create_todo_flagを使用（今回はTrue/Falseを保存していると仮定）
             create_todo = st.checkbox(
