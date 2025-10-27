@@ -68,6 +68,14 @@ st.markdown("""
             z-index: 10;
             backdrop-filter: blur(6px);
         }
+        @supports (-webkit-touch-callout: none) {
+        /* iOS系ブラウザだけ適用 */
+        .header-bar, div[data-testid="stTabs"] {
+        position: static !important;
+        top: auto !important;
+        }
+        }
+
 
         /* ===== タブバーを固定風に見せる ===== */
         div[data-testid="stTabs"] {
