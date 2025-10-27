@@ -177,6 +177,40 @@ st.markdown("""
         html {
             overscroll-behavior: none !important;
         }
+        html, body {
+        overflow-y: visible !important;
+        height: auto !important;
+        min-height: 100% !important;
+    }
+
+    main, section[data-testid="stMainBlockContainer"], .block-container {
+        overflow: visible !important;
+        height: auto !important;
+        min-height: 100vh !important; /* コンテンツの高さに合わせて伸びる */
+    }
+
+    /* === iOS Safari/Chrome のみ下余白対策を再適用 === */
+    @supports (-webkit-touch-callout: none) {
+        html, body {
+            height: 100% !important;
+            min-height: 100% !important;
+            overflow-x: hidden !important;
+            overscroll-behavior-y: contain !important;
+            -webkit-overflow-scrolling: touch !important;
+        }
+
+        main, section[data-testid="stMainBlockContainer"], .block-container {
+            height: auto !important;
+            min-height: auto !important;
+            padding-bottom: 0 !important;
+            margin-bottom: 0 !important;
+        }
+
+        div[data-testid="stBottomBlockContainer"], footer {
+            display: none !important;
+            height: 0 !important;
+        }
+    }
     </style>
 
     <div class="header-bar">
