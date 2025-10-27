@@ -132,6 +132,43 @@ st.markdown("""
             top: 40px;
             z-index: 9;
         }
+        /* ===== iOS Safari / Chrome 用 下余白対策 ===== */
+        html, body {
+            height: 100% !important;
+            min-height: 100% !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            overflow-x: hidden !important;
+            overscroll-behavior-y: contain !important;
+            -webkit-overflow-scrolling: touch !important; /* ← iOS特有の慣性スクロール対策 */
+        }
+
+        /* Sticky要素が引き起こす下の空白を消す */
+        main, section, .block-container {
+            min-height: auto !important;
+            height: auto !important;
+            padding-bottom: 0 !important;
+            margin-bottom: 0 !important;
+        }
+
+        /* iOSで勝手に追加されるsafe area余白を無効化 */
+        body {
+            padding-bottom: env(safe-area-inset-bottom, 0px);
+            background-color: transparent !important;
+        }
+
+        /* Streamlitが生成する透明footerを消す */
+        div[data-testid="stBottomBlockContainer"], footer {
+            display: none !important;
+            height: 0 !important;
+            margin: 0 !important;
+            padding: 0 !important;
+        }
+
+        /* スクロール下端に余計なbounce（ゴムのような動き）を防止 */
+        html {
+            overscroll-behavior: none !important;
+        }
     </style>
 
     <div class="header-bar">
