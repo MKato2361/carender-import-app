@@ -132,6 +132,45 @@ st.markdown("""
         height: 100%;
         overflow-y: auto !important;
         }
+        /* ===== 全体レイアウト調整 ===== */
+        html, body, main {
+            height: 100% !important;
+            min-height: 100% !important;
+            padding-bottom: 0 !important;
+            margin-bottom: 0 !important;
+            overflow-y: auto !important;
+        }
+
+        /* ===== Streamlitメインコンテナの余白除去 ===== */
+        .block-container {
+            padding-top: 40px !important;   /* 固定ヘッダー分 */
+            padding-bottom: 0 !important;
+            margin-bottom: 0 !important;
+        }
+
+        /* ===== タブ・エクスパンダー・アップローダーの下余白を削除 ===== */
+        div[data-testid="stTabs"],
+        div[data-testid="stExpander"],
+        div[data-testid="stFileUploader"],
+        div[data-testid="stVerticalBlock"] > div:last-child {
+            margin-bottom: 0 !important;
+            padding-bottom: 0 !important;
+        }
+
+        /* ===== mainタグの中にできる謎スペースを消す ===== */
+        section[data-testid="stVerticalBlock"],
+        section[data-testid="stMainBlockContainer"] {
+            margin-bottom: 0 !important;
+            padding-bottom: 0 !important;
+        }
+
+        /* ===== ページ下端に透明スペーサーを消す ===== */
+        footer, div[data-testid="stBottomBlockContainer"] {
+            display: none !important;
+            height: 0 !important;
+            margin: 0 !important;
+            padding: 0 !important;
+        }
 
     </style>
 """, unsafe_allow_html=True)
