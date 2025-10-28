@@ -757,7 +757,7 @@ with tabs[3]:
             st.success(f"{len(events)} 件のイベントを取得しました。")
 
             # ✅ 作業指示書番号をDescriptionから抽出
-          from html import unescape
+            from html import unescape
 
             pattern = re.compile(r"\[作業指示書[：:\s]*([0-9０-９A-Za-z]+)\]")
 
