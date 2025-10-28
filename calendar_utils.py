@@ -124,7 +124,7 @@ def authenticate_google():
     return creds
 
 # ==============================
-# 以下、元の関数群（変更なし）
+# イベント操作関数群
 # ==============================
 
 def add_event_to_calendar(service, calendar_id, event_data):
@@ -136,16 +136,25 @@ def add_event_to_calendar(service, calendar_id, event_data):
         st.error(f"イベント追加失敗: {e}")
     return None
 
+# 💡 修正点: イベント全件取得のためのページネーションを追加
 def fetch_all_events(service, calendar_id, time_min=None, time_max=None):
+    events = []
+    page_token = None
     try:
-        events_result = service.events().list(
-            calendarId=calendar_id,
-            timeMin=time_min,
-            timeMax=time_max,
-            singleEvents=True,
-            orderBy='startTime'
-        ).execute()
-        return events_result.get('items', [])
+        while True:
+            events_result = service.events().list(
+                calendarId=calendar_id,
+                timeMin=time_min,
+                timeMax=time_max,
+                singleEvents=True,
+                orderBy='startTime',
+                pageToken=page_token  # ページトークンを指定
+            ).execute()
+            events.extend(events_result.get('items', []))
+            page_token = events_result.get('nextPageToken') # 次のページトークンを取得
+            if not page_token:
+                break # トークンがなければ終了
+        return events
     except HttpError as e:
         st.error(f"イベント取得失敗 (HTTPエラー): {e}")
     except Exception as e:
@@ -174,6 +183,10 @@ def delete_event_from_calendar(service, calendar_id, event_id):
     except Exception as e:
         st.error(f"イベント削除失敗: {e}")
     return False
+
+# ==============================
+# ToDoリスト操作関数群
+# ==============================
 
 def build_tasks_service(creds):
     try:
