@@ -726,11 +726,15 @@ with tabs[2]:
                         st.session_state['confirm_delete'] = False
                         st.rerun()
                         
+import unicodedata # 💡 追加: 抽出した番号の正規化のために必要
+
+# ... (省略: with tabs[3]: より上のコード)
+
 with tabs[3]:
     st.subheader("🔍 重複イベントの検出・削除")
 
     # ----------------------------------------------------
-    # 💡 修正点 1: セッションステートに保存されたメッセージを表示し、クリアする
+    # セッションステートに保存されたメッセージを表示し、クリアする
     if 'last_dup_message' in st.session_state and st.session_state['last_dup_message']:
         msg_type, msg_text = st.session_state['last_dup_message']
         
@@ -741,7 +745,6 @@ with tabs[3]:
         elif msg_type == "info":
             st.info(msg_text)
         
-        # メッセージを表示したらセッションステートから削除
         st.session_state['last_dup_message'] = None 
     # ----------------------------------------------------
 
@@ -758,7 +761,7 @@ with tabs[3]:
     )
 
     # ----------------------------------------------------
-    # ステート初期化 (Streamlitリフレッシュ時のデータ保持のため)
+    # ステート初期化
     if 'dup_df' not in st.session_state:
         st.session_state['dup_df'] = pd.DataFrame()
     if 'auto_delete_ids' not in st.session_state:
@@ -776,10 +779,9 @@ with tabs[3]:
 
     if st.button("重複イベントをチェック", key="run_dup_check"):
         # ----------------------------------------------------
-        # データ取得・計算ロジック (ボタンが押されたときのみ実行)
+        # データ取得・計算ロジック
         # ----------------------------------------------------
         with st.spinner("カレンダー内のイベントを取得中..."):
-            # 取得期間は現在から前後2年
             time_min = (datetime.now(timezone.utc) - timedelta(days=365*2)).isoformat()
             time_max = (datetime.now(timezone.utc) + timedelta(days=365*2)).isoformat()
             events = fetch_all_events(
@@ -799,48 +801,60 @@ with tabs[3]:
         st.success(f"{len(events)} 件のイベントを取得しました。")
 
         # イベントデータの前処理
-        pattern = re.compile(r"\[作業指示書[：:]\s*([0-9０-９]+)\]")
+        # re.DOTALL: . が改行文字にもマッチ | re.IGNORECASE: 大文字/小文字を無視
+        pattern = re.compile(r"\[作業指示書[：:]\s*([0-9０-９]+)\]", re.DOTALL | re.IGNORECASE)
         rows = []
         for e in events:
             desc = e.get("description", "")
-            match = pattern.search(desc)
+            
+            desc_stripped = desc.strip()
+            match = pattern.search(desc_stripped)
             worksheet_id = match.group(1) if match else None
+
+            # 💡 修正点 2: 抽出した作業指示書番号を正規化
+            if worksheet_id:
+                # NFKCで全角数字や特殊文字を半角に変換し、両端の空白を削除
+                worksheet_id = unicodedata.normalize('NFKC', worksheet_id).strip()
+            
             start_time = e["start"].get("dateTime", e["start"].get("date"))
             end_time = e["end"].get("dateTime", e["end"].get("date"))
             rows.append({
                 "id": e["id"],
                 "summary": e.get("summary", ""),
-                "worksheet_id": worksheet_id,
+                "worksheet_id": worksheet_id, # 正規化されたID
                 "created": e.get("created", None),
                 "start": start_time,
                 "end": end_time,
             })
 
         df = pd.DataFrame(rows)
+        # 作業指示書番号が抽出できたイベントのみを対象とする
         df_valid = df[df["worksheet_id"].notna()].copy()
+        
+        # 💡 修正点 3: 重複検出のキーを ['worksheet_id'] のみに戻す (正規化により揺らぎを吸収)
         dup_mask = df_valid.duplicated(subset=["worksheet_id"], keep=False)
         dup_df = df_valid[dup_mask].sort_values(["worksheet_id", "created"])
 
-        st.session_state['dup_df'] = dup_df # 💡 データ保存
+        st.session_state['dup_df'] = dup_df 
 
         if dup_df.empty:
-            # 💡 重複がない場合のメッセージ保存
             st.session_state['last_dup_message'] = ("info", "重複している作業指示書番号は見つかりませんでした。")
             st.session_state['auto_delete_ids'] = []
             st.session_state['current_delete_mode'] = delete_mode
             st.rerun()
 
         # ----------------------------------------------------
-        # 自動削除IDの計算（ボタンが押されたときのみ実行）
+        # 自動削除IDの計算（作成日時ベース）
         # ----------------------------------------------------
         if delete_mode != "手動で選択して削除":
             auto_delete_ids = []
 
-            for _, group in dup_df.groupby("worksheet_id"):
+            # 💡 修正点 4: グループ化キーを ['worksheet_id'] のみに戻す
+            for _, group in dup_df.groupby("worksheet_id"): 
                 
-                # 💡 修正点 2: ソートキーに 'id' を追加し、ソート順序を確定させる (作成日時が同じコピーイベント対策)
+                # 作成日時とイベントID（第2キー）でソートし、順序を確定
                 group_sorted = group.sort_values(
-                    ["created", "id"], # 作成日時でソート後、ID（文字列）の昇順でソート
+                    ["created", "id"],
                     key=lambda s: s.map(parse_created) if s.name == "created" else s,
                     ascending=True
                 )
@@ -857,25 +871,23 @@ with tabs[3]:
                     
                 auto_delete_ids.extend(delete_targets["id"].tolist())
 
-            st.session_state['auto_delete_ids'] = auto_delete_ids # 💡 データ保存
-            st.session_state['current_delete_mode'] = delete_mode # モードを保存
+            st.session_state['auto_delete_ids'] = auto_delete_ids 
+            st.session_state['current_delete_mode'] = delete_mode
         else:
             st.session_state['auto_delete_ids'] = []
             st.session_state['current_delete_mode'] = delete_mode
             
-        st.rerun() # UI更新のために再実行
-        # ----------------------------------------------------
-        # ボタンブロック終了
+        st.rerun()
         # ----------------------------------------------------
         
     # ----------------------------------------------------
-    # UI表示ロジック (データがセッションステートにあれば常に実行)
+    # UI表示ロジック
     # ----------------------------------------------------
     if not st.session_state['dup_df'].empty:
         dup_df = st.session_state['dup_df']
         current_mode = st.session_state.get('current_delete_mode', "手動で選択して削除")
         
-        st.warning(f"⚠️ {dup_df['worksheet_id'].nunique()} 件の重複作業指示書が見つかりました。")
+        st.warning(f"⚠️ {dup_df['worksheet_id'].nunique()} 種類の重複作業指示書が見つかりました。（合計 {len(dup_df)} イベント）")
         st.dataframe(
             dup_df[["worksheet_id", "summary", "created", "start", "end", "id"]],
             use_container_width=True
@@ -893,7 +905,6 @@ with tabs[3]:
                 key="manual_delete_ids"
             )
 
-            # 💡 チェックボックスの状態がリフレッシュ後も保持される
             confirm = st.checkbox("削除操作を確認しました", value=False, key="manual_del_confirm")
 
             if st.button("🗑️ 選択したイベントを削除", type="primary", disabled=not confirm, key="run_manual_delete"):
@@ -906,7 +917,6 @@ with tabs[3]:
                     except Exception as e:
                         errors.append(f"イベントID {eid} の削除に失敗: {e}")
                 
-                # 💡 削除結果をセッションステートに保存
                 if deleted_count > 0:
                     st.session_state['last_dup_message'] = ("success", f"✅ {deleted_count} 件のイベントを削除しました。")
                 
@@ -916,7 +926,7 @@ with tabs[3]:
                     if deleted_count == 0:
                          st.session_state['last_dup_message'] = ("error", "⚠️ 削除処理中にエラーが発生しました。詳細はログを確認してください。")
                          
-                st.session_state['dup_df'] = pd.DataFrame() # 削除後データをクリア
+                st.session_state['dup_df'] = pd.DataFrame() 
                 st.rerun()
 
 
@@ -932,7 +942,6 @@ with tabs[3]:
                 st.warning(f"以下のモードで {len(auto_delete_ids)} 件のイベントを自動削除します: **{current_mode}**")
                 st.write(auto_delete_ids)
 
-                # 💡 チェックボックスの状態がリフレッシュ後も保持される
                 confirm = st.checkbox("削除操作を確認しました", value=False, key="auto_del_confirm_final")
 
                 if st.button("🗑️ 自動削除を実行", type="primary", disabled=not confirm, key="run_auto_delete"):
@@ -945,7 +954,6 @@ with tabs[3]:
                         except Exception as e:
                             errors.append(f"イベントID {eid} の削除に失敗: {e}")
                             
-                    # 💡 削除結果をセッションステートに保存
                     if deleted_count > 0:
                         st.session_state['last_dup_message'] = ("success", f"✅ {deleted_count} 件のイベントを削除しました。")
                     
@@ -955,7 +963,7 @@ with tabs[3]:
                         if deleted_count == 0:
                             st.session_state['last_dup_message'] = ("error", "⚠️ 削除処理中にエラーが発生しました。詳細はログを確認してください。")
 
-                    st.session_state['dup_df'] = pd.DataFrame() # 削除後データをクリア
+                    st.session_state['dup_df'] = pd.DataFrame() 
                     st.rerun()
         
 with tabs[4]:  # tabs[4]は新しいタブに対応
