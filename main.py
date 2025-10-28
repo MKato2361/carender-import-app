@@ -762,7 +762,8 @@ with tabs[3]:
             pattern = re.compile(r"\[作業指示書[：:\s]*([0-9０-９A-Za-z]+)\]")
 
             rows = []
-            for e in events:
+            
+        for e in events:
             desc = unescape(e.get("description", ""))
             desc = re.sub(r"<[^>]*>", "", desc)
             match = pattern.search(desc)
