@@ -283,8 +283,11 @@ tabs = st.tabs([
     "1. ファイルのアップロード",
     "2. イベントの登録",
     "3. イベントの削除",
-    "4. イベントのExcel出力"
+    "4. 重複イベントの検出・削除",
+    "5. イベントのExcel出力"
 ])
+
+
 
 st.markdown('</div>', unsafe_allow_html=True)
 
@@ -722,8 +725,73 @@ with tabs[2]:
                     if st.button("❌ キャンセル", use_container_width=True):
                         st.session_state['confirm_delete'] = False
                         st.rerun()
+                        
+with tabs[3]:
+    st.subheader("🔍 重複イベントの検出・削除")
 
-with tabs[3]:  # tabs[4]は新しいタブに対応
+    calendar_options = list(st.session_state['editable_calendar_options'].keys())
+    selected_calendar = st.selectbox("対象カレンダーを選択", calendar_options)
+    calendar_id = st.session_state['editable_calendar_options'][selected_calendar]
+
+    if st.button("重複イベントをチェック"):
+        with st.spinner("カレンダー内のイベントを取得中..."):
+            time_min = (datetime.now(timezone.utc) - timedelta(days=365*2)).isoformat()
+            time_max = (datetime.now(timezone.utc) + timedelta(days=365*2)).isoformat()
+            events = fetch_all_events(st.session_state['calendar_service'], calendar_id, time_min, time_max)
+        
+        if not events:
+            st.info("イベントが見つかりませんでした。")
+        else:
+            st.success(f"{len(events)} 件のイベントを取得しました。")
+
+            # ✅ 作業指示書番号をDescriptionから抽出
+            pattern = re.compile(r"\[作業指示書[：:]\s*([0-9０-９]+)\]")
+            rows = []
+            for e in events:
+                desc = e.get("description", "")
+                match = pattern.search(desc)
+                worksheet_id = match.group(1) if match else None
+                rows.append({
+                    "id": e["id"],
+                    "summary": e.get("summary", ""),
+                    "worksheet_id": worksheet_id,
+                    "start": e["start"].get("dateTime", e["start"].get("date")),
+                    "end": e["end"].get("dateTime", e["end"].get("date")),
+                })
+
+            df = pd.DataFrame(rows)
+
+            # ✅ 重複検出（summaryまたはworksheet_idでグループ化）
+            dup_mask = df.duplicated(subset=["worksheet_id", "summary"], keep=False)
+            dup_df = df[dup_mask].sort_values(["worksheet_id", "summary"])
+
+            if dup_df.empty:
+                st.info("重複イベントは見つかりませんでした。")
+            else:
+                st.warning(f"⚠️ {len(dup_df)} 件の重複イベントが見つかりました。")
+                st.dataframe(dup_df, use_container_width=True)
+
+                delete_ids = st.multiselect(
+                    "削除するイベントを選択してください（ID指定）",
+                    dup_df["id"].tolist()
+                )
+
+                confirm = st.checkbox("削除操作を確認しました", value=False)
+
+                if st.button("🗑️ 選択したイベントを削除", type="primary", disabled=not confirm):
+                    service = st.session_state['calendar_service']
+                    deleted_count = 0
+                    for eid in delete_ids:
+                        try:
+                            service.events().delete(calendarId=calendar_id, eventId=eid).execute()
+                            deleted_count += 1
+                        except Exception as e:
+                            st.error(f"イベントID {eid} の削除に失敗: {e}")
+
+                    st.success(f"✅ {deleted_count} 件のイベントを削除しました。")
+
+
+with tabs[4]:  # tabs[4]は新しいタブに対応
     st.subheader("カレンダーイベントをExcelに出力")
     if 'editable_calendar_options' not in st.session_state or not st.session_state['editable_calendar_options']:
         st.error("利用可能なカレンダーが見つかりません。")
