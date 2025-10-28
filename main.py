@@ -32,7 +32,7 @@ from firebase_admin import firestore
 import os
 from pathlib import Path
 from io import BytesIO
-
+import unicodedata
 
 st.set_page_config(page_title="Googleカレンダー一括イベント登録・削除", layout="wide")
 
@@ -726,9 +726,6 @@ with tabs[2]:
                         st.session_state['confirm_delete'] = False
                         st.rerun()
                         
-import unicodedata # 💡 追加: 抽出した番号の正規化のために必要
-
-# ... (省略: with tabs[3]: より上のコード)
 
 with tabs[3]:
     st.subheader("🔍 重複イベントの検出・削除")
