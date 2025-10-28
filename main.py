@@ -769,6 +769,7 @@ with tabs[3]:
                     "id": e["id"],
                     "summary": e.get("summary", ""),
                     "worksheet_id": worksheet_id,
+                    "created": e.get("created", None),   # ✅ 登録順序で使用
                     "start": start_time,
                     "end": end_time,
                 })
@@ -780,14 +781,14 @@ with tabs[3]:
 
             # ✅ 同じ作業指示書番号を持つ重複を検出
             dup_mask = df_valid.duplicated(subset=["worksheet_id"], keep=False)
-            dup_df = df_valid[dup_mask].sort_values(["worksheet_id", "start"])
+            dup_df = df_valid[dup_mask].sort_values(["worksheet_id", "created"])
 
             if dup_df.empty:
                 st.info("重複している作業指示書番号は見つかりませんでした。")
             else:
                 st.warning(f"⚠️ {dup_df['worksheet_id'].nunique()} 件の重複作業指示書が見つかりました。")
                 st.dataframe(
-                    dup_df[["worksheet_id", "summary", "start", "end", "id"]],
+                    dup_df[["worksheet_id", "summary", "created", "start", "end", "id"]],
                     use_container_width=True
                 )
 
@@ -815,24 +816,23 @@ with tabs[3]:
                         st.success(f"✅ {deleted_count} 件のイベントを削除しました。")
 
                 # ==============================
-                # 🧩 自動削除モード
+                # 🧩 自動削除モード（作成日時ベース）
                 # ==============================
                 else:
                     auto_delete_ids = []
 
-                    # 日付を比較できるように変換
-                    def parse_datetime(dt_str):
+                    def parse_created(dt_str):
                         try:
                             return datetime.fromisoformat(dt_str.replace('Z', '+00:00'))
                         except Exception:
                             return datetime.min
 
                     for _, group in dup_df.groupby("worksheet_id"):
-                        group_sorted = group.sort_values("start", key=lambda s: s.map(parse_datetime))
+                        group_sorted = group.sort_values("created", key=lambda s: s.map(parse_created))
                         if delete_mode == "古い方を自動削除":
-                            delete_target = group_sorted.iloc[0]  # 最も古い
+                            delete_target = group_sorted.iloc[0]  # 最も古く作成された
                         elif delete_mode == "新しい方を自動削除":
-                            delete_target = group_sorted.iloc[-1]  # 最も新しい
+                            delete_target = group_sorted.iloc[-1]  # 最も新しく作成された
                         else:
                             continue
                         auto_delete_ids.append(delete_target["id"])
