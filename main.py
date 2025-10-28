@@ -757,29 +757,27 @@ with tabs[3]:
             st.success(f"{len(events)} 件のイベントを取得しました。")
 
             # ✅ 作業指示書番号をDescriptionから抽出
-            pattern = re.compile(r"\[作業指示書[：:]\s*([0-9０-９]+)\]")
+          from html import unescape
+
+            pattern = re.compile(r"\[作業指示書[：:\s]*([0-9０-９A-Za-z]+)\]")
+
             rows = []
             for e in events:
-                desc = e.get("description", "")
-                match = pattern.search(desc)
-                worksheet_id = match.group(1) if match else None
-                start_time = e["start"].get("dateTime", e["start"].get("date"))
-                end_time = e["end"].get("dateTime", e["end"].get("date"))
-                rows.append({
-                    "id": e["id"],
-                    "summary": e.get("summary", ""),
-                    "worksheet_id": worksheet_id,
-                    "created": e.get("created", None),   # ✅ 登録順序で使用
-                    "start": start_time,
-                    "end": end_time,
-                })
+            desc = unescape(e.get("description", ""))
+            desc = re.sub(r"<[^>]*>", "", desc)
+            match = pattern.search(desc)
+            worksheet_id = match.group(1).strip() if match else None
+            rows.append({
+                "id": e["id"],
+                "summary": e.get("summary", ""),
+                "worksheet_id": worksheet_id,
+                "created": e.get("created", None),
+                "start": e["start"].get("dateTime", e["start"].get("date")),
+                "end": e["end"].get("dateTime", e["end"].get("date")),
+            })
 
             df = pd.DataFrame(rows)
-
-            # ✅ [作業指示書:XXXX] が空でないもののみ対象
-            df_valid = df[df["worksheet_id"].notna()].copy()
-
-            # ✅ 同じ作業指示書番号を持つ重複を検出
+            df_valid = df[df["worksheet_id"].notna() & (df["worksheet_id"].astype(str).str.strip() != "")].copy()
             dup_mask = df_valid.duplicated(subset=["worksheet_id"], keep=False)
             dup_df = df_valid[dup_mask].sort_values(["worksheet_id", "created"])
 
