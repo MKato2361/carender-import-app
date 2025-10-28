@@ -729,6 +729,20 @@ with tabs[2]:
 with tabs[3]:
     st.subheader("🔍 重複イベントの検出・削除")
 
+    # ----------------------------------------------------
+    # 💡 修正点 1: セッションステートに保存されたメッセージを表示し、クリアする
+    if 'last_dup_message' in st.session_state and st.session_state['last_dup_message']:
+        msg_type, msg_text = st.session_state['last_dup_message']
+        
+        if msg_type == "success":
+            st.success(msg_text)
+        elif msg_type == "error":
+            st.error(msg_text)
+        
+        # メッセージを表示したらセッションステートから削除し、リフレッシュ時に再表示されないようにする
+        st.session_state['last_dup_message'] = None 
+    # ----------------------------------------------------
+
     calendar_options = list(st.session_state['editable_calendar_options'].keys())
     selected_calendar = st.selectbox("対象カレンダーを選択", calendar_options, key="dup_calendar_select")
     calendar_id = st.session_state['editable_calendar_options'][selected_calendar]
@@ -867,13 +881,24 @@ with tabs[3]:
 
             if st.button("🗑️ 選択したイベントを削除", type="primary", disabled=not confirm, key="run_manual_delete"):
                 deleted_count = 0
+                errors = []
                 for eid in delete_ids:
                     try:
                         service.events().delete(calendarId=calendar_id, eventId=eid).execute()
                         deleted_count += 1
                     except Exception as e:
-                        st.error(f"イベントID {eid} の削除に失敗: {e}")
-                st.success(f"✅ {deleted_count} 件のイベントを削除しました。")
+                        errors.append(f"イベントID {eid} の削除に失敗: {e}")
+                
+                # 💡 修正点 2: 削除結果をセッションステートに保存
+                if deleted_count > 0:
+                    st.session_state['last_dup_message'] = ("success", f"✅ {deleted_count} 件のイベントを削除しました。")
+                
+                if errors:
+                    error_message = "\n".join(errors)
+                    st.error(f"以下のイベントの削除に失敗しました:\n{error_message}")
+                    if deleted_count == 0:
+                         st.session_state['last_dup_message'] = ("error", "⚠️ 削除処理中にエラーが発生しました。詳細はログを確認してください。")
+                         
                 st.session_state['dup_df'] = pd.DataFrame() # 削除後データをクリア
                 st.rerun()
 
@@ -890,25 +915,35 @@ with tabs[3]:
                 st.warning(f"以下のモードで {len(auto_delete_ids)} 件のイベントを自動削除します: **{current_mode}**")
                 st.write(auto_delete_ids)
 
-                # 💡 チェックボックスの状態変更によるリフレッシュが問題にならない
-                # 💡 ように、データがある状態（このブロック内）で表示
                 confirm = st.checkbox("削除操作を確認しました", value=False, key="auto_del_confirm_final")
 
                 if st.button("🗑️ 自動削除を実行", type="primary", disabled=not confirm, key="run_auto_delete"):
                     deleted_count = 0
+                    errors = []
                     for eid in auto_delete_ids:
                         try:
                             service.events().delete(calendarId=calendar_id, eventId=eid).execute()
                             deleted_count += 1
                         except Exception as e:
-                            st.error(f"イベントID {eid} の削除に失敗: {e}")
-                    st.success(f"✅ {deleted_count} 件のイベントを削除しました。")
+                            errors.append(f"イベントID {eid} の削除に失敗: {e}")
+                            
+                    # 💡 修正点 3: 削除結果をセッションステートに保存
+                    if deleted_count > 0:
+                        st.session_state['last_dup_message'] = ("success", f"✅ {deleted_count} 件のイベントを削除しました。")
+                    
+                    if errors:
+                        error_message = "\n".join(errors)
+                        st.error(f"以下のイベントの削除に失敗しました:\n{error_message}")
+                        if deleted_count == 0:
+                            st.session_state['last_dup_message'] = ("error", "⚠️ 削除処理中にエラーが発生しました。詳細はログを確認してください。")
+
                     st.session_state['dup_df'] = pd.DataFrame() # 削除後データをクリア
                     st.rerun()
     
     elif st.session_state.get('dup_df', pd.DataFrame()).empty and st.session_state.get('auto_delete_ids', []):
         # 以前データがあったが、現在は空（削除実行後の状態など）
         st.info("重複している作業指示書番号は見つかりませんでした。")
+        
 with tabs[4]:  # tabs[4]は新しいタブに対応
     st.subheader("カレンダーイベントをExcelに出力")
     if 'editable_calendar_options' not in st.session_state or not st.session_state['editable_calendar_options']:
