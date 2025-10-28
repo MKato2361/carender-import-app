@@ -823,19 +823,31 @@ with tabs[3]:
 
                     def parse_created(dt_str):
                         try:
+                            # タイムゾーン情報を持つISO 8601形式文字列をdatetimeオブジェクトに変換
                             return datetime.fromisoformat(dt_str.replace('Z', '+00:00'))
                         except Exception:
                             return datetime.min
 
+                    # 👇 修正後のロジック
                     for _, group in dup_df.groupby("worksheet_id"):
+                        # 常に作成日時でソート
                         group_sorted = group.sort_values("created", key=lambda s: s.map(parse_created))
+                        
+                        if len(group_sorted) <= 1:
+                            # 重複していない場合はスキップ（dup_dfに含まれているはずがないが、念のため）
+                            continue
+                            
                         if delete_mode == "古い方を自動削除":
-                            delete_target = group_sorted.iloc[0]  # 最も古く作成された
+                            # 最新のイベント（最後の行）を残し、それ以前のすべてを削除対象とする
+                            delete_targets = group_sorted.iloc[:-1]
                         elif delete_mode == "新しい方を自動削除":
-                            delete_target = group_sorted.iloc[-1]  # 最も新しく作成された
+                            # 最古のイベント（最初の行）を残し、それ以降のすべてを削除対象とする
+                            delete_targets = group_sorted.iloc[1:]
                         else:
                             continue
-                        auto_delete_ids.append(delete_target["id"])
+                            
+                        auto_delete_ids.extend(delete_targets["id"].tolist()) # リストに複数のIDを追加
+                    # 👆 修正後のロジック終わり
 
                     if not auto_delete_ids:
                         st.info("削除対象のイベントが見つかりませんでした。")
@@ -854,7 +866,6 @@ with tabs[3]:
                                 except Exception as e:
                                     st.error(f"イベントID {eid} の削除に失敗: {e}")
                             st.success(f"✅ {deleted_count} 件のイベントを削除しました。")
-
 
 with tabs[4]:  # tabs[4]は新しいタブに対応
     st.subheader("カレンダーイベントをExcelに出力")
