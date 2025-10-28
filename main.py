@@ -738,6 +738,8 @@ with tabs[3]:
             st.success(msg_text)
         elif msg_type == "error":
             st.error(msg_text)
+        elif msg_type == "info": # 💡 infoメッセージの処理を追加
+            st.info(msg_text)
         
         # メッセージを表示したらセッションステートから削除し、リフレッシュ時に再表示されないようにする
         st.session_state['last_dup_message'] = None 
@@ -761,6 +763,8 @@ with tabs[3]:
         st.session_state['dup_df'] = pd.DataFrame()
     if 'auto_delete_ids' not in st.session_state:
         st.session_state['auto_delete_ids'] = []
+    if 'last_dup_message' not in st.session_state:
+        st.session_state['last_dup_message'] = None
     # ----------------------------------------------------
 
     if st.button("重複イベントをチェック", key="run_dup_check"):
@@ -778,11 +782,12 @@ with tabs[3]:
             )
 
         if not events:
-            st.info("イベントが見つかりませんでした。")
+            # st.info("イベントが見つかりませんでした。") の代わりにメッセージを保存
+            st.session_state['last_dup_message'] = ("info", "イベントが見つかりませんでした。")
             st.session_state['dup_df'] = pd.DataFrame()
             st.session_state['auto_delete_ids'] = []
             st.session_state['current_delete_mode'] = delete_mode # モードを保存
-            st.rerun() # UI更新のために再実行
+            st.rerun()
             
         st.success(f"{len(events)} 件のイベントを取得しました。")
 
@@ -811,7 +816,8 @@ with tabs[3]:
         st.session_state['dup_df'] = dup_df # 💡 セッションステートに保存
 
         if dup_df.empty:
-            st.info("重複している作業指示書番号は見つかりませんでした。")
+            # 💡 修正点 2: 重複イベントがない場合のメッセージをセッションステートに保存
+            st.session_state['last_dup_message'] = ("info", "重複している作業指示書番号は見つかりませんでした。")
             st.session_state['auto_delete_ids'] = []
             st.session_state['current_delete_mode'] = delete_mode
             st.rerun()
@@ -889,7 +895,6 @@ with tabs[3]:
                     except Exception as e:
                         errors.append(f"イベントID {eid} の削除に失敗: {e}")
                 
-                # 💡 修正点 2: 削除結果をセッションステートに保存
                 if deleted_count > 0:
                     st.session_state['last_dup_message'] = ("success", f"✅ {deleted_count} 件のイベントを削除しました。")
                 
@@ -927,7 +932,6 @@ with tabs[3]:
                         except Exception as e:
                             errors.append(f"イベントID {eid} の削除に失敗: {e}")
                             
-                    # 💡 修正点 3: 削除結果をセッションステートに保存
                     if deleted_count > 0:
                         st.session_state['last_dup_message'] = ("success", f"✅ {deleted_count} 件のイベントを削除しました。")
                     
@@ -942,7 +946,8 @@ with tabs[3]:
     
     elif st.session_state.get('dup_df', pd.DataFrame()).empty and st.session_state.get('auto_delete_ids', []):
         # 以前データがあったが、現在は空（削除実行後の状態など）
-        st.info("重複している作業指示書番号は見つかりませんでした。")
+        # このブロックは、削除後にメッセージを出す役割を果たさなくなったため、コメントアウトまたは削除も可能です
+        pass
         
 with tabs[4]:  # tabs[4]は新しいタブに対応
     st.subheader("カレンダーイベントをExcelに出力")
