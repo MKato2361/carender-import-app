@@ -1093,23 +1093,6 @@ with tabs[4]:  # tabs[4]は新しいタブに対応
                         st.error(f"イベントの読み込み中にエラーが発生しました: {e}")
                         
 with st.sidebar:
-    st.header("🔐 認証状態")
-    st.success("✅ Firebase認証済み")
-    
-    if st.session_state.get('calendar_service'):
-        st.success("✅ Googleカレンダー認証済み")
-    else:
-        st.warning("⚠️ Googleカレンダー認証が未完了です")
-    
-    if st.session_state.get('tasks_service'):
-        st.success("✅ ToDoリスト利用可能")
-    else:
-        st.warning("⚠️ ToDoリスト利用不可")
-    
-    st.header("📊 統計情報")
-    uploaded_count = len(st.session_state.get('uploaded_files', []))
-    st.metric("アップロード済みファイル", uploaded_count)
-    
     # ユーザー設定管理
     st.header("⚙️ ユーザー設定")
     with st.expander("デフォルト設定の管理", expanded=False):
@@ -1218,6 +1201,29 @@ with st.sidebar:
                     elif isinstance(value, list):
                         value = f"{len(value)}項目"
                     st.text(f"• {label}: {value}")
+    
+    st.divider()
+    
+    # 統計情報
+    st.header("📊 統計情報")
+    uploaded_count = len(st.session_state.get('uploaded_files', []))
+    st.metric("アップロード済みファイル", uploaded_count)
+    
+    st.divider()
+    
+    # 認証状態（コンパクト表示）
+    with st.expander("🔐 認証状態", expanded=False):
+        st.caption("Firebase: ✅ 認証済み")
+        
+        if st.session_state.get('calendar_service'):
+            st.caption("カレンダー: ✅ 接続中")
+        else:
+            st.caption("カレンダー: ⚠️ 未接続")
+        
+        if st.session_state.get('tasks_service'):
+            st.caption("ToDo: ✅ 利用可能")
+        else:
+            st.caption("ToDo: ⚠️ 利用不可")
     
     st.divider()
     
