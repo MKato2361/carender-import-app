@@ -1204,13 +1204,6 @@ with st.sidebar:
     
     st.divider()
     
-    # 統計情報
-    st.header("📊 統計情報")
-    uploaded_count = len(st.session_state.get('uploaded_files', []))
-    st.metric("アップロード済みファイル", uploaded_count)
-    
-    st.divider()
-    
     # 認証状態（コンパクト表示）
     with st.expander("🔐 認証状態", expanded=False):
         st.caption("Firebase: ✅ 認証済み")
@@ -1235,3 +1228,10 @@ with st.sidebar:
                 del st.session_state[key]
         st.success("ログアウトしました")
         st.rerun()
+    
+    st.divider()
+    
+    # 統計情報（一番下に移動）
+    st.header("📊 統計情報")
+    uploaded_count = len(st.session_state.get('uploaded_files', []))
+    st.metric("アップロード済みファイル", uploaded_count)
