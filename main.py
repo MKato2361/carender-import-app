@@ -210,7 +210,6 @@ with google_auth_placeholder.container():
         st.stop()
     else:
         google_auth_placeholder.empty()
-        st.sidebar.success("✅ Googleカレンダーに認証済みです！")
 
 
 def initialize_calendar_service():
