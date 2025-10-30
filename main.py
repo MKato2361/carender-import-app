@@ -33,6 +33,15 @@ import os
 from pathlib import Path
 from io import BytesIO
 import unicodedata
+# ---- カスタムCSSの読み込み ----
+def load_custom_css():
+    try:
+        with open("custom_sidebar.css", "r", encoding="utf-8") as f:
+            st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
+    except FileNotFoundError:
+        st.warning("custom_sidebar.css が見つかりません。CSSを適用できませんでした。")
+
+load_custom_css()
 
 st.set_page_config(page_title="Googleカレンダー一括イベント登録・削除", layout="wide")
 
