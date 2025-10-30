@@ -1248,7 +1248,7 @@ with st.sidebar:
         st.caption("📋 保存済み設定一覧")
         all_settings = get_all_user_settings(user_id)
         if all_settings:
-            settings_to_display = {
+        settings_to_display = {
                 'selected_calendar_name': 'デフォルトカレンダー',
                 'description_columns_selected': '説明欄の列',
                 'event_name_col_selected': 'イベント名の列',
@@ -1256,7 +1256,8 @@ with st.sidebar:
                 'create_todo_checkbox_state': 'ToDo作成',
                 'default_private_event': '非公開設定',
                 'default_allday_event': '終日イベント',
-                'default_create_todo': 'デフォルトToDo'
+                'default_create_todo': 'デフォルトToDo',
+                'selected_local_files': 'サーバーファイル'
             }
             
             for key, label in settings_to_display.items():
