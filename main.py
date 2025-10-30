@@ -340,7 +340,7 @@ with tabs[0]:
         st.markdown("📁 サーバーにあるExcelファイル")
         local_file_names = [f.name for f in local_excel_files]
         
-        # 💡 修正点 3: multiselectのdefaultにセッションステートの値を適用
+        # 💡 修正点 3: multiselectのdefaultにセッションステートの値を適用し、keyを設定
         selected_names = st.multiselect(
             "以下のファイルを処理対象に含める（アップロードと同様に扱われます）",
             local_file_names,
@@ -349,7 +349,9 @@ with tabs[0]:
             key="local_file_selector"
         )
         
-        # 💡 修正点 4: 選択されたファイル名をセッションステートに保存
+        # 💡 修正点 4: 選択されたファイル名をセッションステートに保存（key設定により自動でst.session_state["local_file_selector"]に保存されますが、明示的な変数としても保持します）
+        # NOTE: Streamlitでは、キーを設定するとst.session_state[key]に値が自動で入りますが、ここではカスタムキーに直接格納する設計を維持します。
+        # 選択された値は、st.multiselectの戻り値として`selected_names`に入るため、これをカスタムキーに保存し直します。
         st.session_state['selected_local_file_names'] = selected_names 
         
         for name in selected_names:
@@ -389,7 +391,7 @@ with tabs[0]:
         current_selected_local_names = st.session_state.get('selected_local_file_names', [])
         
         for f_name in uploaded_file_names:
-             # ローカルファイルにはマークを付けても良い
+             # ローカルファイルにはマークを付けて表示
             is_local = f_name in current_selected_local_names
             st.write(f"- {'📁 (サーバー)' if is_local else '⬆️ (アップロード)'} {f_name}")
             
