@@ -1,103 +1,121 @@
-/* =========================================================
-   Polished Minimal Sidebar – tailored for your app
-   Theme: Notion-like / Minimal / Outline Icons
-   Accent: #4BA3FF (Soft Blue)
-   Width: Slightly reduced (-20px)
-   Divider: Ultra minimal (3%)
-   ========================================================= */
+/* ========================================================================
+   Final Touch – Linear Sharp Hybrid Edition
+   Style: Linear 7 : Notion 3  （AI SaaS向け）
+   Font Rendering: Hybrid（Crisp 7 : Smooth 3）
+   Accent Color: #4BA3FF
+   Scope: Sidebar Only（干渉なし）
+   ======================================================================== */
 
-/* --- Sidebar Base --- */
+/* Font smoothing for Hybrid crisp-smooth rendering */
+html, body, [data-testid="stSidebar"] * {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+/* --- Sidebar Base Layout --- */
 [data-testid="stSidebar"] {
     padding: 1rem 0.9rem !important;
-    width: 250px !important; /* defaultより細め */
+    width: 250px !important; /* Tightened for cleaner UI */
+    background-color: transparent !important;
 }
 
 [data-testid="stSidebar"] * {
     font-size: 0.92rem !important;
-    font-weight: 400 !important;
+    font-weight: 430 !important;
     letter-spacing: 0.1px;
+    color: #E8E8E8 !important;
 }
 
-/* --- Headers (subtle but clear) --- */
+/* --- Headers (subtle but crisp) --- */
 [data-testid="stSidebar"] h1,
 [data-testid="stSidebar"] h2,
 [data-testid="stSidebar"] h3 {
     font-weight: 600 !important;
-    margin-top: 0.6rem !important;
-    margin-bottom: 0.35rem !important;
-    color: #f2f2f2 !important;
+    margin-top: 0.55rem !important;
+    margin-bottom: 0.3rem !important;
+    color: #F4F4F4 !important;
 }
 
-/* --- Expander (Minimal Card Look) --- */
+/* --- Expander: Linear Sharp Minimal Card --- */
 div[data-testid="stSidebar"] details {
-    background-color: rgba(255, 255, 255, 0.02) !important;
-    border-radius: 8px !important;
-    border: 1px solid rgba(255, 255, 255, 0.05) !important;
-    padding: 2px 6px !important;
-    margin-bottom: 8px !important;
+    background: rgba(255, 255, 255, 0.015) !important;
+    border-radius: 7px !important;
+    border: 1px solid rgba(255, 255, 255, 0.04) !important;
+    padding: 1px 6px !important;
+    margin-bottom: 6px !important;
+    backdrop-filter: blur(2px);
+    transition: border-color 0.15s ease-in-out;
+}
+
+div[data-testid="stSidebar"] details:hover {
+    border-color: rgba(255, 255, 255, 0.08) !important;
 }
 
 div[data-testid="stSidebar"] summary {
-    padding: 6px 4px !important;
-    margin: -4px !important;
+    padding: 6px 2px !important;
+    margin-left: -2px !important;
     font-weight: 600 !important;
-    color: #e9e9e9 !important;
+    color: #F1F1F1 !important;
+    display: flex;
+    align-items: center;
+    gap: 4px;
 }
 
-/* --- Ultra Minimal Divider (3%) --- */
+/* --- Ultra Minimal Divider (3% opacity) --- */
 div[data-testid="stSidebar"] hr {
     border: none !important;
     border-top: 1px solid rgba(255, 255, 255, 0.03) !important;
-    margin: 0.5rem 0 !important;
+    margin: 0.35rem 0 !important;
 }
 
-/* --- Inputs & Labels --- */
-div[data-testid="stSidebar"] label,
-div[data-testid="stSidebar"] p {
-    color: #e1e1e1 !important;
-    margin-bottom: 0.15rem !important;
+/* --- Form elements --- */
+div[data-testid="stSidebar"] label {
+    margin-bottom: 0.1rem !important;
+    color: #E5E5E5 !important;
 }
 
-/* Checkbox accent color */
 input[type="checkbox"]:checked {
     accent-color: #4BA3FF !important;
 }
 
-/* Selectbox tweaks */
+/* Selectbox spacing optimization */
 div[data-baseweb="select"] {
-    margin-bottom: 0.4rem !important;
+    margin-bottom: 0.35rem !important;
 }
 
 /* --- Buttons --- */
 div[data-testid="stSidebar"] button {
-    border-radius: 6px !important;
-    padding: 0.35rem 0.55rem !important;
+    border-radius: 5px !important;
+    padding: 0.34rem 0.55rem !important;
     font-size: 0.9rem !important;
     font-weight: 600 !important;
-    transition: 0.15s ease-in-out !important;
+    transition: 0.16s ease-in-out !important;
 }
 
-/* Primary Button (Save) */
+/* Primary button – Save */
 div[data-testid="stSidebar"] button[kind="primary"] {
     background-color: #4BA3FF !important;
     border: none !important;
     color: #ffffff !important;
+    box-shadow: none !important;
 }
 div[data-testid="stSidebar"] button[kind="primary"]:hover {
-    background-color: #66B2FF !important;
+    background-color: #62AEFF !important;
 }
 
-/* Secondary Button (Reset/Logout etc.) */
+/* Secondary & Ghost buttons */
 div[data-testid="stSidebar"] button:not([kind="primary"]) {
-    background-color: rgba(255, 255, 255, 0.04) !important;
+    background-color: transparent !important;
     border: 1px solid rgba(255, 255, 255, 0.06) !important;
-    color: #e5e5e5 !important;
+    color: #DCDCDC !important;
 }
 div[data-testid="stSidebar"] button:not([kind="primary"]):hover {
-    background-color: rgba(255, 255, 255, 0.08) !important;
+    background-color: rgba(255, 255, 255, 0.05) !important;
+    color: #FFFFFF !important;
+    border-color: rgba(255, 255, 255, 0.12) !important;
 }
 
-/* --- Spacing adjustments for cleaner layout --- */
+/* --- Spacing rhythm (clean, sharp) --- */
 [data-testid="stSidebar"] .element-container {
-    margin-bottom: 0.45rem !important;
+    margin-bottom: 0.38rem !important;
 }
