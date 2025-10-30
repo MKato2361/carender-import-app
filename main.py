@@ -332,10 +332,26 @@ with tabs[0]:
     if local_excel_files:
         st.markdown("📁 サーバーにあるExcelファイル")
         local_file_names = [f.name for f in local_excel_files]
+        
+        # ✅ ユーザー設定から前回選択したファイルを取得
+        saved_local_files = get_user_setting(user_id, 'selected_local_files')
+        # 保存されているファイル名のうち、現在も存在するもののみをデフォルト値とする
+        default_selection = []
+        if saved_local_files:
+            default_selection = [name for name in saved_local_files if name in local_file_names]
+        
         selected_names = st.multiselect(
-            "以下のファイルを処理対象に含める（アップロードと同様に扱われます）",
-            local_file_names
+            "以下のファイルを処理対象に含める(アップロードと同様に扱われます)",
+            local_file_names,
+            default=default_selection,
+            key=f"local_files_selector_{user_id}"
         )
+        
+        # ✅ 選択されたファイル名をユーザー設定に保存
+        if selected_names != saved_local_files:
+            set_user_setting(user_id, 'selected_local_files', selected_names)
+            save_user_setting_to_firestore(user_id, 'selected_local_files', selected_names)
+        
         for name in selected_names:
             full_path = next((f for f in local_excel_files if f.name == name), None)
             if full_path:
@@ -344,7 +360,6 @@ with tabs[0]:
                     file_obj = BytesIO(file_bytes)
                     file_obj.name = name
                     selected_local_files.append(file_obj)
-
     all_files = []
     if uploaded_files:
         all_files.extend(uploaded_files)
