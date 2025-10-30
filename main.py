@@ -304,6 +304,9 @@ if 'uploaded_files' not in st.session_state:
     st.session_state['uploaded_files'] = []
     st.session_state['description_columns_pool'] = []
     st.session_state['merged_df_for_selector'] = pd.DataFrame()
+    # 💡 修正点 1: ローカルファイル選択状態を保持するセッションステートを追加
+    st.session_state['selected_local_file_names'] = [] 
+
 
 with tabs[0]:
     st.subheader("ファイルをアップロード")
@@ -329,13 +332,26 @@ with tabs[0]:
 
     local_excel_files = get_local_excel_files()
     selected_local_files = []
+    
+    # 💡 修正点 2: 選択状態をセッションステートから取得
+    saved_local_selection = st.session_state.get('selected_local_file_names', []) 
+
     if local_excel_files:
         st.markdown("📁 サーバーにあるExcelファイル")
         local_file_names = [f.name for f in local_excel_files]
+        
+        # 💡 修正点 3: multiselectのdefaultにセッションステートの値を適用
         selected_names = st.multiselect(
             "以下のファイルを処理対象に含める（アップロードと同様に扱われます）",
-            local_file_names
+            local_file_names,
+            # 存在するもののみをデフォルトに設定
+            default=[name for name in saved_local_selection if name in local_file_names], 
+            key="local_file_selector"
         )
+        
+        # 💡 修正点 4: 選択されたファイル名をセッションステートに保存
+        st.session_state['selected_local_file_names'] = selected_names 
+        
         for name in selected_names:
             full_path = next((f for f in local_excel_files if f.name == name), None)
             if full_path:
@@ -366,8 +382,17 @@ with tabs[0]:
 
     if st.session_state.get('uploaded_files'):
         st.subheader("📄 処理対象ファイル一覧")
-        for f in st.session_state['uploaded_files']:
-            st.write(f"- {f.name}")
+        # 💡 修正点 5: アップロードされたファイルとローカルファイルを区別なく表示
+        uploaded_file_names = [f.name for f in st.session_state['uploaded_files']]
+        
+        # ローカルファイル名リストを取得
+        current_selected_local_names = st.session_state.get('selected_local_file_names', [])
+        
+        for f_name in uploaded_file_names:
+             # ローカルファイルにはマークを付けても良い
+            is_local = f_name in current_selected_local_names
+            st.write(f"- {'📁 (サーバー)' if is_local else '⬆️ (アップロード)'} {f_name}")
+            
         if not st.session_state['merged_df_for_selector'].empty:
             st.info(f"📊 データ列数: {len(st.session_state['merged_df_for_selector'].columns)}、行数: {len(st.session_state['merged_df_for_selector'])}")
 
@@ -375,6 +400,8 @@ with tabs[0]:
             st.session_state['uploaded_files'] = []
             st.session_state['merged_df_for_selector'] = pd.DataFrame()
             st.session_state['description_columns_pool'] = []
+            # 💡 修正点 6: ローカルファイル選択状態もクリア
+            st.session_state['selected_local_file_names'] = [] 
             st.success("すべてのファイル情報をクリアしました。")
             st.rerun()
 
