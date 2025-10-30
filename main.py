@@ -936,3 +936,38 @@ with st.sidebar:
                     elif isinstance(v, list):
                         v = f"{len(v)}項目"
                     st.text(f"• {label}: {v}")
+
+    st.divider()
+    
+    # 認証状態（コンパクト表示）
+    with st.expander("🔐 認証状態", expanded=False):
+        st.caption("Firebase: ✅ 認証済み")
+        
+        if st.session_state.get('calendar_service'):
+            st.caption("カレンダー: ✅ 接続中")
+        else:
+            st.caption("カレンダー: ⚠️ 未接続")
+        
+        if st.session_state.get('tasks_service'):
+            st.caption("ToDo: ✅ 利用可能")
+        else:
+            st.caption("ToDo: ⚠️ 利用不可")
+    
+    st.divider()
+    
+    if st.button("🚪 ログアウト", type="secondary", use_container_width=True):
+        if user_id:
+            clear_user_settings(user_id)
+        for key in list(st.session_state.keys()):
+            if not key.startswith("google_auth") and not key.startswith("firebase_"):
+                del st.session_state[key]
+        st.success("ログアウトしました")
+        st.rerun()
+    
+    st.divider()
+    
+    # 統計情報（一番下に移動）
+    st.header("📊 統計情報")
+    uploaded_count = len(st.session_state.get('uploaded_files', []))
+    st.metric("アップロード済みファイル", uploaded_count)
+
