@@ -286,25 +286,13 @@ tabs = st.tabs([
     "5. イベントのExcel出力"
 ])
 
-
-
 st.markdown('</div>', unsafe_allow_html=True)
-
-
-# ==================================================
-# 以降：元のコード（機能・処理は一切変更なし）
-# ==================================================
-
-# ↓↓↓ あなたのオリジナルの全処理（アップロード・登録・削除・更新・出力・サイドバーなど）をそのまま残してください ↓↓↓
-# （ここ以降のロジック・UI要素・API処理はすべてオリジナルのままで動作します）
-
-
 
 if 'uploaded_files' not in st.session_state:
     st.session_state['uploaded_files'] = []
     st.session_state['description_columns_pool'] = []
     st.session_state['merged_df_for_selector'] = pd.DataFrame()
-    # 💡 修正点 1: ローカルファイル選択状態を保持するセッションステートを追加
+    # ローカルファイル選択状態を保持するセッションステート
     st.session_state['selected_local_file_names'] = [] 
 
 
@@ -325,43 +313,62 @@ with tabs[0]:
 
     def get_local_excel_files():
         current_dir = Path(__file__).parent
-        return [f for f in current_dir.glob("*") if f.suffix.lower() in [".xlsx", ".xls", ".csv"]]
+        local_files = [f for f in current_dir.glob("*") if f.suffix.lower() in [".xlsx", ".xls", ".csv"]]
+        # 💡 修正点 1a: ファイル名とPathオブジェクトの辞書を作成し、ファイル名を正規化する
+        normalized_files = {}
+        for f in local_files:
+            # NFKCで正規化
+            normalized_name = unicodedata.normalize('NFKC', f.name)
+            normalized_files[normalized_name] = f
+        return normalized_files
 
     uploaded_files = st.file_uploader("ExcelまたはCSVファイルを選択（複数可）",type=["xlsx", "xls", "csv"],accept_multiple_files=True)
 
 
-    local_excel_files = get_local_excel_files()
+    # 💡 修正点 1b: 辞書として取得
+    local_excel_files_dict = get_local_excel_files()
+    local_file_names_normalized = list(local_excel_files_dict.keys())
+    
     selected_local_files = []
     
-    # 💡 修正点 2: 選択状態をセッションステートから取得
-    saved_local_selection = st.session_state.get('selected_local_file_names', []) 
+    # 選択状態をセッションステートから取得
+    # 💡 修正点 2a: 保存された選択肢も念のため正規化してセットにしておく
+    saved_local_selection_set = {unicodedata.normalize('NFKC', name) for name in st.session_state.get('selected_local_file_names', [])}
+    
+    # 選択肢リストのうち、保存された選択肢に存在するものをデフォルトとする
+    default_selection = [
+        name for name in local_file_names_normalized 
+        if name in saved_local_selection_set
+    ]
 
-    if local_excel_files:
+    if local_excel_files_dict:
         st.markdown("📁 サーバーにあるExcelファイル")
-        local_file_names = [f.name for f in local_excel_files]
         
-        # 💡 修正点 3: multiselectのdefaultにセッションステートの値を適用し、keyを設定
+        # 💡 修正点 2b: multiselectのdefaultに正規化された値を適用し、keyを設定
         selected_names = st.multiselect(
             "以下のファイルを処理対象に含める（アップロードと同様に扱われます）",
-            local_file_names,
-            # 存在するもののみをデフォルトに設定
-            default=[name for name in saved_local_selection if name in local_file_names], 
+            local_file_names_normalized,
+            default=default_selection, 
             key="local_file_selector"
         )
         
-        # 💡 修正点 4: 選択されたファイル名をセッションステートに保存（key設定により自動でst.session_state["local_file_selector"]に保存されますが、明示的な変数としても保持します）
-        # NOTE: Streamlitでは、キーを設定するとst.session_state[key]に値が自動で入りますが、ここではカスタムキーに直接格納する設計を維持します。
-        # 選択された値は、st.multiselectの戻り値として`selected_names`に入るため、これをカスタムキーに保存し直します。
+        # 💡 修正点 3: 選択されたファイル名（正規化済み）をセッションステートに保存
         st.session_state['selected_local_file_names'] = selected_names 
         
         for name in selected_names:
-            full_path = next((f for f in local_excel_files if f.name == name), None)
+            # 正規化された名前をキーにして、元のPathオブジェクトを取得
+            full_path = local_excel_files_dict.get(name)
             if full_path:
-                with open(full_path, "rb") as f:
-                    file_bytes = f.read()
-                    file_obj = BytesIO(file_bytes)
-                    file_obj.name = name
-                    selected_local_files.append(file_obj)
+                try:
+                    with open(full_path, "rb") as f:
+                        file_bytes = f.read()
+                        file_obj = BytesIO(file_bytes)
+                        # 💡 修正点 4: BytesIOオブジェクトには元のファイル名（非正規化）をnameとして設定
+                        file_obj.name = full_path.name 
+                        selected_local_files.append(file_obj)
+                except Exception as e:
+                    st.error(f"サーバーファイル '{name}' の読み込み中にエラーが発生しました: {e}")
+
 
     all_files = []
     if uploaded_files:
@@ -384,15 +391,18 @@ with tabs[0]:
 
     if st.session_state.get('uploaded_files'):
         st.subheader("📄 処理対象ファイル一覧")
-        # 💡 修正点 5: アップロードされたファイルとローカルファイルを区別なく表示
-        uploaded_file_names = [f.name for f in st.session_state['uploaded_files']]
+        # アップロードされたファイルとローカルファイルを区別なく表示
         
-        # ローカルファイル名リストを取得
-        current_selected_local_names = st.session_state.get('selected_local_file_names', [])
+        # セッションステートに保存されたファイル名（正規化済み）のリスト
+        current_selected_local_names_normalized = st.session_state.get('selected_local_file_names', [])
         
-        for f_name in uploaded_file_names:
+        for file_obj in st.session_state['uploaded_files']:
+             # 表示用ファイル名を取得し、正規化
+            f_name = file_obj.name
+            normalized_f_name = unicodedata.normalize('NFKC', f_name)
+            
              # ローカルファイルにはマークを付けて表示
-            is_local = f_name in current_selected_local_names
+            is_local = normalized_f_name in current_selected_local_names_normalized
             st.write(f"- {'📁 (サーバー)' if is_local else '⬆️ (アップロード)'} {f_name}")
             
         if not st.session_state['merged_df_for_selector'].empty:
@@ -402,11 +412,10 @@ with tabs[0]:
             st.session_state['uploaded_files'] = []
             st.session_state['merged_df_for_selector'] = pd.DataFrame()
             st.session_state['description_columns_pool'] = []
-            # 💡 修正点 6: ローカルファイル選択状態もクリア
+            # 💡 修正点 5: ローカルファイル選択状態もクリア
             st.session_state['selected_local_file_names'] = [] 
             st.success("すべてのファイル情報をクリアしました。")
             st.rerun()
-
 with tabs[1]:
     st.subheader("イベントを登録・更新")
 
