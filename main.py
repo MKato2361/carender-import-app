@@ -332,26 +332,10 @@ with tabs[0]:
     if local_excel_files:
         st.markdown("📁 サーバーにあるExcelファイル")
         local_file_names = [f.name for f in local_excel_files]
-        
-        # ✅ ユーザー設定から前回選択したファイルを取得
-        saved_local_files = get_user_setting(user_id, 'selected_local_files')
-        # 保存されているファイル名のうち、現在も存在するもののみをデフォルト値とする
-        default_selection = []
-        if saved_local_files:
-            default_selection = [name for name in saved_local_files if name in local_file_names]
-        
         selected_names = st.multiselect(
-            "以下のファイルを処理対象に含める(アップロードと同様に扱われます)",
-            local_file_names,
-            default=default_selection,
-            key=f"local_files_selector_{user_id}"
+            "以下のファイルを処理対象に含める（アップロードと同様に扱われます）",
+            local_file_names
         )
-        
-        # ✅ 選択されたファイル名をユーザー設定に保存
-        if selected_names != saved_local_files:
-            set_user_setting(user_id, 'selected_local_files', selected_names)
-            save_user_setting_to_firestore(user_id, 'selected_local_files', selected_names)
-        
         for name in selected_names:
             full_path = next((f for f in local_excel_files if f.name == name), None)
             if full_path:
@@ -360,6 +344,7 @@ with tabs[0]:
                     file_obj = BytesIO(file_bytes)
                     file_obj.name = name
                     selected_local_files.append(file_obj)
+
     all_files = []
     if uploaded_files:
         all_files.extend(uploaded_files)
@@ -426,7 +411,7 @@ with tabs[1]:
             # 前回の設定がリストにない場合（カレンダーが削除されたなど）、最初の項目をデフォルトとする
             default_index = 0
             
-            selected_calendar_name = st.selectbox(
+        selected_calendar_name = st.selectbox(
             "登録先カレンダーを選択",
             calendar_options,
             index=default_index,  # 👈 デフォルトインデックスを適用
@@ -435,11 +420,11 @@ with tabs[1]:
         calendar_id = st.session_state['editable_calendar_options'][selected_calendar_name]
 
         # ✅ 選択されたカレンダーをユーザー設定に保存
-        # セレクトボックスが変更された時点で設定を更新(Streamlitの再実行で実行される)
-        if selected_calendar_name != saved_calendar_name:
-            set_user_setting(user_id, 'selected_calendar_name', selected_calendar_name)
-            save_user_setting_to_firestore(user_id, 'selected_calendar_name', selected_calendar_name)
-            
+        # セレクトボックスが変更された時点で設定を更新（Streamlitの再実行で実行される）
+        set_user_setting(user_id, 'selected_calendar_name', selected_calendar_name)
+        save_user_setting_to_firestore(user_id, 'selected_calendar_name', selected_calendar_name)
+
+
         # ---------------------------------------------------------
         # 設定を取得して、展開状態を制御
         # ---------------------------------------------------------
@@ -636,16 +621,18 @@ with tabs[2]:
     if 'editable_calendar_options' not in st.session_state or not st.session_state['editable_calendar_options']:
         st.error("削除可能なカレンダーが見つかりませんでした。Googleカレンダーの設定を確認してください。")
     else:
-        # 📹 カレンダー名一覧を取得
+        # 🔹 カレンダー名一覧を取得
         calendar_names = list(st.session_state['editable_calendar_options'].keys())
 
-        # 📹 デフォルトインデックスを設定(前回の選択を反映)
-        saved_calendar_name = get_user_setting(user_id, 'selected_calendar_name')
+        # 🔹 デフォルトインデックスを設定（前回の選択を反映）
         default_index = 0
-        if saved_calendar_name and saved_calendar_name in calendar_names:
-            default_index = calendar_names.index(saved_calendar_name)
+        if "selected_calendar_name" in st.session_state:
+            try:
+                default_index = calendar_names.index(st.session_state["selected_calendar_name"])
+            except ValueError:
+                pass
 
-        # 📹 セレクトボックス(デフォルト選択付き)
+        # 🔹 セレクトボックス（デフォルト選択付き）
         selected_calendar_name_del = st.selectbox(
             "削除対象カレンダーを選択",
             calendar_names,
@@ -653,10 +640,8 @@ with tabs[2]:
             key="del_calendar_select"
         )
 
-        # 📹 選択されたカレンダーをユーザー設定に保存
-        if selected_calendar_name_del != saved_calendar_name:
-            set_user_setting(user_id, 'selected_calendar_name', selected_calendar_name_del)
-            save_user_setting_to_firestore(user_id, 'selected_calendar_name', selected_calendar_name_del)
+        # 🔹 現在の選択を次回用に保存
+        st.session_state["selected_calendar_name"] = selected_calendar_name_del
 
         calendar_id_del = st.session_state['editable_calendar_options'][selected_calendar_name_del]
 
@@ -798,25 +783,7 @@ with tabs[3]:
     # ----------------------------------------------------
 
     calendar_options = list(st.session_state['editable_calendar_options'].keys())
-    
-    # ✅ ユーザー設定から前回の選択を取得
-    saved_calendar_name = get_user_setting(user_id, 'selected_calendar_name')
-    default_index = 0
-    if saved_calendar_name and saved_calendar_name in calendar_options:
-        default_index = calendar_options.index(saved_calendar_name)
-    
-    selected_calendar = st.selectbox(
-        "対象カレンダーを選択", 
-        calendar_options, 
-        index=default_index,
-        key="dup_calendar_select"
-    )
-    
-    # ✅ 選択されたカレンダーをユーザー設定に保存
-    if selected_calendar != saved_calendar_name:
-        set_user_setting(user_id, 'selected_calendar_name', selected_calendar)
-        save_user_setting_to_firestore(user_id, 'selected_calendar_name', selected_calendar)
-    
+    selected_calendar = st.selectbox("対象カレンダーを選択", calendar_options, key="dup_calendar_select")
     calendar_id = st.session_state['editable_calendar_options'][selected_calendar]
 
     # 👇 削除モード選択
@@ -1038,25 +1005,7 @@ with tabs[4]:  # tabs[4]は新しいタブに対応
     if 'editable_calendar_options' not in st.session_state or not st.session_state['editable_calendar_options']:
         st.error("利用可能なカレンダーが見つかりません。")
     else:
-        # ✅ ユーザー設定から前回の選択を取得
-        calendar_options = list(st.session_state['editable_calendar_options'].keys())
-        saved_calendar_name = get_user_setting(user_id, 'selected_calendar_name')
-        default_index = 0
-        if saved_calendar_name and saved_calendar_name in calendar_options:
-            default_index = calendar_options.index(saved_calendar_name)
-        
-        selected_calendar_name_export = st.selectbox(
-            "出力対象カレンダーを選択", 
-            calendar_options,
-            index=default_index,
-            key="export_calendar_select"
-        )
-        
-        # ✅ 選択されたカレンダーをユーザー設定に保存
-        if selected_calendar_name_export != saved_calendar_name:
-            set_user_setting(user_id, 'selected_calendar_name', selected_calendar_name_export)
-            save_user_setting_to_firestore(user_id, 'selected_calendar_name', selected_calendar_name_export)
-        
+        selected_calendar_name_export = st.selectbox("出力対象カレンダーを選択", list(st.session_state['editable_calendar_options'].keys()), key="export_calendar_select")
         calendar_id_export = st.session_state['editable_calendar_options'][selected_calendar_name_export]
         
         st.subheader("🗓️ 出力期間の選択")
@@ -1272,7 +1221,6 @@ with st.sidebar:
         if all_settings:
             settings_to_display = {
                 'selected_calendar_name': 'デフォルトカレンダー',
-                'selected_local_files': 'サーバーファイル',
                 'description_columns_selected': '説明欄の列',
                 'event_name_col_selected': 'イベント名の列',
                 'add_task_type_to_event_name': '作業タイプ追加',
