@@ -1,0 +1,92 @@
+/* ==========================================================================
+   THEME TOKENS – Dark & Light (Hybrid: Notion 6 : Linear 4)
+   These variables define the entire UI design system.
+   Modify only variables to update full app theme.
+   ========================================================================== */
+
+/* === Base (shared) ======================================================= */
+:root {
+  --font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+
+  /* Border Radius System */
+  --radius-xs: 3px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+
+  /* Spacing Scale */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+
+  /* Transition */
+  --transition-fast: 0.15s ease-in-out;
+  --transition-med: 0.25s ease-in-out;
+}
+
+/* === DARK THEME ========================================================== */
+:root[data-theme="dark"] {
+  /* Backgrounds */
+  --color-bg: #0D1117;
+  --color-bg-secondary: #161B22;
+  --color-bg-tertiary: #1F242D;
+  --color-bg-hover: rgba(255, 255, 255, 0.05);
+
+  /* Text Colors */
+  --color-text: #E6E6E6;
+  --color-text-secondary: #A8A8A8;
+  --color-text-muted: #7A7A7A;
+
+  /* Accent (Hybrid) */
+  --color-accent: #4BA3FF;
+  --color-accent-hover: #64B0FF;
+
+  /* Borders & Lines */
+  --color-border: rgba(255, 255, 255, 0.08);
+  --color-divider: rgba(255, 255, 255, 0.04);
+
+  /* Status Colors */
+  --color-success: #3CCB7F;
+  --color-warning: #E6A84B;
+  --color-error: #FF6B6B;
+  --color-info: #4BA3FF;
+
+  /* Shadow (subtle, polished) */
+  --shadow-sm: 0px 1px 2px rgba(0,0,0,0.35);
+  --shadow-md: 0px 3px 6px rgba(0,0,0,0.45);
+}
+
+/* === LIGHT THEME (Hybrid: Notion 6 : Linear 4) =========================== */
+:root[data-theme="light"] {
+  /* Backgrounds */
+  --color-bg: #FFFFFF;
+  --color-bg-secondary: #F7F8FA;
+  --color-bg-tertiary: #ECEEF2;
+  --color-bg-hover: rgba(0, 0, 0, 0.05);
+
+  /* Text Colors */
+  --color-text: #2E2E2E;
+  --color-text-secondary: #5A5A5A;
+  --color-text-muted: #8B8B8B;
+
+  /* Accent (same as Dark for brand consistency) */
+  --color-accent: #4BA3FF;
+  --color-accent-hover: #1A7CEB;
+
+  /* Borders & Lines */
+  --color-border: rgba(0, 0, 0, 0.10);
+  --color-divider: rgba(0, 0, 0, 0.08);
+
+  /* Status Colors (softened for Light) */
+  --color-success: #2DA66A;
+  --color-warning: #D9932C;
+  --color-error: #E14848;
+  --color-info: #2D8DED;
+
+  /* Shadow (lighter, airy) */
+  --shadow-sm: 0px 1px 2px rgba(0,0,0,0.16);
+  --shadow-md: 0px 3px 6px rgba(0,0,0,0.22);
+}
