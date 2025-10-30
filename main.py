@@ -1138,115 +1138,130 @@ with tabs[4]:  # tabs[4]は新しいタブに対応
                     except Exception as e:
                         st.error(f"イベントの読み込み中にエラーが発生しました: {e}")
                         
+# ==================================================
+# サイドバー（ミニマルUI + 折りたたみ式 + 即時反映対応）
+# ==================================================
+
 with st.sidebar:
-    # ユーザー設定管理
-    st.header("⚙️ ユーザー設定")
-    with st.expander("デフォルト設定の管理", expanded=False):
+    with st.expander("⚙ デフォルト設定の管理", expanded=False):
+
+        # ===== カレンダー設定 =====
         st.subheader("📅 カレンダー設定")
-        
-        # デフォルトカレンダーの設定
+
         if st.session_state.get('editable_calendar_options'):
             calendar_options = list(st.session_state['editable_calendar_options'].keys())
             saved_calendar = get_user_setting(user_id, 'selected_calendar_name')
-            
             try:
                 default_cal_index = calendar_options.index(saved_calendar) if saved_calendar else 0
             except ValueError:
                 default_cal_index = 0
-            
+
+            # デフォルトカレンダー
             default_calendar = st.selectbox(
                 "デフォルトカレンダー",
                 calendar_options,
                 index=default_cal_index,
                 key="sidebar_default_calendar",
-                help="イベント登録時に最初から選択されるカレンダー"
             )
-            
+
+            # 共有設定
+            prev_share = st.session_state.get('share_calendar_selection_across_tabs', True)
+            share_calendar = st.checkbox(
+                "カレンダー選択をタブ間で共有する",
+                value=prev_share,
+                help="ON: 登録タブで選んだカレンダーが他タブに自動反映 / OFF: タブごとに独立"
+            )
+
+            # 共有設定が変更されたら保存 & 反映
+            if share_calendar != prev_share:
+                st.session_state['share_calendar_selection_across_tabs'] = share_calendar
+                set_user_setting(user_id, 'share_calendar_selection_across_tabs', share_calendar)
+                save_user_setting_to_firestore(user_id, 'share_calendar_selection_across_tabs', share_calendar)
+                st.success("🔄 共有設定を保存しました（更新します）")
+                st.rerun()
+
             # 非公開設定
             saved_private = get_user_setting(user_id, 'default_private_event')
             default_private = st.checkbox(
                 "デフォルトで非公開イベント",
                 value=saved_private if saved_private is not None else True,
                 key="sidebar_default_private",
-                help="イベント登録時に非公開が初期選択される"
             )
-            
-            # 終日イベント設定
+
+            # 終日設定
             saved_allday = get_user_setting(user_id, 'default_allday_event')
             default_allday = st.checkbox(
                 "デフォルトで終日イベント",
                 value=saved_allday if saved_allday is not None else False,
                 key="sidebar_default_allday",
-                help="イベント登録時に終日イベントが初期選択される"
             )
-        
+
+        # ===== ToDo設定 =====
         st.subheader("✅ ToDo設定")
+
         saved_todo = get_user_setting(user_id, 'default_create_todo')
         default_todo = st.checkbox(
             "デフォルトでToDo作成",
             value=saved_todo if saved_todo is not None else False,
             key="sidebar_default_todo",
-            help="イベント登録時にToDo作成が初期選択される"
         )
-        
-        # 設定保存ボタン
+
+        # ===== ボタンエリア =====
         col1, col2 = st.columns(2)
         with col1:
-            if st.button("💾 保存", use_container_width=True, type="primary"):
+            if st.button("💾 保存", use_container_width=True):
+                # デフォルトカレンダー保存 & 即反映
                 if st.session_state.get('editable_calendar_options'):
                     set_user_setting(user_id, 'selected_calendar_name', default_calendar)
                     save_user_setting_to_firestore(user_id, 'selected_calendar_name', default_calendar)
-                
+                    st.session_state['selected_calendar_name'] = default_calendar
+
+                    # 共有ONなら全タブに反映
+                    if st.session_state.get('share_calendar_selection_across_tabs', True):
+                        for k in ["register", "delete", "dup", "export"]:
+                            st.session_state[f"selected_calendar_name_{k}"] = default_calendar
+
+                # 各種設定保存
                 set_user_setting(user_id, 'default_private_event', default_private)
                 save_user_setting_to_firestore(user_id, 'default_private_event', default_private)
-                
+
                 set_user_setting(user_id, 'default_allday_event', default_allday)
                 save_user_setting_to_firestore(user_id, 'default_allday_event', default_allday)
-                
+
                 set_user_setting(user_id, 'default_create_todo', default_todo)
                 save_user_setting_to_firestore(user_id, 'default_create_todo', default_todo)
-                
+
                 st.success("✅ 設定を保存しました")
                 st.rerun()
-        
+
         with col2:
             if st.button("🔄 リセット", use_container_width=True):
-                # デフォルト設定をクリア
-                set_user_setting(user_id, 'default_private_event', None)
-                set_user_setting(user_id, 'default_allday_event', None)
-                set_user_setting(user_id, 'default_create_todo', None)
-                
-                save_user_setting_to_firestore(user_id, 'default_private_event', None)
-                save_user_setting_to_firestore(user_id, 'default_allday_event', None)
-                save_user_setting_to_firestore(user_id, 'default_create_todo', None)
-                
-                st.info("🔄 設定をリセットしました")
+                for key in ['default_private_event', 'default_allday_event', 'default_create_todo']:
+                    set_user_setting(user_id, key, None)
+                    save_user_setting_to_firestore(user_id, key, None)
+
+                st.info("🧹 設定をリセットしました")
                 st.rerun()
-        
-        # 現在の保存済み設定の表示
+
         st.divider()
-        st.caption("📋 保存済み設定一覧")
+
+        # ===== 保存済み設定一覧（ミニマル表示） =====
+        st.caption("📋 保存済み設定")
         all_settings = get_all_user_settings(user_id)
         if all_settings:
-            settings_to_display = {
-                'selected_calendar_name': 'デフォルトカレンダー',
-                'description_columns_selected': '説明欄の列',
-                'event_name_col_selected': 'イベント名の列',
-                'add_task_type_to_event_name': '作業タイプ追加',
-                'create_todo_checkbox_state': 'ToDo作成',
+            labels = {
+                'selected_calendar_name': 'デフォルトカレンダー（共有ON時）',
                 'default_private_event': '非公開設定',
-                'default_allday_event': '終日イベント',
-                'default_create_todo': 'デフォルトToDo'
+                'default_allday_event': '終日設定',
+                'default_create_todo': 'デフォルトToDo',
+                'share_calendar_selection_across_tabs': 'タブ間共有',
             }
-            
-            for key, label in settings_to_display.items():
-                if key in all_settings and all_settings[key] is not None:
-                    value = all_settings[key]
-                    if isinstance(value, bool):
-                        value = "✅" if value else "❌"
-                    elif isinstance(value, list):
-                        value = f"{len(value)}項目"
-                    st.text(f"• {label}: {value}")
+            for k, label in labels.items():
+                if k in all_settings and all_settings[k] is not None:
+                    v = all_settings[k]
+                    if isinstance(v, bool):
+                        v = "✅" if v else "❌"
+                    st.text(f"• {label}: {v}")
     
     st.divider()
     
