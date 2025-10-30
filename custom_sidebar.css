@@ -1,87 +1,103 @@
-/* ------------------------------
-   Minimal Modern Sidebar Styling
-   Accent Color: #4BA3FF
-   Font Size: -1pt from default
---------------------------------*/
+/* =========================================================
+   Polished Minimal Sidebar – tailored for your app
+   Theme: Notion-like / Minimal / Outline Icons
+   Accent: #4BA3FF (Soft Blue)
+   Width: Slightly reduced (-20px)
+   Divider: Ultra minimal (3%)
+   ========================================================= */
 
-/* 全体のフォントサイズ縮小 */
+/* --- Sidebar Base --- */
+[data-testid="stSidebar"] {
+    padding: 1rem 0.9rem !important;
+    width: 250px !important; /* defaultより細め */
+}
+
 [data-testid="stSidebar"] * {
     font-size: 0.92rem !important;
+    font-weight: 400 !important;
+    letter-spacing: 0.1px;
 }
 
-/* サイドバー全体の余白と背景 */
-[data-testid="stSidebar"] {
-    padding: 1.2rem 1rem !important;
-}
-
-/* 見出し（subheader）のスタイル調整 */
-[data-testid="stSidebar"] h3, 
-[data-testid="stSidebar"] h2, 
-[data-testid="stSidebar"] h1 {
-    margin-top: 0.9rem !important;
-    margin-bottom: 0.4rem !important;
+/* --- Headers (subtle but clear) --- */
+[data-testid="stSidebar"] h1,
+[data-testid="stSidebar"] h2,
+[data-testid="stSidebar"] h3 {
     font-weight: 600 !important;
+    margin-top: 0.6rem !important;
+    margin-bottom: 0.35rem !important;
+    color: #f2f2f2 !important;
 }
 
-/* Expander（折りたたみ）のデザイン調整 */
+/* --- Expander (Minimal Card Look) --- */
 div[data-testid="stSidebar"] details {
-    background-color: rgba(255, 255, 255, 0.03) !important;
+    background-color: rgba(255, 255, 255, 0.02) !important;
     border-radius: 8px !important;
+    border: 1px solid rgba(255, 255, 255, 0.05) !important;
     padding: 2px 6px !important;
-    margin-bottom: 10px !important;
-    border: 1px solid rgba(255, 255, 255, 0.07) !important;
+    margin-bottom: 8px !important;
 }
 
-/* Expanderラベル部分（タイトル） */
 div[data-testid="stSidebar"] summary {
     padding: 6px 4px !important;
+    margin: -4px !important;
     font-weight: 600 !important;
-    color: #e8e8e8 !important;
+    color: #e9e9e9 !important;
 }
 
-/* チェックボックスのアクセントカラー */
+/* --- Ultra Minimal Divider (3%) --- */
+div[data-testid="stSidebar"] hr {
+    border: none !important;
+    border-top: 1px solid rgba(255, 255, 255, 0.03) !important;
+    margin: 0.5rem 0 !important;
+}
+
+/* --- Inputs & Labels --- */
+div[data-testid="stSidebar"] label,
+div[data-testid="stSidebar"] p {
+    color: #e1e1e1 !important;
+    margin-bottom: 0.15rem !important;
+}
+
+/* Checkbox accent color */
 input[type="checkbox"]:checked {
     accent-color: #4BA3FF !important;
 }
 
-/* ボタン（保存・リセット）ミニマルデザイン */
+/* Selectbox tweaks */
+div[data-baseweb="select"] {
+    margin-bottom: 0.4rem !important;
+}
+
+/* --- Buttons --- */
 div[data-testid="stSidebar"] button {
     border-radius: 6px !important;
-    padding: 0.35rem 0.5rem !important;
+    padding: 0.35rem 0.55rem !important;
     font-size: 0.9rem !important;
     font-weight: 600 !important;
     transition: 0.15s ease-in-out !important;
 }
 
-/* 保存ボタン */
+/* Primary Button (Save) */
 div[data-testid="stSidebar"] button[kind="primary"] {
     background-color: #4BA3FF !important;
-    color: white !important;
     border: none !important;
+    color: #ffffff !important;
 }
 div[data-testid="stSidebar"] button[kind="primary"]:hover {
-    background-color: #6BB5FF !important;
+    background-color: #66B2FF !important;
 }
 
-/* リセットボタン */
+/* Secondary Button (Reset/Logout etc.) */
 div[data-testid="stSidebar"] button:not([kind="primary"]) {
-    background-color: rgba(255, 255, 255, 0.05) !important;
-    border: 1px solid rgba(255, 255, 255, 0.08) !important;
-    color: #e0e0e0 !important;
+    background-color: rgba(255, 255, 255, 0.04) !important;
+    border: 1px solid rgba(255, 255, 255, 0.06) !important;
+    color: #e5e5e5 !important;
 }
 div[data-testid="stSidebar"] button:not([kind="primary"]):hover {
-    background-color: rgba(255, 255, 255, 0.12) !important;
+    background-color: rgba(255, 255, 255, 0.08) !important;
 }
 
-/* 区切り線を薄くミニマルに */
-div[data-testid="stSidebar"] hr {
-    border: none !important;
-    border-top: 1px solid rgba(255, 255, 255, 0.08) !important;
-    margin: 0.7rem 0 !important;
-}
-
-/* 設定一覧の文字調整 */
-div[data-testid="stSidebar"] p, 
-div[data-testid="stSidebar"] label {
-    color: #dddddd !important;
+/* --- Spacing adjustments for cleaner layout --- */
+[data-testid="stSidebar"] .element-container {
+    margin-bottom: 0.45rem !important;
 }
