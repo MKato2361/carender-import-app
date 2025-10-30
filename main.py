@@ -1272,6 +1272,7 @@ with st.sidebar:
         if all_settings:
             settings_to_display = {
                 'selected_calendar_name': 'デフォルトカレンダー',
+                'selected_local_files': 'サーバーファイル',
                 'description_columns_selected': '説明欄の列',
                 'event_name_col_selected': 'イベント名の列',
                 'add_task_type_to_event_name': '作業タイプ追加',
