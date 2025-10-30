@@ -34,6 +34,9 @@ from pathlib import Path
 from io import BytesIO
 import unicodedata
 
+# ==================================================
+# ページ設定
+# ==================================================
 st.set_page_config(page_title="Googleカレンダー一括イベント登録・削除", layout="wide")
 
 st.markdown("""
@@ -158,7 +161,7 @@ div[data-testid="stVerticalBlock"] > div:last-child {
 """, unsafe_allow_html=True)
 
 # ==================================================
-# Firebase 初期化・認証処理（元コードそのまま）
+# Firebase 初期化・認証処理
 # ==================================================
 if not initialize_firebase():
     st.error("Firebaseの初期化に失敗しました。")
@@ -171,7 +174,9 @@ if not user_id:
     firebase_auth_form()
     st.stop()
 
-
+# ==================================================
+# Firestore <-> Session 設定同期
+# ==================================================
 def load_user_settings_from_firestore(user_id):
     """Firestoreからユーザー設定を読み込み、セッションに同期"""
     if not user_id:
@@ -184,7 +189,6 @@ def load_user_settings_from_firestore(user_id):
         for key, value in settings.items():
             set_user_setting(user_id, key, value)
 
-
 def save_user_setting_to_firestore(user_id, setting_key, setting_value):
     """Firestoreにユーザー設定を保存"""
     if not user_id:
@@ -195,22 +199,18 @@ def save_user_setting_to_firestore(user_id, setting_key, setting_value):
     except Exception as e:
         st.error(f"設定の保存に失敗しました: {e}")
 
-
-# ユーザー設定の読み込み
+# ユーザー設定の読み込み（初回）
 load_user_settings_from_firestore(user_id)
 
-google_auth_placeholder = st.empty()
-
-with google_auth_placeholder.container():
-    st.subheader("🔐 Googleカレンダー認証")
-    creds = authenticate_google()
-
-    if not creds:
-        st.warning("Googleカレンダー認証を完了してください。")
-        st.stop()
-    else:
-        google_auth_placeholder.empty()
-
+# 共有設定のデフォルト（初期値：共有する＝True）
+if 'share_calendar_selection_across_tabs' not in st.session_state:
+    # Firestoreに保存がなければ True を初期設定
+    shared_setting = get_user_setting(user_id, 'share_calendar_selection_across_tabs')
+    if shared_setting is None:
+        shared_setting = True
+        set_user_setting(user_id, 'share_calendar_selection_across_tabs', shared_setting)
+        save_user_setting_to_firestore(user_id, 'share_calendar_selection_across_tabs', shared_setting)
+    st.session_state['share_calendar_selection_across_tabs'] = shared_setting
 
 def initialize_calendar_service():
     try:
@@ -228,7 +228,6 @@ def initialize_calendar_service():
     except Exception as e:
         st.error(f"カレンダーサービスの初期化に失敗しました: {e}")
         return None, None
-
 
 def initialize_tasks_service_wrapper():
     try:
@@ -251,7 +250,18 @@ def initialize_tasks_service_wrapper():
         st.warning(f"Google ToDoリストサービスの初期化に失敗しました: {e}")
         return None, None
 
+# Google認証 UI
+google_auth_placeholder = st.empty()
+with google_auth_placeholder.container():
+    st.subheader("🔐 Googleカレンダー認証")
+    creds = authenticate_google()
+    if not creds:
+        st.warning("Googleカレンダー認証を完了してください。")
+        st.stop()
+    else:
+        google_auth_placeholder.empty()
 
+# サービス初期化
 if 'calendar_service' not in st.session_state or not st.session_state['calendar_service']:
     service, editable_calendar_options = initialize_calendar_service()
     if not service:
@@ -272,9 +282,43 @@ if 'tasks_service' not in st.session_state or not st.session_state.get('tasks_se
 else:
     tasks_service = st.session_state['tasks_service']
 
+# ==================================================
+# 共有ロジック用のヘルパー
+# ==================================================
+def get_default_calendar_index(calendar_names, user_id, tab_key=None):
+    """
+    共有設定がONなら Firestoreの 'selected_calendar_name' を、
+    OFFなら タブ固有キー (tab_key) で session_state を参照して既定インデックスを返す。
+    """
+    share = st.session_state.get('share_calendar_selection_across_tabs', True)
+    # 共有ON：Firestoreの共通値
+    if share:
+        saved = get_user_setting(user_id, 'selected_calendar_name')
+    else:
+        # 共有OFF：各タブ専用の前回選択値
+        state_key = f"selected_calendar_name_{tab_key}" if tab_key else "selected_calendar_name"
+        saved = st.session_state.get(state_key, None)
+
+    if saved in calendar_names:
+        return calendar_names.index(saved)
+    return 0
+
+def record_calendar_selection(selected_name, user_id, tab_key=None):
+    """
+    選択されたカレンダーを保存。
+    共有ONなら Firestoreの 'selected_calendar_name' に保存。
+    共有OFFなら タブ固有キー (tab_key) で session_state にのみ保存。
+    """
+    share = st.session_state.get('share_calendar_selection_across_tabs', True)
+    if share:
+        set_user_setting(user_id, 'selected_calendar_name', selected_name)
+        save_user_setting_to_firestore(user_id, 'selected_calendar_name', selected_name)
+    else:
+        state_key = f"selected_calendar_name_{tab_key}" if tab_key else "selected_calendar_name"
+        st.session_state[state_key] = selected_name
 
 # ==================================================
-# タブ部分（固定化・半透明デザイン付き）
+# タブ UI
 # ==================================================
 st.markdown('<div class="fixed-tabs">', unsafe_allow_html=True)
 
@@ -286,25 +330,17 @@ tabs = st.tabs([
     "5. イベントのExcel出力"
 ])
 
-
-
 st.markdown('</div>', unsafe_allow_html=True)
 
-
-# ==================================================
-# 以降：元のコード（機能・処理は一切変更なし）
-# ==================================================
-
-# ↓↓↓ あなたのオリジナルの全処理（アップロード・登録・削除・更新・出力・サイドバーなど）をそのまま残してください ↓↓↓
-# （ここ以降のロジック・UI要素・API処理はすべてオリジナルのままで動作します）
-
-
-
+# 共通で使うステート初期化
 if 'uploaded_files' not in st.session_state:
     st.session_state['uploaded_files'] = []
     st.session_state['description_columns_pool'] = []
     st.session_state['merged_df_for_selector'] = pd.DataFrame()
 
+# ==================================================
+# 1) アップロード
+# ==================================================
 with tabs[0]:
     st.subheader("ファイルをアップロード")
     with st.expander("ℹ️作業手順と補足"):
@@ -325,7 +361,6 @@ with tabs[0]:
         return [f for f in current_dir.glob("*") if f.suffix.lower() in [".xlsx", ".xls", ".csv"]]
 
     uploaded_files = st.file_uploader("ExcelまたはCSVファイルを選択（複数可）",type=["xlsx", "xls", "csv"],accept_multiple_files=True)
-
 
     local_excel_files = get_local_excel_files()
     selected_local_files = []
@@ -378,6 +413,9 @@ with tabs[0]:
             st.success("すべてのファイル情報をクリアしました。")
             st.rerun()
 
+# ==================================================
+# 2) 登録タブ
+# ==================================================
 with tabs[1]:
     st.subheader("イベントを登録・更新")
 
@@ -397,33 +435,21 @@ with tabs[1]:
 
     else:
         # ---------------------------------------------------------
-        # カレンダー選択
+        # カレンダー選択（共有ON/OFF対応）
         # ---------------------------------------------------------
         calendar_options = list(st.session_state['editable_calendar_options'].keys())
-        
-        # ✅ ユーザー設定から前回の選択を取得
-        saved_calendar_name = get_user_setting(user_id, 'selected_calendar_name')
-        
-        # ✅ デフォルトインデックスを計算
-        try:
-            default_index = calendar_options.index(saved_calendar_name)
-        except ValueError:
-            # 前回の設定がリストにない場合（カレンダーが削除されたなど）、最初の項目をデフォルトとする
-            default_index = 0
-            
+
+        default_index = get_default_calendar_index(calendar_options, user_id, tab_key="register")
         selected_calendar_name = st.selectbox(
             "登録先カレンダーを選択",
             calendar_options,
-            index=default_index,  # 👈 デフォルトインデックスを適用
+            index=default_index,
             key="reg_calendar_select"
         )
         calendar_id = st.session_state['editable_calendar_options'][selected_calendar_name]
 
-        # ✅ 選択されたカレンダーをユーザー設定に保存
-        # セレクトボックスが変更された時点で設定を更新（Streamlitの再実行で実行される）
-        set_user_setting(user_id, 'selected_calendar_name', selected_calendar_name)
-        save_user_setting_to_firestore(user_id, 'selected_calendar_name', selected_calendar_name)
-
+        # ✅ 選択保存（共有ON: Firestore / 共有OFF: セッション）
+        record_calendar_selection(selected_calendar_name, user_id, tab_key="register")
 
         # ---------------------------------------------------------
         # 設定を取得して、展開状態を制御
@@ -434,7 +460,6 @@ with tabs[1]:
         saved_task_type_flag = get_user_setting(user_id, 'add_task_type_to_event_name')
         saved_create_todo_flag = get_user_setting(user_id, 'create_todo_checkbox_state')
 
-        # ✅ 未設定なら展開、設定済みなら閉じる
         expand_event_setting = not bool(saved_description_cols)
         expand_name_setting = not (saved_event_name_col or saved_task_type_flag)
         expand_todo_setting = bool(saved_create_todo_flag)
@@ -443,8 +468,12 @@ with tabs[1]:
         # 🧩 イベント設定（折りたたみ）
         # ---------------------------------------------------------
         with st.expander("📝 イベント設定", expanded=expand_event_setting):
-            all_day_event_override = st.checkbox("終日イベントとして登録", value=False)
-            private_event = st.checkbox("非公開イベントとして登録", value=True)
+            # サイドバーのデフォルト設定も考慮（保存済みの初期値）
+            default_private_saved = get_user_setting(user_id, 'default_private_event')
+            default_allday_saved = get_user_setting(user_id, 'default_allday_event')
+
+            all_day_event_override = st.checkbox("終日イベントとして登録", value=default_allday_saved if default_allday_saved is not None else False)
+            private_event = st.checkbox("非公開イベントとして登録", value=default_private_saved if default_private_saved is not None else True)
 
             default_selection = [col for col in (saved_description_cols or []) if col in description_columns_pool]
             description_columns = st.multiselect(
@@ -455,7 +484,7 @@ with tabs[1]:
             )
 
         # ---------------------------------------------------------
-        # 🧩 イベント名の生成設定（折りたたみ）
+        # 🧩 イベント名の生成設定
         # ---------------------------------------------------------
         with st.expander("🧱 イベント名の生成設定", expanded=expand_name_setting):
             has_mng_data, has_name_data = check_event_name_columns(st.session_state['merged_df_for_selector'])
@@ -469,12 +498,12 @@ with tabs[1]:
             if not (has_mng_data and has_name_data):
                 available_event_name_cols = get_available_columns_for_event_name(st.session_state['merged_df_for_selector'])
                 event_name_options = ["選択しない"] + available_event_name_cols
-                default_index = event_name_options.index(selected_event_name_col) if selected_event_name_col in event_name_options else 0
+                default_index_event = event_name_options.index(selected_event_name_col) if selected_event_name_col in event_name_options else 0
 
                 selected_event_name_col = st.selectbox(
                     "イベント名として使用する代替列を選択してください:",
                     options=event_name_options,
-                    index=default_index,
+                    index=default_index_event,
                     key=f"event_name_selector_register_{user_id}"
                 )
 
@@ -484,19 +513,18 @@ with tabs[1]:
                 st.info("「管理番号」と「物件名」のデータが両方存在するため、それらがイベント名として使用されます。")
 
         # ---------------------------------------------------------
-        # 🧩 ToDoリスト連携設定（折りたたみ）
+        # 🧩 ToDoリスト連携設定
         # ---------------------------------------------------------
         st.subheader("✅ ToDoリスト連携設定 (オプション)")
         with st.expander("ToDoリスト作成オプション", expanded=expand_todo_setting):
             create_todo = st.checkbox(
                 "このイベントに対応するToDoリストを作成する", 
-                value=saved_create_todo_flag if saved_create_todo_flag is not None else False, 
+                value=saved_create_todo_flag if saved_create_todo_flag is not None else get_user_setting(user_id, 'default_create_todo') or False, 
                 key="create_todo_checkbox"
             )
 
             set_user_setting(user_id, 'create_todo_checkbox_state', create_todo)
             save_user_setting_to_firestore(user_id, 'create_todo_checkbox_state', create_todo)
-
 
             fixed_todo_types = ["点検通知"]
             if create_todo:
@@ -526,6 +554,7 @@ with tabs[1]:
                     disabled=not create_todo,
                     key="custom_offset_input"
                 )
+
         # ---------------------------------------------------------
         # 登録ボタン
         # ---------------------------------------------------------
@@ -615,24 +644,18 @@ with tabs[1]:
 
                     st.success(f"✅ {successful_operations} 件のイベントが処理されました。")
 
+# ==================================================
+# 3) 削除タブ
+# ==================================================
 with tabs[2]:
     st.subheader("イベントを削除")
 
     if 'editable_calendar_options' not in st.session_state or not st.session_state['editable_calendar_options']:
         st.error("削除可能なカレンダーが見つかりませんでした。Googleカレンダーの設定を確認してください。")
     else:
-        # 🔹 カレンダー名一覧を取得
         calendar_names = list(st.session_state['editable_calendar_options'].keys())
 
-        # 🔹 デフォルトインデックスを設定（前回の選択を反映）
-        default_index = 0
-        if "selected_calendar_name" in st.session_state:
-            try:
-                default_index = calendar_names.index(st.session_state["selected_calendar_name"])
-            except ValueError:
-                pass
-
-        # 🔹 セレクトボックス（デフォルト選択付き）
+        default_index = get_default_calendar_index(calendar_names, user_id, tab_key="delete")
         selected_calendar_name_del = st.selectbox(
             "削除対象カレンダーを選択",
             calendar_names,
@@ -640,8 +663,8 @@ with tabs[2]:
             key="del_calendar_select"
         )
 
-        # 🔹 現在の選択を次回用に保存
-        st.session_state["selected_calendar_name"] = selected_calendar_name_del
+        # 保存（共有ON/OFF対応）
+        record_calendar_selection(selected_calendar_name_del, user_id, tab_key="delete")
 
         calendar_id_del = st.session_state['editable_calendar_options'][selected_calendar_name_del]
 
@@ -663,13 +686,11 @@ with tabs[2]:
             if 'confirm_delete' not in st.session_state:
                 st.session_state['confirm_delete'] = False
 
-            # 最初のボタン: 削除確認を表示
             if not st.session_state['confirm_delete']:
                 if st.button("選択期間のイベントを削除する", type="primary"):
                     st.session_state['confirm_delete'] = True
                     st.rerun()
 
-            # 確認メッセージと実行/キャンセルボタン
             if st.session_state['confirm_delete']:
                 st.warning(f"""
                 ⚠️ **削除確認**
@@ -762,29 +783,32 @@ with tabs[2]:
                         st.session_state['confirm_delete'] = False
                         st.rerun()
 
-                        
-
+# ==================================================
+# 4) 重複イベントの検出・削除
+# ==================================================
 with tabs[3]:
     st.subheader("🔍 重複イベントの検出・削除")
 
-    # ----------------------------------------------------
-    # セッションステートに保存されたメッセージを表示し、クリアする
+    # 前回メッセージの表示
     if 'last_dup_message' in st.session_state and st.session_state['last_dup_message']:
         msg_type, msg_text = st.session_state['last_dup_message']
-        
         if msg_type == "success":
             st.success(msg_text)
         elif msg_type == "error":
             st.error(msg_text)
         elif msg_type == "info":
             st.info(msg_text)
-        
         st.session_state['last_dup_message'] = None 
-    # ----------------------------------------------------
 
     calendar_options = list(st.session_state['editable_calendar_options'].keys())
-    selected_calendar = st.selectbox("対象カレンダーを選択", calendar_options, key="dup_calendar_select")
+
+    # ✅ 共有ON/OFFに応じたデフォルト決定
+    default_index_dup = get_default_calendar_index(calendar_options, user_id, tab_key="dup")
+    selected_calendar = st.selectbox("対象カレンダーを選択", calendar_options, index=default_index_dup, key="dup_calendar_select")
     calendar_id = st.session_state['editable_calendar_options'][selected_calendar]
+
+    # ✅ 選択保存
+    record_calendar_selection(selected_calendar, user_id, tab_key="dup")
 
     # 👇 削除モード選択
     delete_mode = st.radio(
@@ -794,7 +818,6 @@ with tabs[3]:
         key="dup_delete_mode"
     )
 
-    # ----------------------------------------------------
     # ステート初期化
     if 'dup_df' not in st.session_state:
         st.session_state['dup_df'] = pd.DataFrame()
@@ -802,9 +825,7 @@ with tabs[3]:
         st.session_state['auto_delete_ids'] = []
     if 'last_dup_message' not in st.session_state:
         st.session_state['last_dup_message'] = None
-    # ----------------------------------------------------
     
-    # helper function for parsing created time
     def parse_created(dt_str):
         try:
             return datetime.fromisoformat(dt_str.replace('Z', '+00:00'))
@@ -812,9 +833,6 @@ with tabs[3]:
             return datetime.min
 
     if st.button("重複イベントをチェック", key="run_dup_check"):
-        # ----------------------------------------------------
-        # データ取得・計算ロジック
-        # ----------------------------------------------------
         with st.spinner("カレンダー内のイベントを取得中..."):
             time_min = (datetime.now(timezone.utc) - timedelta(days=365*2)).isoformat()
             time_max = (datetime.now(timezone.utc) + timedelta(days=365*2)).isoformat()
@@ -834,20 +852,15 @@ with tabs[3]:
             
         st.success(f"{len(events)} 件のイベントを取得しました。")
 
-        # イベントデータの前処理
-        # re.DOTALL: . が改行文字にもマッチ | re.IGNORECASE: 大文字/小文字を無視
         pattern = re.compile(r"\[作業指示書[：:]\s*([0-9０-９]+)\]", re.DOTALL | re.IGNORECASE)
         rows = []
         for e in events:
             desc = e.get("description", "")
-            
             desc_stripped = desc.strip()
             match = pattern.search(desc_stripped)
             worksheet_id = match.group(1) if match else None
 
-            # 💡 修正点 2: 抽出した作業指示書番号を正規化
             if worksheet_id:
-                # NFKCで全角数字や特殊文字を半角に変換し、両端の空白を削除
                 worksheet_id = unicodedata.normalize('NFKC', worksheet_id).strip()
             
             start_time = e["start"].get("dateTime", e["start"].get("date"))
@@ -855,17 +868,14 @@ with tabs[3]:
             rows.append({
                 "id": e["id"],
                 "summary": e.get("summary", ""),
-                "worksheet_id": worksheet_id, # 正規化されたID
+                "worksheet_id": worksheet_id,
                 "created": e.get("created", None),
                 "start": start_time,
                 "end": end_time,
             })
 
         df = pd.DataFrame(rows)
-        # 作業指示書番号が抽出できたイベントのみを対象とする
         df_valid = df[df["worksheet_id"].notna()].copy()
-        
-        # 💡 修正点 3: 重複検出のキーを ['worksheet_id'] のみに戻す (正規化により揺らぎを吸収)
         dup_mask = df_valid.duplicated(subset=["worksheet_id"], keep=False)
         dup_df = df_valid[dup_mask].sort_values(["worksheet_id", "created"])
 
@@ -877,32 +887,22 @@ with tabs[3]:
             st.session_state['current_delete_mode'] = delete_mode
             st.rerun()
 
-        # ----------------------------------------------------
-        # 自動削除IDの計算（作成日時ベース）
-        # ----------------------------------------------------
         if delete_mode != "手動で選択して削除":
             auto_delete_ids = []
-
-            # 💡 修正点 4: グループ化キーを ['worksheet_id'] のみに戻す
-            for _, group in dup_df.groupby("worksheet_id"): 
-                
-                # 作成日時とイベントID（第2キー）でソートし、順序を確定
+            for _, group in dup_df.groupby("worksheet_id"):
                 group_sorted = group.sort_values(
                     ["created", "id"],
                     key=lambda s: s.map(parse_created) if s.name == "created" else s,
                     ascending=True
                 )
-                
-                if len(group_sorted) <= 1: continue
-                    
+                if len(group_sorted) <= 1:
+                    continue
                 if delete_mode == "古い方を自動削除":
-                    # 最新のイベント（最後の行）を残し、それ以前のすべてを削除対象とする
-                    delete_targets = group_sorted.iloc[:-1] 
+                    delete_targets = group_sorted.iloc[:-1]
                 elif delete_mode == "新しい方を自動削除":
-                    # 最古のイベント（最初の行）を残し、それ以降のすべてを削除対象とする
                     delete_targets = group_sorted.iloc[1:]
-                else: continue
-                    
+                else:
+                    continue
                 auto_delete_ids.extend(delete_targets["id"].tolist())
 
             st.session_state['auto_delete_ids'] = auto_delete_ids 
@@ -912,11 +912,8 @@ with tabs[3]:
             st.session_state['current_delete_mode'] = delete_mode
             
         st.rerun()
-        # ----------------------------------------------------
         
-    # ----------------------------------------------------
-    # UI表示ロジック
-    # ----------------------------------------------------
+    # UI表示
     if not st.session_state['dup_df'].empty:
         dup_df = st.session_state['dup_df']
         current_mode = st.session_state.get('current_delete_mode', "手動で選択して削除")
@@ -929,9 +926,6 @@ with tabs[3]:
 
         service = st.session_state['calendar_service']
 
-        # ==============================
-        # 🧩 手動削除モード
-        # ==============================
         if current_mode == "手動で選択して削除":
             delete_ids = st.multiselect(
                 "削除するイベントを選択してください（イベントIDで指定）",
@@ -963,10 +957,6 @@ with tabs[3]:
                 st.session_state['dup_df'] = pd.DataFrame() 
                 st.rerun()
 
-
-        # ==============================
-        # 🧩 自動削除モード
-        # ==============================
         else:
             auto_delete_ids = st.session_state['auto_delete_ids']
             
@@ -999,13 +989,26 @@ with tabs[3]:
 
                     st.session_state['dup_df'] = pd.DataFrame() 
                     st.rerun()
-        
-with tabs[4]:  # tabs[4]は新しいタブに対応
+
+# ==================================================
+# 5) 出力タブ
+# ==================================================
+with tabs[4]:
     st.subheader("カレンダーイベントをExcelに出力")
     if 'editable_calendar_options' not in st.session_state or not st.session_state['editable_calendar_options']:
         st.error("利用可能なカレンダーが見つかりません。")
     else:
-        selected_calendar_name_export = st.selectbox("出力対象カレンダーを選択", list(st.session_state['editable_calendar_options'].keys()), key="export_calendar_select")
+        calendar_names = list(st.session_state['editable_calendar_options'].keys())
+        default_index_export = get_default_calendar_index(calendar_names, user_id, tab_key="export")
+
+        selected_calendar_name_export = st.selectbox(
+            "出力対象カレンダーを選択",
+            calendar_names,
+            index=default_index_export,
+            key="export_calendar_select"
+        )
+        record_calendar_selection(selected_calendar_name_export, user_id, tab_key="export")
+
         calendar_id_export = st.session_state['editable_calendar_options'][selected_calendar_name_export]
         
         st.subheader("🗓️ 出力期間の選択")
@@ -1035,8 +1038,6 @@ with tabs[4]:  # tabs[4]は新しいタブに対応
                             st.info("指定期間内にイベントは見つかりませんでした。")
                         else:
                             extracted_data = []
-                            
-                            # 正規表現パターン定義 (最終版)
                             wonum_pattern = re.compile(r"\[作業指示書[：:]\s*(.*?)\]")
                             assetnum_pattern = re.compile(r"\[管理番号[：:]\s*(.*?)\]")
                             worktype_pattern = re.compile(r"\[作業タイプ[：:]\s*(.*?)\]")
@@ -1045,32 +1046,26 @@ with tabs[4]:  # tabs[4]は新しいタブに対応
                             for event in events_to_export:
                                 description_text = event.get('description', '')
                                 
-                                # 説明フィールドからの抽出
                                 wonum_match = wonum_pattern.search(description_text)
                                 assetnum_match = assetnum_pattern.search(description_text)
                                 worktype_match = worktype_pattern.search(description_text)
                                 title_match = title_pattern.search(description_text)
                                 
-                                # 抽出したグループ1 (値) の前後の空白を削除
                                 wonum = wonum_match.group(1).strip() if wonum_match else ""
                                 assetnum = assetnum_match.group(1).strip() if assetnum_match else ""
                                 worktype = worktype_match.group(1).strip() if worktype_match else ""
                                 
-                                # 🚨 DESCRIPTION (タイトル) の抽出ロジックを修正
                                 if title_match:
                                     description_val = title_match.group(1).strip()
                                 else:
-                                    # [タイトル: ...] が見つからなかった場合は空欄にする (ご要望通り)
                                     description_val = "" 
                                 
-                                # SCHEDSTART/SCHEDFINISHの処理（ISO 8601形式で出力）
                                 start_time_key = 'date' if 'date' in event.get('start', {}) else 'dateTime'
                                 end_time_key = 'date' if 'date' in event.get('end', {}) else 'dateTime'
                                 
                                 schedstart = event['start'].get(start_time_key, '')
                                 schedfinish = event['end'].get(end_time_key, '')
                                 
-                                # 'dateTime'形式の場合、タイムゾーン付きISO 8601形式 (+09:00) で再フォーマット
                                 if start_time_key == 'dateTime':
                                     try:
                                         dt_obj = datetime.fromisoformat(schedstart.replace('Z', '+00:00'))
@@ -1089,7 +1084,7 @@ with tabs[4]:  # tabs[4]は新しいタブに対応
                                 
                                 extracted_data.append({
                                     "WONUM": wonum,
-                                    "DESCRIPTION": description_val, # 抽出したタイトルまたは空欄
+                                    "DESCRIPTION": description_val,
                                     "ASSETNUM": assetnum,
                                     "WORKTYPE": worktype,
                                     "SCHEDSTART": schedstart,
@@ -1102,7 +1097,6 @@ with tabs[4]:  # tabs[4]は新しいタブに対応
                             output_df = pd.DataFrame(extracted_data)
                             st.dataframe(output_df)
                             
-                            # ダウンロードボタン
                             if export_format == "CSV":
                                 csv_buffer = output_df.to_csv(index=False).encode('utf-8-sig') 
                                 st.download_button(
@@ -1128,14 +1122,31 @@ with tabs[4]:  # tabs[4]は新しいタブに対応
                     
                     except Exception as e:
                         st.error(f"イベントの読み込み中にエラーが発生しました: {e}")
-                        
+
+# ==================================================
+# サイドバー
+# ==================================================
 with st.sidebar:
-    # ユーザー設定管理
+    # 🔗 共有設定（サイドバーの最上部に配置）
+    st.header("🔗 カレンダー選択の共有")
+    prev_share = st.session_state.get('share_calendar_selection_across_tabs', True)
+    share_calendar = st.checkbox(
+        "カレンダー選択をタブ間で共有する",
+        value=prev_share,
+        help="ON: 登録で選んだカレンダーが他タブに自動反映 / OFF: 各タブごとに独立して記憶"
+    )
+    # 値の変化を検知して保存＆即時反映（自動rerun）
+    if share_calendar != prev_share:
+        st.session_state['share_calendar_selection_across_tabs'] = share_calendar
+        set_user_setting(user_id, 'share_calendar_selection_across_tabs', share_calendar)
+        save_user_setting_to_firestore(user_id, 'share_calendar_selection_across_tabs', share_calendar)
+        st.success("共有設定を保存しました（表示を更新します）")
+        st.rerun()
+
     st.header("⚙️ ユーザー設定")
     with st.expander("デフォルト設定の管理", expanded=False):
         st.subheader("📅 カレンダー設定")
         
-        # デフォルトカレンダーの設定
         if st.session_state.get('editable_calendar_options'):
             calendar_options = list(st.session_state['editable_calendar_options'].keys())
             saved_calendar = get_user_setting(user_id, 'selected_calendar_name')
@@ -1146,11 +1157,11 @@ with st.sidebar:
                 default_cal_index = 0
             
             default_calendar = st.selectbox(
-                "デフォルトカレンダー",
+                "デフォルトカレンダー（共有ON時の基準）",
                 calendar_options,
                 index=default_cal_index,
                 key="sidebar_default_calendar",
-                help="イベント登録時に最初から選択されるカレンダー"
+                help="共有ON時、各タブの初期表示に使われます"
             )
             
             # 非公開設定
@@ -1202,39 +1213,35 @@ with st.sidebar:
         
         with col2:
             if st.button("🔄 リセット", use_container_width=True):
-                # デフォルト設定をクリア
                 set_user_setting(user_id, 'default_private_event', None)
                 set_user_setting(user_id, 'default_allday_event', None)
                 set_user_setting(user_id, 'default_create_todo', None)
-                
                 save_user_setting_to_firestore(user_id, 'default_private_event', None)
                 save_user_setting_to_firestore(user_id, 'default_allday_event', None)
                 save_user_setting_to_firestore(user_id, 'default_create_todo', None)
-                
                 st.info("🔄 設定をリセットしました")
                 st.rerun()
         
-        # 現在の保存済み設定の表示
         st.divider()
         st.caption("📋 保存済み設定一覧")
         all_settings = get_all_user_settings(user_id)
         if all_settings:
             settings_to_display = {
-                'selected_calendar_name': 'デフォルトカレンダー',
+                'selected_calendar_name': 'デフォルトカレンダー（共有ON時）',
                 'description_columns_selected': '説明欄の列',
                 'event_name_col_selected': 'イベント名の列',
                 'add_task_type_to_event_name': '作業タイプ追加',
                 'create_todo_checkbox_state': 'ToDo作成',
                 'default_private_event': '非公開設定',
                 'default_allday_event': '終日イベント',
-                'default_create_todo': 'デフォルトToDo'
+                'default_create_todo': 'デフォルトToDo',
+                'share_calendar_selection_across_tabs': 'タブ間共有'
             }
-            
             for key, label in settings_to_display.items():
                 if key in all_settings and all_settings[key] is not None:
                     value = all_settings[key]
                     if isinstance(value, bool):
-                        value = "✅" if value else "❌"
+                        value = "✅ 共有ON" if key == 'share_calendar_selection_across_tabs' and value else ("❌ 共有OFF" if key == 'share_calendar_selection_across_tabs' else ("✅" if value else "❌"))
                     elif isinstance(value, list):
                         value = f"{len(value)}項目"
                     st.text(f"• {label}: {value}")
@@ -1268,7 +1275,7 @@ with st.sidebar:
     
     st.divider()
     
-    # 統計情報（一番下に移動）
+    # 統計情報
     st.header("📊 統計情報")
     uploaded_count = len(st.session_state.get('uploaded_files', []))
     st.metric("アップロード済みファイル", uploaded_count)
