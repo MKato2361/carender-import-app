@@ -411,7 +411,7 @@ with tabs[1]:
             # 前回の設定がリストにない場合（カレンダーが削除されたなど）、最初の項目をデフォルトとする
             default_index = 0
             
-       selected_calendar_name = st.selectbox(
+           selected_calendar_name = st.selectbox(
             "登録先カレンダーを選択",
             calendar_options,
             index=default_index,  # 👈 デフォルトインデックスを適用
