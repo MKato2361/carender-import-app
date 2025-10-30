@@ -1248,7 +1248,7 @@ with st.sidebar:
         st.caption("📋 保存済み設定一覧")
         all_settings = get_all_user_settings(user_id)
         if all_settings:
-        settings_to_display = {
+            settings_to_display = {
                 'selected_calendar_name': 'デフォルトカレンダー',
                 'description_columns_selected': '説明欄の列',
                 'event_name_col_selected': 'イベント名の列',
