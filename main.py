@@ -1,6 +1,22 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime, date, timedelta, timezone
+import streamlit as st
+from pathlib import Path
+
+# ページ設定（任意）
+st.set_page_config(page_title="My App", layout="wide")
+
+# ===== CSS 読み込み =====
+def load_css():
+    css_path = Path("global_theme.css")
+    if css_path.exists():
+        st.markdown(f"<style>{css_path.read_text()}</style>", unsafe_allow_html=True)
+    else:
+        st.warning("⚠️ CSSファイルが見つかりません: global_theme.css")
+
+load_css()
+
 import re
 from excel_parser import (
     process_excel_data_for_calendar,
