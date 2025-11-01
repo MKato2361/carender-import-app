@@ -489,9 +489,11 @@ with tabs[1]:
 
                     worksheet_to_event: Dict[str, dict] = {}
                     for event in events or []:
-                        wid = extract_worksheet_id_from_description(event.get("description") or "")
+                        wid = extract_worksheet_id_from_text(event.get("description") or "")
+                        
                         if wid:
                             worksheet_to_event[wid] = event
+
 
                     total = len(df)
                     for i, row in df.iterrows():
