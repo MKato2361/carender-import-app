@@ -505,21 +505,22 @@ with tabs[1]:
                     total = len(df)
                     for i, row in df.iterrows():
                         desc_text = safe_get(row, "Description", "")
-                        worksheet_id = extract_worksheet_id_from_description(desc_text)
-
+                        worksheet_id = extract_worksheet_id_from_text(desc_text)
+                        
                         all_day_flag  = safe_get(row, "All Day Event", "True")
                         private_flag  = safe_get(row, "Private", "True")
                         start_date_str = safe_get(row, "Start Date", "")
                         end_date_str   = safe_get(row, "End Date", "")
                         start_time_str = safe_get(row, "Start Time", "")
                         end_time_str   = safe_get(row, "End Time", "")
-
+                        
                         event_data = {
                             "summary":   safe_get(row, "Subject", ""),
-                            "location":  safe_get(row, "Location", ""),  # ← 比較対象外だが保存はする
+                            "location":  safe_get(row, "Location", ""),  # 保存はするが比較対象外
                             "description": desc_text,
                             "transparency": "transparent" if private_flag == "True" else "opaque",
                         }
+
 
                         try:
                             if all_day_flag == "True":
