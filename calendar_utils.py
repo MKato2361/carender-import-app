@@ -224,7 +224,6 @@ def update_event_if_needed(service, calendar_id, event_id, new_event_data):
 
             # --- 更新ログ（簡潔型） ---
             summary = new_event_data.get("summary") or "(無題)"
-            st.info(f"更新: {summary}")
 
             return updated_event
 
