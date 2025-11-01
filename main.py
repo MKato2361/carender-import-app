@@ -18,6 +18,12 @@ import streamlit as st
 from firebase_admin import firestore
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
+from worksheet_parser import (
+    extract_worksheet_id_from_description,
+    parse_description_fields,
+    is_event_changed,
+    RE_WONUM, RE_ASSETNUM, RE_WORKTYPE, RE_TITLE,  # 既存箇所で直接使うなら
+)
 
 # ---- アプリ固有モジュール ----
 from excel_parser import (
