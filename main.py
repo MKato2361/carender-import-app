@@ -722,11 +722,12 @@ with tabs[3]:
 
         st.success(f"{len(events)} 件のイベントを取得しました。")
 
+        from worksheet_parser import extract_worksheet_id_from_description
+        
         rows = []
         for e in events:
             desc = (e.get("description") or "").strip()
-            m = RE_WORKSHEET_ID.search(desc)
-            worksheet_id = normalize_worksheet_id(m.group(1)) if m else None
+            worksheet_id = extract_worksheet_id_from_description(desc)
             start_time = e["start"].get("dateTime", e["start"].get("date"))
             end_time   = e["end"].get("dateTime", e["end"].get("date"))
             rows.append({
@@ -737,6 +738,7 @@ with tabs[3]:
                 "start": start_time,
                 "end": end_time,
             })
+
 
         df = pd.DataFrame(rows)
         df_valid = df[df["worksheet_id"].notna()].copy()
