@@ -161,18 +161,83 @@ def fetch_all_events(service, calendar_id, time_min=None, time_max=None):
         st.error(f"イベント取得失敗: {e}")
     return []
 
-def update_event_if_needed(service, calendar_id, event_id, updated_event_data):
+def update_event_if_needed(service, calendar_id, event_id, new_event_data):
+    """
+    既存イベントと new_event_data を比較し、差分がある場合のみ Google Calendar を更新する。
+
+    比較対象:
+      - summary（タイトル）
+      - description（説明）
+      - start（終日/時間指定/タイムゾーン含め厳密比較）
+      - end（終日/時間指定/タイムゾーン含め厳密比較）
+      - transparency（公開/非公開設定）
+      - recurrence（繰り返し設定があれば）
+
+    ※ Location（場所）は比較対象外（あなたの要望）
+    ※ 差分がある場合のみ update API を実行し、更新ログを st.info で表示
+    """
     try:
         existing_event = service.events().get(calendarId=calendar_id, eventId=event_id).execute()
-        needs_update = any(existing_event.get(k) != v for k, v in updated_event_data.items())
+
+        # ===== 差分判定 =====
+        def normalize(val):
+            return val or ""
+
+        # 1) summary
+        if normalize(existing_event.get("summary")) != normalize(new_event_data.get("summary")):
+            needs_update = True
+        # 2) description
+        elif normalize(existing_event.get("description")) != normalize(new_event_data.get("description")):
+            needs_update = True
+        else:
+            needs_update = False
+
+        # 3) transparency（非公開/公開）
+        if not needs_update:
+            if normalize(existing_event.get("transparency")) != normalize(new_event_data.get("transparency")):
+                needs_update = True
+
+        # 4) recurrence（繰り返し設定）
+        if not needs_update:
+            existing_recur = existing_event.get("recurrence") or []
+            new_recur = new_event_data.get("recurrence") or []
+            if existing_recur != new_recur:
+                needs_update = True
+
+        # 5) start
+        if not needs_update:
+            if (existing_event.get("start") or {}) != (new_event_data.get("start") or {}):
+                needs_update = True
+
+        # 6) end
+        if not needs_update:
+            if (existing_event.get("end") or {}) != (new_event_data.get("end") or {}):
+                needs_update = True
+
+        # ===== 更新実行 or スキップ =====
         if needs_update:
-            return service.events().update(calendarId=calendar_id, eventId=event_id, body=updated_event_data).execute()
+            updated_event = service.events().update(
+                calendarId=calendar_id,
+                eventId=event_id,
+                body=new_event_data
+            ).execute()
+
+            # --- 更新ログ（簡潔型） ---
+            summary = new_event_data.get("summary") or "(無題)"
+            st.info(f"更新: {summary}")
+
+            return updated_event
+
+        # 差分なし → 更新不要
         return existing_event
+
     except HttpError as e:
         st.error(f"イベント更新失敗 (HTTPエラー): {e}")
     except Exception as e:
         st.error(f"イベント更新失敗: {e}")
+
     return None
+
 
 def delete_event_from_calendar(service, calendar_id, event_id):
     try:
