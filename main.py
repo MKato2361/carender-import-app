@@ -151,14 +151,6 @@ def default_fetch_window_years(years: int = 2) -> Tuple[str, str]:
     now_utc = datetime.now(timezone.utc)
     return (now_utc - timedelta(days=365 * years)).isoformat(), (now_utc + timedelta(days=365 * years)).isoformat()
 
-def safe_get(row: pd.Series, key: str, default: str = "") -> str:
-    try:
-        val = row.get(key, default)
-    except Exception:
-        return default
-    if pd.isna(val):
-        return default
-    return val
 
 def build_calendar_service(creds):
     try:
