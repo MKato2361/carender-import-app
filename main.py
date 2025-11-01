@@ -1,11 +1,6 @@
 # -*- coding: utf-8 -*-
-# main_refactored_fixed.py (Step1 S2: Standard-safety light refactor for Python 3.11)
-#
-# ポリシー:
-# - 現行機能の挙動は維持（安全重視）
-# - 例外/欠損の軽量ガードを追加しつつ、性能はほぼ維持
-# - 既存モジュールのインターフェースは変更しない
-
+# main.py — 完成版（差分更新 + 集計 + 最小ログ）
+# Python 3.11 / Streamlit
 from __future__ import annotations
 
 import re
@@ -21,7 +16,7 @@ from firebase_admin import firestore
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
-# ---- アプリ固有モジュール (契約は変更しない) ----
+# ---- アプリ固有モジュール ----
 from excel_parser import (
     process_excel_data_for_calendar,
     _load_and_merge_dataframes,
@@ -33,7 +28,7 @@ from calendar_utils import (
     authenticate_google,
     add_event_to_calendar,
     fetch_all_events,
-    update_event_if_needed,
+    update_event_if_needed,   # ← calendar_utils.py を差分版に差し替え済み
     build_tasks_service,
     add_task_to_todo_list,
     find_and_delete_tasks_by_event_id,
@@ -48,21 +43,16 @@ from session_utils import (
 )
 
 # ==================================================
-# 0) 事前設定 / スタイル
+# 0) スタイル
 # ==================================================
-
 st.set_page_config(page_title="Googleカレンダー一括イベント登録・削除", layout="wide")
 
-
 def load_custom_css() -> None:
-    """存在すればカスタムCSSを読み込み"""
     try:
         with open("custom_sidebar.css", "r", encoding="utf-8") as f:
             st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
     except FileNotFoundError:
-        # ファイルがない環境もあるため、警告は抑制
         pass
-
 
 load_custom_css()
 
@@ -82,14 +72,10 @@ div[data-testid="stTabs"] { position: sticky; top: 42px; z-index: 15; background
     backdrop-filter: blur(6px); }
 .block-container, section[data-testid="stMainBlockContainer"], main {
     padding-top: 0 !important; padding-bottom: 0 !important; margin-bottom: 0 !important;
-    height: auto !important; min-height: 100vh !important; overflow: visible !important; }
-footer, div[data-testid="stBottomBlockContainer"] { display: none !important; height: 0 !important; margin: 0 !重要; padding: 0 !important; }
-html, body, #root { height: auto !important; min-height: 100% !important; margin: 0 !重要; padding: 0 !重要;
+    height: auto !important; min-height: 100vh !重要; overflow: visible !重要; }
+footer, div[data-testid="stBottomBlockContainer"] { display: none !重要; height: 0 !重要; margin: 0 !重要; padding: 0 !重要; }
+html, body, #root { height: auto !重要; min-height: 100% !重要; margin: 0 !重要; padding: 0 !重要;
     overflow-x: hidden !重要; overflow-y: auto !重要; overscroll-behavior: none !重要; -webkit-overflow-scrolling: touch !重要; }
-div[data-testid="stVerticalBlock"] > div:last-child { margin-bottom: 0 !重要; padding-bottom: 0 !重要; }
-@supports (-webkit-touch-callout: none) {
-    .header-bar, div[data-testid="stTabs"] { position: static !重要; top: auto !重要; }
-}
 </style>
 <div class="header-bar">📅 Googleカレンダー一括イベント登録・削除</div>
 """,
@@ -97,26 +83,25 @@ div[data-testid="stVerticalBlock"] > div:last-child { margin-bottom: 0 !重要; 
 )
 
 # ==================================================
-# 1) 共通ユーティリティ (軽量化 & 再利用)
+# 1) 共通ユーティリティ
 # ==================================================
-
 JST = timezone(timedelta(hours=9))
 
-# 事前コンパイル (ループで使用)
+# 正規表現（事前コンパイル）
 RE_WORKSHEET_ID = re.compile(r"\[作業指示書[：:]\s*([0-9０-９]+)\]")
-RE_WONUM = re.compile(r"\[作業指示書[：:]\s*(.*?)\]")
-RE_ASSETNUM = re.compile(r"\[管理番号[：:]\s*(.*?)\]")
-RE_WORKTYPE = re.compile(r"\[作業タイプ[：:]\s*(.*?)\]")
-RE_TITLE = re.compile(r"\[タイトル[：:]\s*(.*?)\]")
+RE_WONUM      = re.compile(r"\[作業指示書[：:]\s*(.*?)\]")
+RE_ASSETNUM   = re.compile(r"\[管理番号[：:]\s*(.*?)\]")
+RE_WORKTYPE   = re.compile(r"\[作業タイプ[：:]\s*(.*?)\]")
+RE_TITLE      = re.compile(r"\[タイトル[：:]\s*(.*?)\]")
 
-# === Step3: 差分更新ユーティリティ =====================================
+# --- 差分更新ユーティリティ ---
+def normalize_worksheet_id(s: Optional[str]) -> Optional[str]:
+    if not s:
+        return s
+    return unicodedata.normalize("NFKC", s).strip()
 
 def extract_worksheet_id_from_description(desc: str) -> str | None:
-    """
-    Description内の [作業指示書: 123456] からIDを抽出し、全角→半角に正規化して返す。
-    見つからなければ None。
-    ※ 既存の RE_WORKSHEET_ID と normalize_worksheet_id を活用
-    """
+    """Description内の [作業指示書: 123456] からIDを抽出（全角→半角）"""
     if not desc:
         return None
     m = RE_WORKSHEET_ID.search(desc)
@@ -124,73 +109,65 @@ def extract_worksheet_id_from_description(desc: str) -> str | None:
         return None
     return normalize_worksheet_id(m.group(1))
 
-
 def is_event_changed(existing_event: dict, new_event_data: dict) -> bool:
     """
-    1) タイトル(summary)
-    2) 日付/時刻(start)
-    3) 日付/時刻(end)
-    4) 説明(description)
-    のいずれかに差分があれば True（更新必要）、完全一致なら False。
+    1) summary（タイトル）
+    2) start（終日/時間/TimeZone含む）
+    3) end   （終日/時間/TimeZone含む）
+    4) description（説明）
+    5) transparency（非公開/公開）
+    ※ Location は比較しない
     """
-    # 1) Summary（タイトル）
-    if (existing_event.get("summary") or "") != (new_event_data.get("summary") or ""):
+    nz = lambda v: (v or "")
+    # 1) summary
+    if nz(existing_event.get("summary")) != nz(new_event_data.get("summary")):
         return True
-
-    # 4) Description（説明）
-    if (existing_event.get("description") or "") != (new_event_data.get("description") or ""):
+    # 4) description
+    if nz(existing_event.get("description")) != nz(new_event_data.get("description")):
         return True
-
-    # 2) 3) 日付・時刻（start / end）比較
-    #   Google APIの仕様上、終日は {"date": "..."}、時間ありは {"dateTime": "...", "timeZone": "..."}
-    #   なので dict 比較でOK。（キーの有無含めて完全一致を判定）
+    # 5) transparency
+    if nz(existing_event.get("transparency")) != nz(new_event_data.get("transparency")):
+        return True
+    # 2) start
     if (existing_event.get("start") or {}) != (new_event_data.get("start") or {}):
         return True
+    # 3) end
     if (existing_event.get("end") or {}) != (new_event_data.get("end") or {}):
         return True
-
     return False
-# === /Step3: 差分更新ユーティリティ =====================================
-
-
 
 def to_utc_range(d1: date, d2: date) -> Tuple[str, str]:
-    """日付範囲から Google Calendar API で使うUTCのISO文字列を生成"""
     start_dt_utc = datetime.combine(d1, datetime.min.time(), tzinfo=JST).astimezone(timezone.utc)
-    end_dt_utc = datetime.combine(d2, datetime.max.time(), tzinfo=JST).astimezone(timezone.utc)
+    end_dt_utc   = datetime.combine(d2, datetime.max.time(), tzinfo=JST).astimezone(timezone.utc)
     return (
         start_dt_utc.isoformat(timespec="microseconds").replace("+00:00", "Z"),
         end_dt_utc.isoformat(timespec="microseconds").replace("+00:00", "Z"),
     )
 
-
 def default_fetch_window_years(years: int = 2) -> Tuple[str, str]:
     now_utc = datetime.now(timezone.utc)
     return (now_utc - timedelta(days=365 * years)).isoformat(), (now_utc + timedelta(days=365 * years)).isoformat()
 
-
-def normalize_worksheet_id(s: Optional[str]) -> Optional[str]:
-    if not s:
-        return s
-    return unicodedata.normalize("NFKC", s).strip()
-
+def safe_get(row: pd.Series, key: str, default: str = "") -> str:
+    try:
+        val = row.get(key, default)
+    except Exception:
+        return default
+    if pd.isna(val):
+        return default
+    return val
 
 def build_calendar_service(creds):
     try:
         service = build("calendar", "v3", credentials=creds)
         calendar_list = service.calendarList().list().execute()
-        editable = {
-            cal["summary"]: cal["id"]
-            for cal in calendar_list.get("items", [])
-            if cal.get("accessRole") != "reader"
-        }
+        editable = {cal["summary"]: cal["id"] for cal in calendar_list.get("items", []) if cal.get("accessRole") != "reader"}
         return service, editable
     except HttpError as e:
         st.error(f"カレンダーサービスの初期化に失敗しました (HTTP): {e}")
     except Exception as e:
         st.error(f"カレンダーサービスの初期化に失敗しました: {e}")
     return None, None
-
 
 def build_tasks_service_safe(creds):
     try:
@@ -212,7 +189,6 @@ def build_tasks_service_safe(creds):
         st.warning(f"Google ToDoリストサービスの初期化に失敗しました: {e}")
     return None, None
 
-
 def ensure_services(creds):
     if "calendar_service" not in st.session_state or not st.session_state["calendar_service"]:
         service, editable = build_calendar_service(creds)
@@ -221,32 +197,17 @@ def ensure_services(creds):
             st.stop()
         st.session_state["calendar_service"] = service
         st.session_state["editable_calendar_options"] = editable
-
     if "tasks_service" not in st.session_state or not st.session_state.get("tasks_service"):
         tasks_service, default_task_list_id = build_tasks_service_safe(creds)
         st.session_state["tasks_service"] = tasks_service
         st.session_state["default_task_list_id"] = default_task_list_id
         if not tasks_service:
             st.info("ToDoリスト機能は利用できませんが、カレンダー機能は引き続き使用できます。")
-
     return st.session_state["calendar_service"], st.session_state["editable_calendar_options"]
-
-
-def safe_get(row: pd.Series, key: str, default: str = "") -> str:
-    """Seriesから安全に値を取得（NaN→default, None→default, 文字列化は呼び出し側）"""
-    try:
-        val = row.get(key, default)
-    except Exception:
-        return default
-    if pd.isna(val):
-        return default
-    return val
-
 
 # ==================================================
 # 2) Firebase 認証
 # ==================================================
-
 if not initialize_firebase():
     st.error("Firebaseの初期化に失敗しました。")
     st.stop()
@@ -257,7 +218,6 @@ if not user_id:
     firebase_auth_form()
     st.stop()
 
-
 def load_user_settings_from_firestore(user_id: str) -> None:
     if not user_id:
         return
@@ -267,7 +227,6 @@ def load_user_settings_from_firestore(user_id: str) -> None:
         for key, value in doc.to_dict().items():
             set_user_setting(user_id, key, value)
 
-
 def save_user_setting_to_firestore(user_id: str, setting_key: str, setting_value) -> None:
     if not user_id:
         return
@@ -276,13 +235,11 @@ def save_user_setting_to_firestore(user_id: str, setting_key: str, setting_value
     except Exception as e:
         st.error(f"設定の保存に失敗しました: {e}")
 
-
 load_user_settings_from_firestore(user_id)
 
 # ==================================================
 # 3) Google 認証
 # ==================================================
-
 google_auth_placeholder = st.empty()
 with google_auth_placeholder.container():
     st.subheader("🔐 Googleカレンダー認証")
@@ -296,19 +253,16 @@ with google_auth_placeholder.container():
 service, editable_calendar_options = ensure_services(creds)
 
 # ==================================================
-# 4) UI 構成 (Tabs)
+# 4) UI（Tabs）
 # ==================================================
-
 st.markdown('<div class="fixed-tabs">', unsafe_allow_html=True)
-tabs = st.tabs(
-    [
-        "1. ファイルのアップロード",
-        "2. イベントの登録",
-        "3. イベントの削除",
-        "4. 重複イベントの検出・削除",
-        "5. イベントのExcel出力",
-    ]
-)
+tabs = st.tabs([
+    "1. ファイルのアップロード",
+    "2. イベントの登録",
+    "3. イベントの削除",
+    "4. 重複イベントの検出・削除",
+    "5. イベントのExcel出力",
+])
 st.markdown("</div>", unsafe_allow_html=True)
 
 if "uploaded_files" not in st.session_state:
@@ -317,22 +271,17 @@ if "uploaded_files" not in st.session_state:
     st.session_state["merged_df_for_selector"] = pd.DataFrame()
 
 # ==================================================
-# 5) タブ: 1. ファイルのアップロード
+# 5) タブ1: ファイルのアップロード
 # ==================================================
-
 with tabs[0]:
     st.subheader("ファイルをアップロード")
     with st.expander("ℹ️作業手順と補足"):
         st.info(
             """
 **☀作業指示書一覧をアップロードすると管理番号+物件名をイベント名として任意のカレンダーに登録します。**
-
-**☀イベントの説明欄に含めたい情報はドロップダウンリストから選択してください。（複数選択可能,次回から同じ項目が選択されます）**
-
+**☀イベントの説明欄に含めたい情報はドロップダウンリストから選択してください。（複数選択可,次回から同じ項目が選択されます）**
 **☀イベントに住所を追加したい場合は、物件一覧のファイルを作業指示書一覧と一緒にアップロードしてください。**
-
 **☀作業外予定の一覧をアップロードすると、イベント名を選択することができます。**
-
 **☀ToDoリストを作成すると、点検通知のリマインドが可能です（ToDoとしてイベント登録されます）**
 """
         )
@@ -383,13 +332,11 @@ with tabs[0]:
         st.subheader("📄 処理対象ファイル一覧")
         for f in st.session_state["uploaded_files"]:
             st.write(f"- {getattr(f, 'name', '不明な名前のファイル')}")
-
         if not st.session_state["merged_df_for_selector"].empty:
             st.info(
                 f"📊 データ列数: {len(st.session_state['merged_df_for_selector'].columns)}、"
                 f"行数: {len(st.session_state['merged_df_for_selector'])}"
             )
-
         if st.button("🗑️ アップロード済みファイルをクリア", help="選択中のファイルとデータを削除します。"):
             st.session_state["uploaded_files"] = []
             st.session_state["merged_df_for_selector"] = pd.DataFrame()
@@ -398,9 +345,8 @@ with tabs[0]:
             st.rerun()
 
 # ==================================================
-# 6) タブ: 2. イベントの登録・更新
+# 6) タブ2: イベントの登録・更新（差分更新＋集計）
 # ==================================================
-
 with tabs[1]:
     st.subheader("イベントを登録・更新")
 
@@ -446,7 +392,6 @@ with tabs[1]:
         with st.expander("📝 イベント設定", expanded=expand_event_setting):
             all_day_event_override = st.checkbox("終日イベントとして登録", value=False)
             private_event = st.checkbox("非公開イベントとして登録", value=True)
-
             default_selection = [col for col in saved_description_cols if col in description_columns_pool]
             description_columns = st.multiselect(
                 "説明欄に含める列（複数選択可）",
@@ -463,7 +408,6 @@ with tabs[1]:
                 value=bool(saved_task_type_flag),
                 key=f"add_task_type_checkbox_{user_id}",
             )
-
             if not (has_mng_data and has_name_data):
                 available_event_name_cols = get_available_columns_for_event_name(
                     st.session_state["merged_df_for_selector"]
@@ -473,7 +417,6 @@ with tabs[1]:
                     name_index = event_name_options.index(selected_event_name_col) if selected_event_name_col else 0
                 except Exception:
                     name_index = 0
-
                 selected_event_name_col = st.selectbox(
                     "イベント名として使用する代替列を選択してください:",
                     options=event_name_options,
@@ -492,7 +435,6 @@ with tabs[1]:
                 value=bool(saved_create_todo_flag),
                 key="create_todo_checkbox",
             )
-
             set_user_setting(user_id, "create_todo_checkbox_state", create_todo)
             save_user_setting_to_firestore(user_id, "create_todo_checkbox_state", create_todo)
 
@@ -509,7 +451,6 @@ with tabs[1]:
                 disabled=not create_todo,
                 key="deadline_offset_select",
             )
-
             custom_offset_days = None
             if selected_offset_key == "カスタム日数前":
                 custom_offset_days = st.number_input(
@@ -549,55 +490,53 @@ with tabs[1]:
                 else:
                     st.info(f"{len(df)} 件のイベントを処理します。")
                     progress = st.progress(0)
-                    successful_operations = 0
 
+                    # 集計カウンタ
+                    added_count = 0
+                    updated_count = 0
+                    skipped_count = 0
+
+                    # 既存イベント（期間=±2年）取得 → {worksheet_id: event}
                     time_min, time_max = default_fetch_window_years(2)
                     with st.spinner("既存イベントを取得中..."):
                         events = fetch_all_events(service, calendar_id, time_min, time_max)
 
                     worksheet_to_event: Dict[str, dict] = {}
                     for event in events or []:
-                        desc = event.get("description", "") or ""
-                        m = RE_WORKSHEET_ID.search(desc)
-                        if m:
-                            wid = normalize_worksheet_id(m.group(1))
-                            if wid:
-                                worksheet_to_event[wid] = event
+                        wid = extract_worksheet_id_from_description(event.get("description") or "")
+                        if wid:
+                            worksheet_to_event[wid] = event
 
                     total = len(df)
                     for i, row in df.iterrows():
                         desc_text = safe_get(row, "Description", "")
-                        m = RE_WORKSHEET_ID.search(desc_text)
-                        worksheet_id = normalize_worksheet_id(m.group(1)) if m else None
+                        worksheet_id = extract_worksheet_id_from_description(desc_text)
 
-                        # 軽量ガード
-                        all_day_flag = safe_get(row, "All Day Event", "True")
-                        private_flag = safe_get(row, "Private", "True")
+                        all_day_flag  = safe_get(row, "All Day Event", "True")
+                        private_flag  = safe_get(row, "Private", "True")
                         start_date_str = safe_get(row, "Start Date", "")
-                        end_date_str = safe_get(row, "End Date", "")
+                        end_date_str   = safe_get(row, "End Date", "")
                         start_time_str = safe_get(row, "Start Time", "")
-                        end_time_str = safe_get(row, "End Time", "")
+                        end_time_str   = safe_get(row, "End Time", "")
 
                         event_data = {
-                            "summary": safe_get(row, "Subject", ""),
-                            "location": safe_get(row, "Location", ""),
+                            "summary":   safe_get(row, "Subject", ""),
+                            "location":  safe_get(row, "Location", ""),  # ← 比較対象外だが保存はする
                             "description": desc_text,
                             "transparency": "transparent" if private_flag == "True" else "opaque",
                         }
 
                         try:
                             if all_day_flag == "True":
-                                # 必須: Start/End Date
-                                start_date_obj = datetime.strptime(start_date_str, "%Y/%m/%d").date()
-                                end_date_obj = datetime.strptime(end_date_str, "%Y/%m/%d").date()
-                                event_data["start"] = {"date": start_date_obj.strftime("%Y-%m-%d")}
-                                event_data["end"] = {"date": (end_date_obj + timedelta(days=1)).strftime("%Y-%m-%d")}
+                                sd = datetime.strptime(start_date_str, "%Y/%m/%d").date()
+                                ed = datetime.strptime(end_date_str, "%Y/%m/%d").date()
+                                event_data["start"] = {"date": sd.strftime("%Y-%m-%d")}
+                                event_data["end"]   = {"date": (ed + timedelta(days=1)).strftime("%Y-%m-%d")}
                             else:
-                                # 必須: Start/End Date+Time
-                                start_dt_obj = datetime.strptime(f"{start_date_str} {start_time_str}", "%Y/%m/%d %H:%M").replace(tzinfo=JST)
-                                end_dt_obj = datetime.strptime(f"{end_date_str} {end_time_str}", "%Y/%m/%d %H:%M").replace(tzinfo=JST)
-                                event_data["start"] = {"dateTime": start_dt_obj.isoformat(), "timeZone": "Asia/Tokyo"}
-                                event_data["end"] = {"dateTime": end_dt_obj.isoformat(), "timeZone": "Asia/Tokyo"}
+                                sdt = datetime.strptime(f"{start_date_str} {start_time_str}", "%Y/%m/%d %H:%M").replace(tzinfo=JST)
+                                edt = datetime.strptime(f"{end_date_str} {end_time_str}", "%Y/%m/%d %H:%M").replace(tzinfo=JST)
+                                event_data["start"] = {"dateTime": sdt.isoformat(), "timeZone": "Asia/Tokyo"}
+                                event_data["end"]   = {"dateTime": edt.isoformat(), "timeZone": "Asia/Tokyo"}
                         except Exception as e:
                             st.error(f"行 {i} の日時パースに失敗しました: {e}")
                             progress.progress((i + 1) / total)
@@ -607,26 +546,28 @@ with tabs[1]:
 
                         try:
                             if existing_event:
-                                updated_event = update_event_if_needed(service, calendar_id, existing_event["id"], event_data)
-                                if updated_event:
-                                    successful_operations += 1
+                                # 事前に差分チェック → 差分あるときのみ更新 & カウント
+                                if is_event_changed(existing_event, event_data):
+                                    _ = update_event_if_needed(service, calendar_id, existing_event["id"], event_data)
+                                    updated_count += 1
+                                else:
+                                    skipped_count += 1
                             else:
                                 added_event = add_event_to_calendar(service, calendar_id, event_data)
                                 if added_event:
-                                    successful_operations += 1
+                                    added_count += 1
                                     if worksheet_id:
                                         worksheet_to_event[worksheet_id] = added_event
                         except Exception as e:
-                            st.error(f"イベント '{event_data.get('summary','(無題)')}' の登録または更新に失敗しました: {e}")
+                            st.error(f"イベント '{event_data.get('summary','(無題)')}' の登録/更新に失敗しました: {e}")
 
                         progress.progress((i + 1) / total)
 
-                    st.success(f"✅ {successful_operations} 件のイベントが処理されました。")
+                    st.success(f"✅ 登録: {added_count} / 🔧 更新: {updated_count} / ↪ スキップ: {skipped_count}")
 
 # ==================================================
-# 7) タブ: 3. イベントの削除
+# 7) タブ3: イベントの削除（仕様変更なし）
 # ==================================================
-
 with tabs[2]:
     st.subheader("イベントを削除")
 
@@ -634,35 +575,27 @@ with tabs[2]:
         st.error("削除可能なカレンダーが見つかりませんでした。Googleカレンダーの設定を確認してください。")
     else:
         calendar_names = list(editable_calendar_options.keys())
-
         default_index = 0
         saved_name = st.session_state.get("selected_calendar_name")
         if saved_name and saved_name in calendar_names:
             default_index = calendar_names.index(saved_name)
 
-        selected_calendar_name_del = st.selectbox(
-            "削除対象カレンダーを選択", calendar_names, index=default_index, key="del_calendar_select"
-        )
+        selected_calendar_name_del = st.selectbox("削除対象カレンダーを選択", calendar_names, index=default_index, key="del_calendar_select")
         st.session_state["selected_calendar_name"] = selected_calendar_name_del
-
         calendar_id_del = editable_calendar_options[selected_calendar_name_del]
 
         st.subheader("🗓️ 削除期間の選択")
         today_date = date.today()
         delete_start_date = st.date_input("削除開始日", value=today_date - timedelta(days=30))
-        delete_end_date = st.date_input("削除終了日", value=today_date)
-        delete_related_todos = st.checkbox(
-            "関連するToDoリストも削除する (イベント詳細にIDが記載されている場合)", value=False
-        )
+        delete_end_date   = st.date_input("削除終了日", value=today_date)
+        delete_related_todos = st.checkbox("関連するToDoリストも削除する (イベント詳細にIDが記載されている場合)", value=False)
 
         if delete_start_date > delete_end_date:
             st.error("削除開始日は終了日より前に設定してください。")
         else:
             st.subheader("🗑️ 削除実行")
-
             if "confirm_delete" not in st.session_state:
                 st.session_state["confirm_delete"] = False
-
             if not st.session_state["confirm_delete"]:
                 if st.button("選択期間のイベントを削除する", type="primary"):
                     st.session_state["confirm_delete"] = True
@@ -681,14 +614,20 @@ with tabs[2]:
 この操作は取り消せません。本当に削除しますか？
 """
                 )
-
                 col1, col2 = st.columns([1, 1])
+
+                def to_utc_range_btn(d1: date, d2: date):
+                    sdt = datetime.combine(d1, datetime.min.time(), tzinfo=JST).astimezone(timezone.utc)
+                    edt = datetime.combine(d2, datetime.max.time(), tzinfo=JST).astimezone(timezone.utc)
+                    return (
+                        sdt.isoformat(timespec="microseconds").replace("+00:00", "Z"),
+                        edt.isoformat(timespec="microseconds").replace("+00:00", "Z"),
+                    )
 
                 with col1:
                     if st.button("✅ 実行", type="primary", use_container_width=True):
                         st.session_state["confirm_delete"] = False
-
-                        time_min_utc, time_max_utc = to_utc_range(delete_start_date, delete_end_date)
+                        time_min_utc, time_max_utc = to_utc_range_btn(delete_start_date, delete_end_date)
                         events_to_delete = fetch_all_events(service, calendar_id_del, time_min_utc, time_max_utc)
 
                         if not events_to_delete:
@@ -705,25 +644,19 @@ with tabs[2]:
                             for i, event in enumerate(events_to_delete, start=1):
                                 event_summary = event.get("summary", "不明なイベント")
                                 event_id = event["id"]
-
                                 status_text.text(f"イベント '{event_summary}' を削除中... ({i}/{total_events})")
-
                                 try:
-                                    if delete_related_todos and st.session_state.get("tasks_service") and st.session_state.get(
-                                        "default_task_list_id"
-                                    ):
+                                    if delete_related_todos and st.session_state.get("tasks_service") and st.session_state.get("default_task_list_id"):
                                         deleted_task_count_for_event = find_and_delete_tasks_by_event_id(
                                             st.session_state["tasks_service"],
                                             st.session_state["default_task_list_id"],
                                             event_id,
                                         )
                                         deleted_todos_count += deleted_task_count_for_event
-
                                     service.events().delete(calendarId=calendar_id_del, eventId=event_id).execute()
                                     deleted_events_count += 1
                                 except Exception as e:
                                     st.error(f"イベント '{event_summary}' (ID: {event_id}) の削除に失敗しました: {e}")
-
                                 progress_bar.progress(i / total_events)
 
                             status_text.empty()
@@ -746,9 +679,8 @@ with tabs[2]:
                         st.rerun()
 
 # ==================================================
-# 8) タブ: 4. 重複イベントの検出・削除
+# 8) タブ4: 重複イベントの検出・削除（現行踏襲）
 # ==================================================
-
 with tabs[3]:
     st.subheader("🔍 重複イベントの検出・削除")
 
@@ -764,12 +696,7 @@ with tabs[3]:
     selected_calendar = st.selectbox("対象カレンダーを選択", calendar_options, key="dup_calendar_select")
     calendar_id = editable_calendar_options[selected_calendar]
 
-    delete_mode = st.radio(
-        "削除モードを選択",
-        ["手動で選択して削除", "古い方を自動削除", "新しい方を自動削除"],
-        horizontal=True,
-        key="dup_delete_mode",
-    )
+    delete_mode = st.radio("削除モードを選択", ["手動で選択して削除", "古い方を自動削除", "新しい方を自動削除"], horizontal=True, key="dup_delete_mode")
 
     if "dup_df" not in st.session_state:
         st.session_state["dup_df"] = pd.DataFrame()
@@ -806,26 +733,22 @@ with tabs[3]:
             m = RE_WORKSHEET_ID.search(desc)
             worksheet_id = normalize_worksheet_id(m.group(1)) if m else None
             start_time = e["start"].get("dateTime", e["start"].get("date"))
-            end_time = e["end"].get("dateTime", e["end"].get("date"))
-            rows.append(
-                {
-                    "id": e["id"],
-                    "summary": e.get("summary", ""),
-                    "worksheet_id": worksheet_id,
-                    "created": e.get("created"),
-                    "start": start_time,
-                    "end": end_time,
-                }
-            )
+            end_time   = e["end"].get("dateTime", e["end"].get("date"))
+            rows.append({
+                "id": e["id"],
+                "summary": e.get("summary", ""),
+                "worksheet_id": worksheet_id,
+                "created": e.get("created"),
+                "start": start_time,
+                "end": end_time,
+            })
 
         df = pd.DataFrame(rows)
         df_valid = df[df["worksheet_id"].notna()].copy()
-
         dup_mask = df_valid.duplicated(subset=["worksheet_id"], keep=False)
         dup_df = df_valid[dup_mask].sort_values(["worksheet_id", "created"])
 
         st.session_state["dup_df"] = dup_df
-
         if dup_df.empty:
             st.session_state["last_dup_message"] = ("info", "重複している作業指示書番号は見つかりませんでした。")
             st.session_state["auto_delete_ids"] = []
@@ -921,25 +844,21 @@ with tabs[3]:
                     st.rerun()
 
 # ==================================================
-# 9) タブ: 5. カレンダーイベントをExcel/CSVへ出力
+# 9) タブ5: カレンダーイベントをExcel/CSVへ出力
 # ==================================================
-
 with tabs[4]:
     st.subheader("カレンダーイベントをExcelに出力")
 
     if not editable_calendar_options:
         st.error("利用可能なカレンダーが見つかりません。")
     else:
-        selected_calendar_name_export = st.selectbox(
-            "出力対象カレンダーを選択", list(editable_calendar_options.keys()), key="export_calendar_select"
-        )
+        selected_calendar_name_export = st.selectbox("出力対象カレンダーを選択", list(editable_calendar_options.keys()), key="export_calendar_select")
         calendar_id_export = editable_calendar_options[selected_calendar_name_export]
 
         st.subheader("🗓️ 出力期間の選択")
         today_date_export = date.today()
         export_start_date = st.date_input("出力開始日", value=today_date_export - timedelta(days=30))
-        export_end_date = st.date_input("出力終了日", value=today_date_export)
-
+        export_end_date   = st.date_input("出力終了日", value=today_date_export)
         export_format = st.radio("出力形式を選択", ("CSV", "Excel"), index=0)
 
         if export_start_date > export_end_date:
@@ -955,14 +874,12 @@ with tabs[4]:
                             st.info("指定期間内にイベントは見つかりませんでした。")
                         else:
                             extracted_data: List[dict] = []
-
                             for event in events_to_export:
                                 description_text = event.get("description", "") or ""
-
-                                wonum_match = RE_WONUM.search(description_text)
-                                assetnum_match = RE_ASSETNUM.search(description_text)
-                                worktype_match = RE_WORKTYPE.search(description_text)
-                                title_match = RE_TITLE.search(description_text)
+                                wonum_match   = RE_WONUM.search(description_text)
+                                assetnum_match= RE_ASSETNUM.search(description_text)
+                                worktype_match= RE_WORKTYPE.search(description_text)
+                                title_match   = RE_TITLE.search(description_text)
 
                                 wonum = (wonum_match.group(1).strip() if wonum_match else "") or ""
                                 assetnum = (assetnum_match.group(1).strip() if assetnum_match else "") or ""
@@ -970,7 +887,7 @@ with tabs[4]:
                                 description_val = title_match.group(1).strip() if title_match else ""
 
                                 start_time = event["start"].get("dateTime") or event["start"].get("date") or ""
-                                end_time = event["end"].get("dateTime") or event["end"].get("date") or ""
+                                end_time   = event["end"].get("dateTime") or event["end"].get("date") or ""
 
                                 def to_jst_iso(s: str) -> str:
                                     try:
@@ -981,22 +898,20 @@ with tabs[4]:
                                         pass
                                     return s
 
-                                schedstart = to_jst_iso(start_time)
+                                schedstart  = to_jst_iso(start_time)
                                 schedfinish = to_jst_iso(end_time)
 
-                                extracted_data.append(
-                                    {
-                                        "WONUM": wonum,
-                                        "DESCRIPTION": description_val,
-                                        "ASSETNUM": assetnum,
-                                        "WORKTYPE": worktype,
-                                        "SCHEDSTART": schedstart,
-                                        "SCHEDFINISH": schedfinish,
-                                        "LEAD": "",
-                                        "JESSCHEDFIXED": "",
-                                        "SITEID": "JES",
-                                    }
-                                )
+                                extracted_data.append({
+                                    "WONUM": wonum,
+                                    "DESCRIPTION": description_val,
+                                    "ASSETNUM": assetnum,
+                                    "WORKTYPE": worktype,
+                                    "SCHEDSTART": schedstart,
+                                    "SCHEDFINISH": schedfinish,
+                                    "LEAD": "",
+                                    "JESSCHEDFIXED": "",
+                                    "SITEID": "JES",
+                                })
 
                             output_df = pd.DataFrame(extracted_data)
                             st.dataframe(output_df)
@@ -1022,14 +937,12 @@ with tabs[4]:
                                 )
 
                             st.success(f"{len(output_df)} 件のイベントを読み込みました。")
-
                     except Exception as e:
                         st.error(f"イベントの読み込み中にエラーが発生しました: {e}")
 
 # ==================================================
-# 10) サイドバー (設定・認証・統計)
+# 10) サイドバー
 # ==================================================
-
 with st.sidebar:
     with st.expander("⚙ デフォルト設定の管理", expanded=False):
         st.subheader("📅 カレンダー設定")
@@ -1041,9 +954,7 @@ with st.sidebar:
             except ValueError:
                 default_cal_index = 0
 
-            default_calendar = st.selectbox(
-                "デフォルトカレンダー", calendar_options, index=default_cal_index, key="sidebar_default_calendar"
-            )
+            default_calendar = st.selectbox("デフォルトカレンダー", calendar_options, index=default_cal_index, key="sidebar_default_calendar")
 
             prev_share = st.session_state.get("share_calendar_selection_across_tabs", True)
             share_calendar = st.checkbox(
@@ -1059,22 +970,14 @@ with st.sidebar:
                 st.rerun()
 
             saved_private = get_user_setting(user_id, "default_private_event")
-            default_private = st.checkbox(
-                "デフォルトで非公開イベント", value=(saved_private if saved_private is not None else True), key="sidebar_default_private"
-            )
+            default_private = st.checkbox("デフォルトで非公開イベント", value=(saved_private if saved_private is not None else True), key="sidebar_default_private")
 
             saved_allday = get_user_setting(user_id, "default_allday_event")
-            default_allday = st.checkbox(
-                "デフォルトで終日イベント",
-                value=(saved_allday if saved_allday is not None else False),
-                key="sidebar_default_allday",
-            )
+            default_allday = st.checkbox("デフォルトで終日イベント", value=(saved_allday if saved_allday is not None else False), key="sidebar_default_allday")
 
         st.subheader("✅ ToDo設定")
         saved_todo = get_user_setting(user_id, "default_create_todo")
-        default_todo = st.checkbox(
-            "デフォルトでToDo作成", value=(saved_todo if saved_todo is not None else False), key="sidebar_default_todo"
-        )
+        default_todo = st.checkbox("デフォルトでToDo作成", value=(saved_todo if saved_todo is not None else False), key="sidebar_default_todo")
 
         col1, col2 = st.columns(2)
         with col1:
@@ -1083,7 +986,6 @@ with st.sidebar:
                     set_user_setting(user_id, "selected_calendar_name", default_calendar)
                     save_user_setting_to_firestore(user_id, "selected_calendar_name", default_calendar)
                     st.session_state["selected_calendar_name"] = default_calendar
-
                     if st.session_state.get("share_calendar_selection_across_tabs", True):
                         for k in ["register", "delete", "dup", "export"]:
                             st.session_state[f"selected_calendar_name_{k}"] = default_calendar
@@ -1109,7 +1011,6 @@ with st.sidebar:
                 st.rerun()
 
         st.divider()
-
         st.caption("📋 保存済み設定")
         all_settings = get_all_user_settings(user_id)
         if all_settings:
@@ -1128,14 +1029,12 @@ with st.sidebar:
                     st.text(f"• {label}: {v}")
 
     st.divider()
-
     with st.expander("🔐 認証状態", expanded=False):
         st.caption("Firebase: ✅ 認証済み")
         st.caption("カレンダー: ✅ 接続中" if st.session_state.get("calendar_service") else "カレンダー: ⚠️ 未接続")
         st.caption("ToDo: ✅ 利用可能" if st.session_state.get("tasks_service") else "ToDo: ⚠️ 利用不可")
 
     st.divider()
-
     if st.button("🚪 ログアウト", type="secondary", use_container_width=True):
         if user_id:
             clear_user_settings(user_id)
@@ -1146,7 +1045,6 @@ with st.sidebar:
         st.rerun()
 
     st.divider()
-
     st.header("📊 統計情報")
     uploaded_count = len(st.session_state.get("uploaded_files", []))
     st.metric("アップロード済みファイル", uploaded_count)
