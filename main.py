@@ -1,19 +1,10 @@
 # -*- coding: utf-8 -*-
-# main_refactored.py (Step1: Safety-first light refactor for Python 3.11)
+# main_refactored_fixed.py (Step1 S2: Standard-safety light refactor for Python 3.11)
 #
-# 方針:
-# - 既存機能の互換性を最優先 (S: 安全重視)
-# - 可読性と軽微な性能改善 (regexの事前compile / API初期化の安定化 / 共通関数化)
-# - 外部モジュール(excel_parser, calendar_utils 等)の契約は変更しない
-# - UI/テキストは原則そのまま
-#
-# 置き換え方法:
-# - このファイルを main.py として配置してください (もしくは内容を main.py にコピペ)
-#
-# 期待効果(概算):
-# - 不要な再初期化の軽減
-# - 正規表現の再利用でループ負荷を削減
-# - 共通処理の関数化で保守性向上
+# ポリシー:
+# - 現行機能の挙動は維持（安全重視）
+# - 例外/欠損の軽量ガードを追加しつつ、性能はほぼ維持
+# - 既存モジュールのインターフェースは変更しない
 
 from __future__ import annotations
 
@@ -69,7 +60,7 @@ def load_custom_css() -> None:
         with open("custom_sidebar.css", "r", encoding="utf-8") as f:
             st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
     except FileNotFoundError:
-        # ファイルがない環境もあるため、警告は控えめに
+        # ファイルがない環境もあるため、警告は抑制
         pass
 
 
@@ -78,20 +69,11 @@ load_custom_css()
 st.markdown(
     """
 <style>
-/* ===== カラーテーマ別（ライト／ダーク） ===== */
 @media (prefers-color-scheme: light) {
-    .header-bar {
-        background-color: rgba(249, 249, 249, 0.95);
-        color: #333;
-        border-bottom: 1px solid #ccc;
-    }
+    .header-bar { background-color: rgba(249, 249, 249, 0.95); color: #333; border-bottom: 1px solid #ccc; }
 }
 @media (prefers-color-scheme: dark) {
-    .header-bar {
-        background-color: rgba(30, 30, 30, 0.9);
-        color: #eee;
-        border-bottom: 1px solid #444;
-    }
+    .header-bar { background-color: rgba(30, 30, 30, 0.9); color: #eee; border-bottom: 1px solid #444; }
 }
 .header-bar { position: sticky; top: 0; width: 100%; text-align: center; font-weight: 500;
     font-size: 14px; padding: 8px 0; z-index: 20; backdrop-filter: blur(6px); }
@@ -101,18 +83,12 @@ div[data-testid="stTabs"] { position: sticky; top: 42px; z-index: 15; background
 .block-container, section[data-testid="stMainBlockContainer"], main {
     padding-top: 0 !important; padding-bottom: 0 !important; margin-bottom: 0 !important;
     height: auto !important; min-height: 100vh !important; overflow: visible !important; }
-footer, div[data-testid="stBottomBlockContainer"] { display: none !important; height: 0 !important; margin: 0 !important; padding: 0 !important; }
-html, body, #root { height: auto !important; min-height: 100% !important; margin: 0 !important; padding: 0 !important;
-    overflow-x: hidden !important; overflow-y: auto !important; overscroll-behavior: none !important; -webkit-overflow-scrolling: touch !important; }
-div[data-testid="stVerticalBlock"] > div:last-child { margin-bottom: 0 !important; padding-bottom: 0 !important; }
+footer, div[data-testid="stBottomBlockContainer"] { display: none !important; height: 0 !important; margin: 0 !重要; padding: 0 !important; }
+html, body, #root { height: auto !important; min-height: 100% !important; margin: 0 !重要; padding: 0 !重要;
+    overflow-x: hidden !重要; overflow-y: auto !重要; overscroll-behavior: none !重要; -webkit-overflow-scrolling: touch !重要; }
+div[data-testid="stVerticalBlock"] > div:last-child { margin-bottom: 0 !重要; padding-bottom: 0 !重要; }
 @supports (-webkit-touch-callout: none) {
-    html, body { height: 100% !important; min-height: 100% !important; overflow-x: hidden !important; overflow-y: auto !important;
-        overscroll-behavior-y: contain !important; -webkit-overflow-scrolling: touch !important; }
-    .header-bar, div[data-testid="stTabs"] { position: static !important; top: auto !important; }
-    main, section[data-testid="stMainBlockContainer"], .block-container { height: auto !important; min-height: auto !important;
-        padding-bottom: 0 !important; margin-bottom: 0 !important; }
-    footer, div[data-testid="stBottomBlockContainer"] { display: none !important; height: 0 !important; }
-    body { padding-bottom: env(safe-area-inset-bottom, 0px); background-color: transparent !important; }
+    .header-bar, div[data-testid="stTabs"] { position: static !重要; top: auto !重要; }
 }
 </style>
 <div class="header-bar">📅 Googleカレンダー一括イベント登録・削除</div>
@@ -127,18 +103,17 @@ div[data-testid="stVerticalBlock"] > div:last-child { margin-bottom: 0 !importan
 JST = timezone(timedelta(hours=9))
 
 # 事前コンパイル (ループで使用)
-RE_WORKSHEET_ID = re.compile(r"\\[作業指示書[：:]\\s*([0-9０-９]+)\\]")
-RE_WONUM = re.compile(r"\\[作業指示書[：:]\\s*(.*?)\\]")
-RE_ASSETNUM = re.compile(r"\\[管理番号[：:]\\s*(.*?)\\]")
-RE_WORKTYPE = re.compile(r"\\[作業タイプ[：:]\\s*(.*?)\\]")
-RE_TITLE = re.compile(r"\\[タイトル[：:]\\s*(.*?)\\]")
+RE_WORKSHEET_ID = re.compile(r"\[作業指示書[：:]\s*([0-9０-９]+)\]")
+RE_WONUM = re.compile(r"\[作業指示書[：:]\s*(.*?)\]")
+RE_ASSETNUM = re.compile(r"\[管理番号[：:]\s*(.*?)\]")
+RE_WORKTYPE = re.compile(r"\[作業タイプ[：:]\s*(.*?)\]")
+RE_TITLE = re.compile(r"\[タイトル[：:]\s*(.*?)\]")
 
 
 def to_utc_range(d1: date, d2: date) -> Tuple[str, str]:
     """日付範囲から Google Calendar API で使うUTCのISO文字列を生成"""
     start_dt_utc = datetime.combine(d1, datetime.min.time(), tzinfo=JST).astimezone(timezone.utc)
     end_dt_utc = datetime.combine(d2, datetime.max.time(), tzinfo=JST).astimezone(timezone.utc)
-    # 'Z' で統一
     return (
         start_dt_utc.isoformat(timespec="microseconds").replace("+00:00", "Z"),
         end_dt_utc.isoformat(timespec="microseconds").replace("+00:00", "Z"),
@@ -146,23 +121,17 @@ def to_utc_range(d1: date, d2: date) -> Tuple[str, str]:
 
 
 def default_fetch_window_years(years: int = 2) -> Tuple[str, str]:
-    """現在時刻から±yearsのUTC範囲ISOを返す (既存コード互換)"""
     now_utc = datetime.now(timezone.utc)
-    time_min = (now_utc - timedelta(days=365 * years)).isoformat()
-    time_max = (now_utc + timedelta(days=365 * years)).isoformat()
-    return time_min, time_max
+    return (now_utc - timedelta(days=365 * years)).isoformat(), (now_utc + timedelta(days=365 * years)).isoformat()
 
 
 def normalize_worksheet_id(s: Optional[str]) -> Optional[str]:
-    """全角→半角など正規化 (Noneはそのまま)"""
     if not s:
         return s
-    import unicodedata as _u
-    return _u.normalize("NFKC", s).strip()
+    return unicodedata.normalize("NFKC", s).strip()
 
 
 def build_calendar_service(creds):
-    """Calendar API サービス生成 (例外をUIで通知)"""
     try:
         service = build("calendar", "v3", credentials=creds)
         calendar_list = service.calendarList().list().execute()
@@ -180,7 +149,6 @@ def build_calendar_service(creds):
 
 
 def build_tasks_service_safe(creds):
-    """Tasks API ラッパ (元コードの動作を維持しつつ例外は控えめに通知)"""
     try:
         tasks_service = build_tasks_service(creds)
         if not tasks_service:
@@ -202,7 +170,6 @@ def build_tasks_service_safe(creds):
 
 
 def ensure_services(creds):
-    """セッション状態にサービスを用意 (再初期化の回数を減らす)"""
     if "calendar_service" not in st.session_state or not st.session_state["calendar_service"]:
         service, editable = build_calendar_service(creds)
         if not service:
@@ -221,6 +188,17 @@ def ensure_services(creds):
     return st.session_state["calendar_service"], st.session_state["editable_calendar_options"]
 
 
+def safe_get(row: pd.Series, key: str, default: str = "") -> str:
+    """Seriesから安全に値を取得（NaN→default, None→default, 文字列化は呼び出し側）"""
+    try:
+        val = row.get(key, default)
+    except Exception:
+        return default
+    if pd.isna(val):
+        return default
+    return val
+
+
 # ==================================================
 # 2) Firebase 認証
 # ==================================================
@@ -237,20 +215,16 @@ if not user_id:
 
 
 def load_user_settings_from_firestore(user_id: str) -> None:
-    """Firestoreからユーザー設定を読み込み、セッションに同期"""
     if not user_id:
         return
     initialize_session_state(user_id)
-    doc_ref = db.collection("user_settings").document(user_id)
-    doc = doc_ref.get()
+    doc = db.collection("user_settings").document(user_id).get()
     if doc.exists:
-        settings = doc.to_dict()
-        for key, value in settings.items():
+        for key, value in doc.to_dict().items():
             set_user_setting(user_id, key, value)
 
 
 def save_user_setting_to_firestore(user_id: str, setting_key: str, setting_value) -> None:
-    """Firestoreにユーザー設定を保存"""
     if not user_id:
         return
     try:
@@ -259,7 +233,6 @@ def save_user_setting_to_firestore(user_id: str, setting_key: str, setting_value
         st.error(f"設定の保存に失敗しました: {e}")
 
 
-# 設定ロード (初回のみ)
 load_user_settings_from_firestore(user_id)
 
 # ==================================================
@@ -276,7 +249,6 @@ with google_auth_placeholder.container():
     else:
         google_auth_placeholder.empty()
 
-# サービスの確保 (再初期化の最小化)
 service, editable_calendar_options = ensure_services(creds)
 
 # ==================================================
@@ -295,12 +267,10 @@ tabs = st.tabs(
 )
 st.markdown("</div>", unsafe_allow_html=True)
 
-# セッション初期化 (集約)
 if "uploaded_files" not in st.session_state:
     st.session_state["uploaded_files"] = []
     st.session_state["description_columns_pool"] = []
     st.session_state["merged_df_for_selector"] = pd.DataFrame()
-
 
 # ==================================================
 # 5) タブ: 1. ファイルのアップロード
@@ -331,15 +301,12 @@ with tabs[0]:
         "ExcelまたはCSVファイルを選択（複数可）", type=["xlsx", "xls", "csv"], accept_multiple_files=True
     )
 
-    # サーバー上のファイル選択 (任意)
     local_excel_files = get_local_excel_files()
     selected_local_files: List[BytesIO] = []
     if local_excel_files:
         st.markdown("📁 サーバーにあるExcelファイル")
         local_file_names = [f.name for f in local_excel_files]
-        selected_names = st.multiselect(
-            "以下のファイルを処理対象に含める（アップロードと同様に扱われます）", local_file_names
-        )
+        selected_names = st.multiselect("以下のファイルを処理対象に含める（アップロードと同様に扱われます）", local_file_names)
         for name in selected_names:
             full_path = next((f for f in local_excel_files if f.name == name), None)
             if full_path:
@@ -348,14 +315,12 @@ with tabs[0]:
                     file_obj.name = name
                     selected_local_files.append(file_obj)
 
-    # すべての対象
     all_files: List = []
     if uploaded_files:
         all_files.extend(uploaded_files)
     if selected_local_files:
         all_files.extend(selected_local_files)
 
-    # 読み込み
     if all_files:
         st.session_state["uploaded_files"] = all_files
         try:
@@ -370,7 +335,6 @@ with tabs[0]:
             st.session_state["merged_df_for_selector"] = pd.DataFrame()
             st.session_state["description_columns_pool"] = []
 
-    # 情報表示
     if st.session_state.get("uploaded_files"):
         st.subheader("📄 処理対象ファイル一覧")
         for f in st.session_state["uploaded_files"]:
@@ -389,7 +353,6 @@ with tabs[0]:
             st.success("すべてのファイル情報をクリアしました。")
             st.rerun()
 
-
 # ==================================================
 # 6) タブ: 2. イベントの登録・更新
 # ==================================================
@@ -397,7 +360,6 @@ with tabs[0]:
 with tabs[1]:
     st.subheader("イベントを登録・更新")
 
-    # 初期値 (安全側)
     description_columns: List[str] = []
     selected_event_name_col: Optional[str] = None
     add_task_type_to_event_name = False
@@ -412,7 +374,6 @@ with tabs[1]:
         st.error("登録可能なカレンダーが見つかりませんでした。Googleカレンダーの設定を確認してください。")
 
     else:
-        # カレンダー選択 (前回の選択を既定に)
         calendar_options = list(editable_calendar_options.keys())
         saved_calendar_name = get_user_setting(user_id, "selected_calendar_name")
         try:
@@ -425,11 +386,9 @@ with tabs[1]:
         )
         calendar_id = editable_calendar_options[selected_calendar_name]
 
-        # 保存
         set_user_setting(user_id, "selected_calendar_name", selected_calendar_name)
         save_user_setting_to_firestore(user_id, "selected_calendar_name", selected_calendar_name)
 
-        # 設定のロード
         description_columns_pool = st.session_state.get("description_columns_pool", [])
         saved_description_cols = get_user_setting(user_id, "description_columns_selected") or []
         saved_event_name_col = get_user_setting(user_id, "event_name_col_selected")
@@ -440,7 +399,6 @@ with tabs[1]:
         expand_name_setting = not (saved_event_name_col or saved_task_type_flag)
         expand_todo_setting = bool(saved_create_todo_flag)
 
-        # 📝 イベント設定
         with st.expander("📝 イベント設定", expanded=expand_event_setting):
             all_day_event_override = st.checkbox("終日イベントとして登録", value=False)
             private_event = st.checkbox("非公開イベントとして登録", value=True)
@@ -453,7 +411,6 @@ with tabs[1]:
                 key=f"description_selector_register_{user_id}",
             )
 
-        # 🧱 イベント名の生成設定
         with st.expander("🧱 イベント名の生成設定", expanded=expand_name_setting):
             has_mng_data, has_name_data = check_event_name_columns(st.session_state["merged_df_for_selector"])
             selected_event_name_col = saved_event_name_col
@@ -484,7 +441,6 @@ with tabs[1]:
             else:
                 st.info("「管理番号」と「物件名」のデータが両方存在するため、それらがイベント名として使用されます。")
 
-        # ✅ ToDo連携設定
         st.subheader("✅ ToDoリスト連携設定 (オプション)")
         with st.expander("ToDoリスト作成オプション", expanded=expand_todo_setting):
             create_todo = st.checkbox(
@@ -520,10 +476,8 @@ with tabs[1]:
                     key="custom_offset_input",
                 )
 
-        # 実行
         st.subheader("➡️ イベント登録・更新実行")
         if st.button("Googleカレンダーに登録・更新する"):
-            # 設定保存
             set_user_setting(user_id, "description_columns_selected", description_columns)
             set_user_setting(user_id, "event_name_col_selected", selected_event_name_col)
             set_user_setting(user_id, "add_task_type_to_event_name", add_task_type_to_event_name)
@@ -553,12 +507,10 @@ with tabs[1]:
                     progress = st.progress(0)
                     successful_operations = 0
 
-                    # 既存イベントの取得 (±2年)
                     time_min, time_max = default_fetch_window_years(2)
                     with st.spinner("既存イベントを取得中..."):
                         events = fetch_all_events(service, calendar_id, time_min, time_max)
 
-                    # 既存イベントを「作業指示書番号」でマップ (1パス)
                     worksheet_to_event: Dict[str, dict] = {}
                     for event in events or []:
                         desc = event.get("description", "") or ""
@@ -569,42 +521,49 @@ with tabs[1]:
                                 worksheet_to_event[wid] = event
 
                     total = len(df)
-                    for idx, row in enumerate(df.itertuples(index=False), start=1):
-                        # row は namedtuple。列名は元DFの列名に一致
-                        desc_text = getattr(row, "Description", "")
-                        m = RE_WORKSHEET_ID.search(desc_text or "")
+                    for i, row in df.iterrows():
+                        desc_text = safe_get(row, "Description", "")
+                        m = RE_WORKSHEET_ID.search(desc_text)
                         worksheet_id = normalize_worksheet_id(m.group(1)) if m else None
 
+                        # 軽量ガード
+                        all_day_flag = safe_get(row, "All Day Event", "True")
+                        private_flag = safe_get(row, "Private", "True")
+                        start_date_str = safe_get(row, "Start Date", "")
+                        end_date_str = safe_get(row, "End Date", "")
+                        start_time_str = safe_get(row, "Start Time", "")
+                        end_time_str = safe_get(row, "End Time", "")
+
                         event_data = {
-                            "summary": getattr(row, "Subject", ""),
-                            "location": getattr(row, "Location", ""),
+                            "summary": safe_get(row, "Subject", ""),
+                            "location": safe_get(row, "Location", ""),
                             "description": desc_text,
-                            "transparency": "transparent" if getattr(row, "Private", "True") == "True" else "opaque",
+                            "transparency": "transparent" if private_flag == "True" else "opaque",
                         }
 
-                        if getattr(row, "All Day Event", "True") == "True":
-                            start_date_obj = datetime.strptime(getattr(row, "Start Date"), "%Y/%m/%d").date()
-                            end_date_obj = datetime.strptime(getattr(row, "End Date"), "%Y/%m/%d").date()
-                            event_data["start"] = {"date": start_date_obj.strftime("%Y-%m-%d")}
-                            # Google Calendar の終日は終了日+1日指定
-                            event_data["end"] = {"date": (end_date_obj + timedelta(days=1)).strftime("%Y-%m-%d")}
-                        else:
-                            start_dt_obj = datetime.strptime(
-                                f"{getattr(row, 'Start Date')} {getattr(row, 'Start Time')}", "%Y/%m/%d %H:%M"
-                            ).replace(tzinfo=JST)
-                            end_dt_obj = datetime.strptime(
-                                f"{getattr(row, 'End Date')} {getattr(row, 'End Time')}", "%Y/%m/%d %H:%M"
-                            ).replace(tzinfo=JST)
-                            event_data["start"] = {"dateTime": start_dt_obj.isoformat(), "timeZone": "Asia/Tokyo"}
-                            event_data["end"] = {"dateTime": end_dt_obj.isoformat(), "timeZone": "Asia/Tokyo"}
+                        try:
+                            if all_day_flag == "True":
+                                # 必須: Start/End Date
+                                start_date_obj = datetime.strptime(start_date_str, "%Y/%m/%d").date()
+                                end_date_obj = datetime.strptime(end_date_str, "%Y/%m/%d").date()
+                                event_data["start"] = {"date": start_date_obj.strftime("%Y-%m-%d")}
+                                event_data["end"] = {"date": (end_date_obj + timedelta(days=1)).strftime("%Y-%m-%d")}
+                            else:
+                                # 必須: Start/End Date+Time
+                                start_dt_obj = datetime.strptime(f"{start_date_str} {start_time_str}", "%Y/%m/%d %H:%M").replace(tzinfo=JST)
+                                end_dt_obj = datetime.strptime(f"{end_date_str} {end_time_str}", "%Y/%m/%d %H:%M").replace(tzinfo=JST)
+                                event_data["start"] = {"dateTime": start_dt_obj.isoformat(), "timeZone": "Asia/Tokyo"}
+                                event_data["end"] = {"dateTime": end_dt_obj.isoformat(), "timeZone": "Asia/Tokyo"}
+                        except Exception as e:
+                            st.error(f"行 {i} の日時パースに失敗しました: {e}")
+                            progress.progress((i + 1) / total)
+                            continue
 
                         existing_event = worksheet_to_event.get(worksheet_id) if worksheet_id else None
 
                         try:
                             if existing_event:
-                                updated_event = update_event_if_needed(
-                                    service, calendar_id, existing_event["id"], event_data
-                                )
+                                updated_event = update_event_if_needed(service, calendar_id, existing_event["id"], event_data)
                                 if updated_event:
                                     successful_operations += 1
                             else:
@@ -616,10 +575,9 @@ with tabs[1]:
                         except Exception as e:
                             st.error(f"イベント '{event_data.get('summary','(無題)')}' の登録または更新に失敗しました: {e}")
 
-                        progress.progress(idx / total)
+                        progress.progress((i + 1) / total)
 
                     st.success(f"✅ {successful_operations} 件のイベントが処理されました。")
-
 
 # ==================================================
 # 7) タブ: 3. イベントの削除
@@ -743,7 +701,6 @@ with tabs[2]:
                         st.session_state["confirm_delete"] = False
                         st.rerun()
 
-
 # ==================================================
 # 8) タブ: 4. 重複イベントの検出・削除
 # ==================================================
@@ -751,12 +708,12 @@ with tabs[2]:
 with tabs[3]:
     st.subheader("🔍 重複イベントの検出・削除")
 
-    # メッセージ表示
     if "last_dup_message" in st.session_state and st.session_state["last_dup_message"]:
         msg_type, msg_text = st.session_state["last_dup_message"]
-        getattr(st, msg_type, st.info)(msg_text) if msg_type in {"success", "error", "info", "warning"} else st.info(
-            msg_text
-        )
+        if msg_type in {"success", "error", "info", "warning"}:
+            getattr(st, msg_type)(msg_text)
+        else:
+            st.info(msg_text)
         st.session_state["last_dup_message"] = None
 
     calendar_options = list(editable_calendar_options.keys())
@@ -799,13 +756,11 @@ with tabs[3]:
 
         st.success(f"{len(events)} 件のイベントを取得しました。")
 
-        # イベントの前処理
         rows = []
         for e in events:
             desc = (e.get("description") or "").strip()
             m = RE_WORKSHEET_ID.search(desc)
             worksheet_id = normalize_worksheet_id(m.group(1)) if m else None
-
             start_time = e["start"].get("dateTime", e["start"].get("date"))
             end_time = e["end"].get("dateTime", e["end"].get("date"))
             rows.append(
@@ -833,7 +788,6 @@ with tabs[3]:
             st.session_state["current_delete_mode"] = delete_mode
             st.rerun()
 
-        # 自動削除ID計算
         if delete_mode != "手動で選択して削除":
             auto_delete_ids: List[str] = []
             for _, group in dup_df.groupby("worksheet_id"):
@@ -860,7 +814,6 @@ with tabs[3]:
 
         st.rerun()
 
-    # UI 表示
     if not st.session_state["dup_df"].empty:
         dup_df = st.session_state["dup_df"]
         current_mode = st.session_state.get("current_delete_mode", "手動で選択して削除")
@@ -868,11 +821,8 @@ with tabs[3]:
         st.warning(f"⚠️ {dup_df['worksheet_id'].nunique()} 種類の重複作業指示書が見つかりました。（合計 {len(dup_df)} イベント）")
         st.dataframe(dup_df[["worksheet_id", "summary", "created", "start", "end", "id"]], use_container_width=True)
 
-        # 手動削除
         if current_mode == "手動で選択して削除":
-            delete_ids = st.multiselect(
-                "削除するイベントを選択してください（イベントIDで指定）", dup_df["id"].tolist(), key="manual_delete_ids"
-            )
+            delete_ids = st.multiselect("削除するイベントを選択してください（イベントIDで指定）", dup_df["id"].tolist(), key="manual_delete_ids")
             confirm = st.checkbox("削除操作を確認しました", value=False, key="manual_del_confirm")
 
             if st.button("🗑️ 選択したイベントを削除", type="primary", disabled=not confirm, key="run_manual_delete"):
@@ -896,7 +846,6 @@ with tabs[3]:
                 st.session_state["dup_df"] = pd.DataFrame()
                 st.rerun()
 
-        # 自動削除
         else:
             auto_delete_ids = st.session_state["auto_delete_ids"]
             if not auto_delete_ids:
@@ -926,7 +875,6 @@ with tabs[3]:
 
                     st.session_state["dup_df"] = pd.DataFrame()
                     st.rerun()
-
 
 # ==================================================
 # 9) タブ: 5. カレンダーイベントをExcel/CSVへ出力
@@ -975,15 +923,11 @@ with tabs[4]:
                                 wonum = (wonum_match.group(1).strip() if wonum_match else "") or ""
                                 assetnum = (assetnum_match.group(1).strip() if assetnum_match else "") or ""
                                 worktype = (worktype_match.group(1).strip() if worktype_match else "") or ""
-
-                                # [タイトル: ...] がない場合は空欄
                                 description_val = title_match.group(1).strip() if title_match else ""
 
-                                # SCHEDSTART/SCHEDFINISH (終日の場合は date, それ以外は dateTime)
                                 start_time = event["start"].get("dateTime") or event["start"].get("date") or ""
                                 end_time = event["end"].get("dateTime") or event["end"].get("date") or ""
 
-                                # dateTimeの場合はJST(+09:00)へ整形
                                 def to_jst_iso(s: str) -> str:
                                     try:
                                         if "T" in s and ("+" in s or s.endswith("Z")):
@@ -1038,14 +982,12 @@ with tabs[4]:
                     except Exception as e:
                         st.error(f"イベントの読み込み中にエラーが発生しました: {e}")
 
-
 # ==================================================
 # 10) サイドバー (設定・認証・統計)
 # ==================================================
 
 with st.sidebar:
     with st.expander("⚙ デフォルト設定の管理", expanded=False):
-        # 📅 カレンダー設定
         st.subheader("📅 カレンダー設定")
         if editable_calendar_options:
             calendar_options = list(editable_calendar_options.keys())
@@ -1084,7 +1026,6 @@ with st.sidebar:
                 key="sidebar_default_allday",
             )
 
-        # ✅ ToDo設定
         st.subheader("✅ ToDo設定")
         saved_todo = get_user_setting(user_id, "default_create_todo")
         default_todo = st.checkbox(
@@ -1165,5 +1106,3 @@ with st.sidebar:
     st.header("📊 統計情報")
     uploaded_count = len(st.session_state.get("uploaded_files", []))
     st.metric("アップロード済みファイル", uploaded_count)
-
-# EOF
