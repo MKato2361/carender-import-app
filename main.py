@@ -109,6 +109,50 @@ RE_ASSETNUM = re.compile(r"\[管理番号[：:]\s*(.*?)\]")
 RE_WORKTYPE = re.compile(r"\[作業タイプ[：:]\s*(.*?)\]")
 RE_TITLE = re.compile(r"\[タイトル[：:]\s*(.*?)\]")
 
+# === Step3: 差分更新ユーティリティ =====================================
+
+def extract_worksheet_id_from_description(desc: str) -> str | None:
+    """
+    Description内の [作業指示書: 123456] からIDを抽出し、全角→半角に正規化して返す。
+    見つからなければ None。
+    ※ 既存の RE_WORKSHEET_ID と normalize_worksheet_id を活用
+    """
+    if not desc:
+        return None
+    m = RE_WORKSHEET_ID.search(desc)
+    if not m:
+        return None
+    return normalize_worksheet_id(m.group(1))
+
+
+def is_event_changed(existing_event: dict, new_event_data: dict) -> bool:
+    """
+    1) タイトル(summary)
+    2) 日付/時刻(start)
+    3) 日付/時刻(end)
+    4) 説明(description)
+    のいずれかに差分があれば True（更新必要）、完全一致なら False。
+    """
+    # 1) Summary（タイトル）
+    if (existing_event.get("summary") or "") != (new_event_data.get("summary") or ""):
+        return True
+
+    # 4) Description（説明）
+    if (existing_event.get("description") or "") != (new_event_data.get("description") or ""):
+        return True
+
+    # 2) 3) 日付・時刻（start / end）比較
+    #   Google APIの仕様上、終日は {"date": "..."}、時間ありは {"dateTime": "...", "timeZone": "..."}
+    #   なので dict 比較でOK。（キーの有無含めて完全一致を判定）
+    if (existing_event.get("start") or {}) != (new_event_data.get("start") or {}):
+        return True
+    if (existing_event.get("end") or {}) != (new_event_data.get("end") or {}):
+        return True
+
+    return False
+# === /Step3: 差分更新ユーティリティ =====================================
+
+
 
 def to_utc_range(d1: date, d2: date) -> Tuple[str, str]:
     """日付範囲から Google Calendar API で使うUTCのISO文字列を生成"""
