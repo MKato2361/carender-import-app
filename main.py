@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 # main.py — 完成版（差分更新 + 集計 + 最小ログ）
 # Python 3.11 / Streamlit
-from utils.helpers import safe_get, to_utc_range, default_fetch_window_years
 
 from __future__ import annotations
+from utils.helpers import safe_get, to_utc_range, default_fetch_window_years
 
 import re
 import unicodedata
