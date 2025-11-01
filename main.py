@@ -18,12 +18,6 @@ import streamlit as st
 from firebase_admin import firestore
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
-from worksheet_parser import (
-    extract_worksheet_id_from_description,
-    parse_description_fields,
-    is_event_changed,
-    RE_WONUM, RE_ASSETNUM, RE_WORKTYPE, RE_TITLE,  # 既存箇所で直接使うなら
-)
 
 # ---- アプリ固有モジュール ----
 from excel_parser import (
@@ -97,6 +91,7 @@ html, body, #root { height: auto !重要; min-height: 100% !重要; margin: 0 !�
 JST = timezone(timedelta(hours=9))
 
 # 正規表現（事前コンパイル）
+RE_WORKSHEET_ID = re.compile(r"\[作業指示書[：:]\s*([0-9０-９]+)\]")
 RE_WONUM      = re.compile(r"\[作業指示書[：:]\s*(.*?)\]")
 RE_ASSETNUM   = re.compile(r"\[管理番号[：:]\s*(.*?)\]")
 RE_WORKTYPE   = re.compile(r"\[作業タイプ[：:]\s*(.*?)\]")
@@ -108,6 +103,14 @@ def normalize_worksheet_id(s: Optional[str]) -> Optional[str]:
         return s
     return unicodedata.normalize("NFKC", s).strip()
 
+def extract_worksheet_id_from_description(desc: str) -> str | None:
+    """Description内の [作業指示書: 123456] からIDを抽出（全角→半角）"""
+    if not desc:
+        return None
+    m = RE_WORKSHEET_ID.search(desc)
+    if not m:
+        return None
+    return normalize_worksheet_id(m.group(1))
 
 def is_event_changed(existing_event: dict, new_event_data: dict) -> bool:
     """
@@ -495,11 +498,9 @@ with tabs[1]:
 
                     worksheet_to_event: Dict[str, dict] = {}
                     for event in events or []:
-                        wid = extract_worksheet_id_from_text(event.get("description") or "")
-                        
+                        wid = extract_worksheet_id_from_description(event.get("description") or "")
                         if wid:
                             worksheet_to_event[wid] = event
-
 
                     total = len(df)
                     for i, row in df.iterrows():
