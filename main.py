@@ -294,7 +294,7 @@ with tabs[0]:
 selected_github_files: List[BytesIO] = []
 
 try:
-    gh_nodes = walk_repo_tree(base_path="", max_depth=3)
+    gh_nodes = walk_repo_tree(base_path="/", max_depth=3)
     st.markdown("📦 **GitHub上のCSV/Excel（全ツリー）**")
     st.write("📍 DEBUG nodes:", gh_nodes)
 
