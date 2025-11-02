@@ -47,3 +47,18 @@ def load_file_from_github(file_info):
     if file_info["name"].lower().endswith(".csv"):
         return pd.read_csv(BytesIO(file_data))
     return pd.read_excel(BytesIO(file_data))
+
+@st.cache_data(ttl=600)
+def load_file_bytes_from_github(file_info):
+    """GitHubファイルをBytesIO形式で返す（アップロードと同等扱い用）"""
+    token = get_pat()
+    headers = {"Authorization": f"token {token}"}
+    res = requests.get(file_info["url"], headers=headers)
+
+    if res.status_code != 200:
+        raise Exception("❌ GitHubファイル取得に失敗しました")
+
+    content = res.json()
+    file_data = base64.b64decode(content["content"])
+    return BytesIO(file_data)
+
