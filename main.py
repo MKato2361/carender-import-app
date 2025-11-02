@@ -26,7 +26,30 @@ def convert_bytes_to_uploadedfile(file_bytes: bytes, filename: str, mime_type: s
         type=mime_type or "application/octet-stream",
         data=file_bytes,
     )
+import streamlit as st
+import pandas as pd
+from io import BytesIO
+# ←このあたりの import 群の直下に追加してください。
 
+class GitHubUploadedFile:
+    def __init__(self, file_bytes: bytes, name: str, type: str = None):
+        self._file_bytes = file_bytes
+        self.name = name
+        self.type = type or "application/octet-stream"
+
+    def read(self):
+        return self._file_bytes
+
+    def getvalue(self):
+        return self._file_bytes
+
+
+def convert_bytes_to_uploadedfile(file_bytes: bytes, filename: str, mime_type: str = None):
+    return GitHubUploadedFile(
+        file_bytes=file_bytes,
+        name=filename,
+        type=mime_type or "application/octet-stream",
+    )
 
 
 
@@ -299,6 +322,31 @@ with tabs[0]:
     uploaded_files = st.file_uploader(
         "ExcelまたはCSVファイルを選択（複数可）", type=["xlsx", "xls", "csv"], accept_multiple_files=True
     )
+# --- 統合ファイル管理 -----------------------------
+# 初期化
+if "uploaded_files" not in st.session_state:
+    st.session_state["uploaded_files"] = []
+
+# 1️⃣ ローカルアップロード分を統合
+if uploaded_files:
+    for f in uploaded_files:
+        if f not in st.session_state["uploaded_files"]:
+            st.session_state["uploaded_files"].append(f)
+
+# 2️⃣ GitHubから選択されたファイルを統合
+if selected_github_files:
+    for gh_file in selected_github_files:
+        uploaded_like = convert_bytes_to_uploadedfile(
+            gh_file.getvalue(),
+            gh_file.name,
+            "application/vnd.ms-excel" if gh_file.name.endswith(".xls") or gh_file.name.endswith(".xlsx") else "text/csv",
+        )
+        # 重複ファイル（同名）は置き換え
+        st.session_state["uploaded_files"] = [
+            f for f in st.session_state["uploaded_files"] if f.name != uploaded_like.name
+        ]
+        st.session_state["uploaded_files"].append(uploaded_like)
+# -------------------------------------------------
 
 # 先頭付近でインポートを追加
 # from github_loader import walk_repo_tree, load_file_bytes_from_github, is_supported_file
