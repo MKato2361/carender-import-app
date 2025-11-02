@@ -16,6 +16,8 @@ from firebase_admin import firestore
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from github_loader import walk_repo_tree, load_file_bytes_from_github, is_supported_file
+from github_loader import _headers, GITHUB_OWNER, GITHUB_REPO
+
 
 
 # ---- アプリ固有モジュール ----
