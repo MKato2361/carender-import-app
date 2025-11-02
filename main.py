@@ -302,152 +302,101 @@ if "uploaded_files" not in st.session_state:
 # ==================================================
 # 5) タブ1: ファイルのアップロード
 # ==================================================
+# ==================================================
+# 5) タブ1: ファイルのアップロード（修正版）
+# ==================================================
 with tabs[0]:
     st.subheader("ファイルをアップロード")
+
+    # 初期化（すでに存在する場合は上書きしない）
+    if "uploaded_files" not in st.session_state:
+        st.session_state["uploaded_files"] = []
+
+    if "description_columns_pool" not in st.session_state:
+        st.session_state["description_columns_pool"] = []
+
+    if "merged_df_for_selector" not in st.session_state:
+        st.session_state["merged_df_for_selector"] = pd.DataFrame()
+
     with st.expander("ℹ️作業手順と補足"):
         st.info(
             """
-**☀作業指示書一覧をアップロードすると管理番号+物件名をイベント名として任意のカレンダーに登録します。**
-**☀イベントの説明欄に含めたい情報はドロップダウンリストから選択してください。（複数選択可,次回から同じ項目が選択されます）**
-**☀イベントに住所を追加したい場合は、物件一覧のファイルを作業指示書一覧と一緒にアップロードしてください。**
-**☀作業外予定の一覧をアップロードすると、イベント名を選択することができます。**
-**☀ToDoリストを作成すると、点検通知のリマインドが可能です（ToDoとしてイベント登録されます）**
+**☀ ExcelまたはCSVファイルを複数アップロードし、イベント登録に活用できます。**
+**☀ GitHub からもファイルを読み込めます。ローカルと併用可能です。**
+**☀ アップロード済みファイルは、クリアしない限り保持されます。（タブ切替しても残ります）**
 """
         )
 
-    def get_local_excel_files() -> List[Path]:
-        current_dir = Path(__file__).parent
-        return [f for f in current_dir.glob("*") if f.suffix.lower() in [".xlsx", ".xls", ".csv"]]
-
     uploaded_files = st.file_uploader(
-        "ExcelまたはCSVファイルを選択（複数可）", type=["xlsx", "xls", "csv"], accept_multiple_files=True
+        "ExcelまたはCSVファイルを選択（複数可）",
+        type=["xlsx", "xls", "csv"],
+        accept_multiple_files=True
     )
-# --- 統合ファイル管理 -----------------------------
-# 初期化
-selected_github_files = st.session_state.get("selected_github_files", [])
 
-if "uploaded_files" not in st.session_state:
-    st.session_state["uploaded_files"] = []
+    # GitHubファイル選択
+    selected_github_files: List[BytesIO] = []
+    try:
+        gh_nodes = walk_repo_tree(base_path="", max_depth=3)
+        st.markdown("📦 **GitHub上のCSV/Excel（全ツリー）**")
 
-# 1️⃣ ローカルアップロード分を統合
-if uploaded_files:
-    for f in uploaded_files:
-        if f not in st.session_state["uploaded_files"]:
-            st.session_state["uploaded_files"].append(f)
+        if "gh_checked" not in st.session_state:
+            st.session_state["gh_checked"] = {}
 
-# 2️⃣ GitHubから選択されたファイルを統合
-if selected_github_files:
-    for gh_file in selected_github_files:
-        uploaded_like = convert_bytes_to_uploadedfile(
-            gh_file.getvalue(),
-            gh_file.name,
-            "application/vnd.ms-excel" if gh_file.name.endswith(".xls") or gh_file.name.endswith(".xlsx") else "text/csv",
-        )
-        # 重複ファイル（同名）は置き換え
-        st.session_state["uploaded_files"] = [
-            f for f in st.session_state["uploaded_files"] if f.name != uploaded_like.name
-        ]
-        st.session_state["uploaded_files"].append(uploaded_like)
-# -------------------------------------------------
+        for node in gh_nodes:
+            if node["type"] == "file" and is_supported_file(node["name"]):
+                key = f"gh::{node['path']}"
+                checked = st.checkbox(node["name"], key=key, value=st.session_state["gh_checked"].get(key, False))
+                st.session_state["gh_checked"][key] = checked
+                if checked:
+                    try:
+                        bio = load_file_bytes_from_github(node["path"])
+                        bio.name = node["name"]
+                        selected_github_files.append(bio)
+                    except Exception as e:
+                        st.warning(f"GitHub取得エラー: {e}")
+    except Exception as e:
+        st.warning(f"GitHubツリーの取得に失敗しました: {e}")
 
-# 先頭付近でインポートを追加
-# from github_loader import walk_repo_tree, load_file_bytes_from_github, is_supported_file
+    # --- 🔥 ここが今回の重要修正ポイント：追加方式で管理 ---
+    new_files = []
 
-selected_github_files: List[BytesIO] = []
-
-try:
-    gh_nodes = walk_repo_tree(base_path="", max_depth=3)
-    st.markdown("📦 **GitHub上のCSV/Excel（全ツリー）**")
-
-    if "gh_checked" not in st.session_state:
-        st.session_state["gh_checked"] = {}
-
-    for node in gh_nodes:
-        if node["type"] == "dir":
-            indent = " " * (node["depth"] * 2)
-            st.markdown(f"{indent}📁 **{node['name']}**")
-
-    for node in gh_nodes:
-        if node["type"] == "file" and is_supported_file(node["name"]):
-            indent = " " * (node["depth"] * 2)
-            key = f"gh_file::{node['path']}"
-            checked = st.checkbox(f"{indent}📄 {node['name']}", key=key, value=st.session_state["gh_checked"].get(key, False))
-            st.session_state["gh_checked"][key] = checked
-            if checked:
-                try:
-                    bio = load_file_bytes_from_github(node["path"])
-                    bio.name = node["name"]
-                    selected_github_files.append(bio)
-                except Exception as e:
-                    st.warning(f"GitHub取得エラー: {e}")
-
-except Exception as e:
-    st.warning(f"GitHubツリーの取得に失敗しました: {e}")
-
-
-                    
-    all_files: List = []
     if uploaded_files:
-        all_files.extend(uploaded_files)
+        new_files.extend(uploaded_files)
     if selected_github_files:
-        all_files.extend(selected_github_files)
+        new_files.extend(selected_github_files)
 
+    if new_files:
+        existing_names = [getattr(f, "name", None) for f in st.session_state["uploaded_files"]]
+        for f in new_files:
+            if getattr(f, "name", None) not in existing_names:
+                st.session_state["uploaded_files"].append(f)
 
-    if all_files:
-        st.session_state["uploaded_files"] = all_files
+        # データロード（上書きせず、正常時のみ更新）
         try:
-            merged = _load_and_merge_dataframes(all_files)
+            merged = _load_and_merge_dataframes(st.session_state["uploaded_files"])
             st.session_state["merged_df_for_selector"] = merged
             st.session_state["description_columns_pool"] = merged.columns.tolist()
-            if merged.empty:
-                st.warning("読み込まれたファイルに有効なデータがありませんでした。")
-        except (ValueError, IOError) as e:
+        except Exception as e:
             st.error(f"ファイルの読み込みに失敗しました: {e}")
-            st.session_state["uploaded_files"] = []
-            st.session_state["merged_df_for_selector"] = pd.DataFrame()
-            st.session_state["description_columns_pool"] = []
-# --- 統合ファイル管理 -----------------------------
-# 初期化
-if "uploaded_files" not in st.session_state:
-    st.session_state["uploaded_files"] = []
 
-# 1️⃣ ローカルアップロード分を統合
-if uploaded_files:
-    for f in uploaded_files:
-        if f not in st.session_state["uploaded_files"]:
-            st.session_state["uploaded_files"].append(f)
-
-# 2️⃣ GitHubから選択されたファイルを統合
-if selected_github_files:
-    for gh_file in selected_github_files:
-        uploaded_like = convert_bytes_to_uploadedfile(
-            gh_file.getvalue(),
-            gh_file.name,
-            "application/vnd.ms-excel" if gh_file.name.endswith(".xls") or gh_file.name.endswith(".xlsx") else "text/csv",
-        )
-        # 重複ファイル（同名）は置き換え
-        st.session_state["uploaded_files"] = [
-            f for f in st.session_state["uploaded_files"] if f.name != uploaded_like.name
-        ]
-        st.session_state["uploaded_files"].append(uploaded_like)
-
-# -------------------------------------------------
-
-    if st.session_state.get("uploaded_files"):
-        st.subheader("📄 処理対象ファイル一覧")
+    # 表示
+    if st.session_state["uploaded_files"]:
+        st.subheader("📄 現在の処理対象ファイル一覧")
         for f in st.session_state["uploaded_files"]:
-            st.write(f"- {getattr(f, 'name', '不明な名前のファイル')}")
-        if not st.session_state["merged_df_for_selector"].empty:
-            st.info(
-                f"📊 データ列数: {len(st.session_state['merged_df_for_selector'].columns)}、"
-                f"行数: {len(st.session_state['merged_df_for_selector'])}"
-            )
-        if st.button("🗑️ アップロード済みファイルをクリア", help="選択中のファイルとデータを削除します。"):
+            st.write(f"- {getattr(f, 'name', '不明な名前')}")
+
+        st.info(
+            f"📊 データ列数: {len(st.session_state['merged_df_for_selector'].columns)}、"
+            f"行数: {len(st.session_state['merged_df_for_selector'])}"
+        )
+
+        if st.button("🗑️ アップロード済みファイルをクリア", help="登録済みファイルとデータを削除します。"):
             st.session_state["uploaded_files"] = []
             st.session_state["merged_df_for_selector"] = pd.DataFrame()
             st.session_state["description_columns_pool"] = []
             st.success("すべてのファイル情報をクリアしました。")
             st.rerun()
+
 
 # ==================================================
 # 6) タブ2: イベントの登録・更新（差分更新＋集計）
