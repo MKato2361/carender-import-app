@@ -286,25 +286,52 @@ with tabs[0]:
         "ExcelまたはCSVファイルを選択（複数可）", type=["xlsx", "xls", "csv"], accept_multiple_files=True
     )
 
-    local_excel_files = get_local_excel_files()
-    selected_local_files: List[BytesIO] = []
-    if local_excel_files:
-        st.markdown("📁 サーバーにあるExcelファイル")
-        local_file_names = [f.name for f in local_excel_files]
-        selected_names = st.multiselect("以下のファイルを処理対象に含める（アップロードと同様に扱われます）", local_file_names)
-        for name in selected_names:
-            full_path = next((f for f in local_excel_files if f.name == name), None)
-            if full_path:
-                with open(full_path, "rb") as f:
-                    file_obj = BytesIO(f.read())
-                    file_obj.name = name
-                    selected_local_files.append(file_obj)
+# 先頭付近でインポートを追加
+# from github_loader import walk_repo_tree, load_file_bytes_from_github, is_supported_file
 
+selected_github_files: List[BytesIO] = []
+
+try:
+    # ルート（または任意の開始パス）から最大3階層を全展開
+    gh_nodes = walk_repo_tree(base_path="", max_depth=3)
+
+    # 全展開ツリー（dir と file をインデント付きで表示）。複数選択・即読み込み。
+    st.markdown("📦 **GitHub上のCSV/Excel（全ツリー）**")
+
+    # チェック状態を保持するセッション領域
+    if "gh_checked" not in st.session_state:
+        st.session_state["gh_checked"] = {}
+
+    # まずディレクトリを出力（見やすさ向上）
+    for node in gh_nodes:
+        if node["type"] == "dir":
+            indent = " " * (node["depth"] * 2)
+            st.markdown(f"{indent}📁 **{node['name']}**")
+
+    # ファイルは拡張子で絞ってチェックボックス化
+    for node in gh_nodes:
+        if node["type"] == "file" and is_supported_file(node["name"]):
+            indent = " " * (node["depth"] * 2)
+            key = f"gh_file::{node['path']}"
+            # ツリー全展開 & 複数選択 & 即読み込み（チェック状態に応じて都度ロード）
+            checked = st.checkbox(f"{indent}📄 {node['name']}", key=key, value=st.session_state["gh_checked"].get(key, False))
+            st.session_state["gh_checked"][key] = checked
+            if checked:
+                try:
+                    bio = load_file_bytes_from_github(node["path"])
+                    bio.name = node["name"]  # 既存フローに合わせて名前を持たせる
+                    selected_github_files.append(bio)
+                except Exception as e:
+                    st.warning(f"GitHub取得エラー: {e}")
+                except Exception as e:
+                    st.warning(f"GitHubツリーの取得に失敗しました: {e}")
+                    
     all_files: List = []
     if uploaded_files:
         all_files.extend(uploaded_files)
-    if selected_local_files:
-        all_files.extend(selected_local_files)
+    if selected_github_files:
+        all_files.extend(selected_github_files)
+
 
     if all_files:
         st.session_state["uploaded_files"] = all_files
