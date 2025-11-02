@@ -2,17 +2,6 @@ from __future__ import annotations
 from utils.helpers import safe_get, to_utc_range, default_fetch_window_years
 from utils.parsers import extract_worksheet_id_from_text
 
-import streamlit as st
-
-pat = st.secrets.get("GITHUB_PAT", None)
-
-st.write("PAT exists:", pat is not None)
-if pat:
-    st.write("PAT length:", len(pat))
-    st.write("PAT preview:", pat[:6] + "..." + pat[-4:])  # 最初6文字 + 最後4文字のみ表示
-    st.write("Has space at start:", pat.startswith(" "))
-    st.write("Has space at end:", pat.endswith(" "))
-
 import re
 import unicodedata
 from datetime import datetime, date, timedelta, timezone
