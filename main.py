@@ -295,12 +295,8 @@ with tabs[0]:
 selected_github_files: List[BytesIO] = []
 
 try:
-    gh_nodes = walk_repo_tree(base_path="/", max_depth=3)
+    gh_nodes = walk_repo_tree(base_path="", max_depth=3)
     st.markdown("📦 **GitHub上のCSV/Excel（全ツリー）**")
-    st.write("📍 DEBUG nodes:", gh_nodes)
-except Exception as e:
-    st.write("ERROR:", e)
-
 
     if "gh_checked" not in st.session_state:
         st.session_state["gh_checked"] = {}
@@ -326,6 +322,7 @@ except Exception as e:
 
 except Exception as e:
     st.warning(f"GitHubツリーの取得に失敗しました: {e}")
+
 
                     
     all_files: List = []
