@@ -1,3 +1,5 @@
+import streamlit as st
+st.write("Loaded secrets keys:", list(st.secrets.keys()))
 
 from __future__ import annotations
 from utils.helpers import safe_get, to_utc_range, default_fetch_window_years
