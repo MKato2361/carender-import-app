@@ -324,6 +324,8 @@ with tabs[0]:
     )
 # --- 統合ファイル管理 -----------------------------
 # 初期化
+selected_github_files = st.session_state.get("selected_github_files", [])
+
 if "uploaded_files" not in st.session_state:
     st.session_state["uploaded_files"] = []
 
