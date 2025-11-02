@@ -15,6 +15,8 @@ import streamlit as st
 from firebase_admin import firestore
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
+from github_loader import walk_repo_tree, load_file_bytes_from_github, is_supported_file
+
 
 # ---- アプリ固有モジュール ----
 from excel_parser import (
