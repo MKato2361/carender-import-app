@@ -4,6 +4,13 @@ from utils.parsers import extract_worksheet_id_from_text
 
 import streamlit as st
 st.write("Loaded secrets keys:", list(st.secrets.keys()))
+import streamlit as st
+import requests
+from github_loader import _headers
+
+res = requests.get("https://api.github.com/user", headers=_headers())
+st.write("User API Status:", res.status_code)
+st.write(res.text)
 
 import re
 import unicodedata
