@@ -28,15 +28,16 @@ def _headers() -> Dict[str, str]:
     return {"Authorization": f"token {get_pat()}"}
 
 @st.cache_data(ttl=600)
+@st.cache_data(ttl=600)
 def list_dir(path: str = "") -> List[Dict]:
-    """指定パスの直下を返す（ファイルとディレクトリ）。"""
-    url = f"{GITHUB_API_BASE}/repos/{GITHUB_OWNER}/{GITHUB_REPO}/contents/{path}".rstrip("/")
+    path = path.lstrip("/")  # ✅ 余分な削除のみ
+    url = f"{GITHUB_API_BASE}/repos/{GITHUB_OWNER}/{GITHUB_REPO}/contents/{path}"
     res = requests.get(url, headers=_headers())
     if res.status_code != 200:
         raise Exception(f"GitHub list_dir エラー {res.status_code}: {res.text}")
     data = res.json()
-    # ディレクトリの場合は配列 / 単一ファイルだとdictが返ることがあるので正規化
     return data if isinstance(data, list) else [data]
+
 
 @st.cache_data(ttl=600)
 def walk_repo_tree(base_path: str = "", max_depth: int = 3) -> List[Dict]:
