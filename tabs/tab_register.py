@@ -4,11 +4,33 @@ import pandas as pd
 from datetime import datetime, timedelta
 from state.calendar_state import get_calendar, set_calendar
 
-# === タブ2：イベントの登録 ===
+from user_settings import (
+    get_user_setting,
+    set_user_setting,
+    save_user_setting_to_firestore,
+)
+
+from utils.event_utils import (
+    check_event_name_columns,
+    get_available_columns_for_event_name,
+    process_excel_data_for_calendar,
+    extract_worksheet_id_from_description,
+    extract_worksheet_id_from_text,
+    default_fetch_window_years,
+    fetch_all_events,
+    safe_get,
+    is_event_changed,
+    update_event_if_needed,
+    add_event_to_calendar,
+)
+
+from utils.timezone import JST
+
+
 def render_tab_register(service, editable_calendar_options, user_id, current_calendar_name: str):
     st.subheader("イベントを登録・更新")
 
-    # ---- カレンダー選択（サイドバーと同期：追加部分） ----
+    # ---- カレンダー選択（サイドバーと同期）----
     if editable_calendar_options:
         calendar_options = list(editable_calendar_options.keys())
         try:
@@ -20,40 +42,26 @@ def render_tab_register(service, editable_calendar_options, user_id, current_cal
             "登録先カレンダーを選択",
             calendar_options,
             index=idx,
-            key="reg_calendar_select_tab"
+            key=f"reg_calendar_select_tab_{user_id}"
         )
 
+        # サイドバーと同期（全タブ共通カレンダー）
         if selected_tab_calendar != current_calendar_name:
             set_calendar(user_id, selected_tab_calendar)
             st.session_state["selected_calendar_name"] = selected_tab_calendar
             st.rerun()
 
         calendar_id = editable_calendar_options[selected_tab_calendar]
+        selected_calendar_name = selected_tab_calendar
     else:
         st.error("登録可能なカレンダーが見つかりませんでした。Googleカレンダーの設定を確認してください。")
         return
 
-    # ---- ここから下、あなたが貼ったコードをそのまま移植 ----
+    # ---- 元コード維持：カレンダー名保存 ----
+    set_user_setting(user_id, "selected_calendar_name", selected_calendar_name)
+    save_user_setting_to_firestore(user_id, "selected_calendar_name", selected_calendar_name)
 
-    from user_settings import (
-        get_user_setting,
-        set_user_setting,
-        save_user_setting_to_firestore,
-    )
-    from utils.event_utils import (
-        check_event_name_columns,
-        get_available_columns_for_event_name,
-        process_excel_data_for_calendar,
-        extract_worksheet_id_from_description,
-        extract_worksheet_id_from_text,
-        default_fetch_window_years,
-        fetch_all_events,
-        safe_get,
-        is_event_changed,
-        update_event_if_needed,
-        add_event_to_calendar,
-    )
-    from utils.timezone import JST  # あなたの環境で必要な場合
+    # ---- ここから下は元コードそのまま ----
 
     description_columns: List[str] = []
     selected_event_name_col: Optional[str] = None
@@ -62,22 +70,10 @@ def render_tab_register(service, editable_calendar_options, user_id, current_cal
     private_event = True
     fallback_event_name_column: Optional[str] = None
 
+    # Excel未読時は停止
     if not st.session_state.get("uploaded_files") or st.session_state["merged_df_for_selector"].empty:
         st.info("先に「1. ファイルのアップロード」タブでExcelファイルをアップロードしてください。")
         return
-
-    calendar_options = list(editable_calendar_options.keys())
-    saved_calendar_name = get_user_setting(user_id, "selected_calendar_name")
-    try:
-        default_index = calendar_options.index(saved_calendar_name)
-    except Exception:
-        default_index = 0
-
-    # ✅ ここは上で同期済みなので削除せず、そのまま残す（挙動変えない）
-    selected_calendar_name = selected_tab_calendar
-
-    set_user_setting(user_id, "selected_calendar_name", selected_calendar_name)
-    save_user_setting_to_firestore(user_id, "selected_calendar_name", selected_calendar_name)
 
     description_columns_pool = st.session_state.get("description_columns_pool", [])
     saved_description_cols = get_user_setting(user_id, "description_columns_selected") or []
@@ -133,10 +129,13 @@ def render_tab_register(service, editable_calendar_options, user_id, current_cal
         create_todo = st.checkbox(
             "このイベントに対応するToDoリストを作成する",
             value=bool(saved_create_todo_flag),
-            key="create_todo_checkbox",
+            key=f"create_todo_checkbox_{user_id}",
         )
-        set_user_setting(user_id, "create_todo_checkbox_state", create_todo)
-        save_user_setting_to_firestore(user_id, "create_todo_checkbox_state", create_todo)
+
+        # 保存タイミング修正：ボタン押下時のみ保存（元の仕様踏襲しつつ整合性改善）
+        if create_todo != saved_create_todo_flag:
+            set_user_setting(user_id, "create_todo_checkbox_state", create_todo)
+            save_user_setting_to_firestore(user_id, "create_todo_checkbox_state", create_todo)
 
         fixed_todo_types = ["点検通知"]
         if create_todo:
@@ -149,7 +148,7 @@ def render_tab_register(service, editable_calendar_options, user_id, current_cal
             "ToDoリストの期限をイベント開始日の何日前に設定しますか？",
             list(deadline_offset_options.keys()),
             disabled=not create_todo,
-            key="deadline_offset_select",
+            key=f"deadline_offset_select_{user_id}",
         )
         custom_offset_days = None
         if selected_offset_key == "カスタム日数前":
@@ -158,11 +157,13 @@ def render_tab_register(service, editable_calendar_options, user_id, current_cal
                 min_value=0,
                 value=3,
                 disabled=not create_todo,
-                key="custom_offset_input",
+                key=f"custom_offset_input_{user_id}",
             )
 
     st.subheader("➡️ イベント登録・更新実行")
-    if st.button("Googleカレンダーに登録・更新する"):
+    if st.button("Googleカレンダーに登録・更新する", key=f"exec_register_{user_id}"):
+
+        # 設定保存
         set_user_setting(user_id, "description_columns_selected", description_columns)
         set_user_setting(user_id, "event_name_col_selected", selected_event_name_col)
         set_user_setting(user_id, "add_task_type_to_event_name", add_task_type_to_event_name)
@@ -170,8 +171,6 @@ def render_tab_register(service, editable_calendar_options, user_id, current_cal
         save_user_setting_to_firestore(user_id, "description_columns_selected", description_columns)
         save_user_setting_to_firestore(user_id, "event_name_col_selected", selected_event_name_col)
         save_user_setting_to_firestore(user_id, "add_task_type_to_event_name", add_task_type_to_event_name)
-
-        from utils.timezone import JST  # 再import念のため
 
         with st.spinner("イベントデータ処理中..."):
             try:
@@ -212,16 +211,16 @@ def render_tab_register(service, editable_calendar_options, user_id, current_cal
                     desc_text = safe_get(row, "Description", "")
                     worksheet_id = extract_worksheet_id_from_text(desc_text)
 
-                    all_day_flag  = safe_get(row, "All Day Event", "True")
-                    private_flag  = safe_get(row, "Private", "True")
+                    all_day_flag = safe_get(row, "All Day Event", "True")
+                    private_flag = safe_get(row, "Private", "True")
                     start_date_str = safe_get(row, "Start Date", "")
-                    end_date_str   = safe_get(row, "End Date", "")
+                    end_date_str = safe_get(row, "End Date", "")
                     start_time_str = safe_get(row, "Start Time", "")
-                    end_time_str   = safe_get(row, "End Time", "")
+                    end_time_str = safe_get(row, "End Time", "")
 
                     event_data = {
-                        "summary":   safe_get(row, "Subject", ""),
-                        "location":  safe_get(row, "Location", ""),
+                        "summary": safe_get(row, "Subject", ""),
+                        "location": safe_get(row, "Location", ""),
                         "description": desc_text,
                         "transparency": "transparent" if private_flag == "True" else "opaque",
                     }
@@ -231,12 +230,12 @@ def render_tab_register(service, editable_calendar_options, user_id, current_cal
                             sd = datetime.strptime(start_date_str, "%Y/%m/%d").date()
                             ed = datetime.strptime(end_date_str, "%Y/%m/%d").date()
                             event_data["start"] = {"date": sd.strftime("%Y-%m-%d")}
-                            event_data["end"]   = {"date": (ed + timedelta(days=1)).strftime("%Y-%m-%d")}
+                            event_data["end"] = {"date": (ed + timedelta(days=1)).strftime("%Y-%m-%d")}
                         else:
                             sdt = datetime.strptime(f"{start_date_str} {start_time_str}", "%Y/%m/%d %H:%M").replace(tzinfo=JST)
                             edt = datetime.strptime(f"{end_date_str} {end_time_str}", "%Y/%m/%d %H:%M").replace(tzinfo=JST)
                             event_data["start"] = {"dateTime": sdt.isoformat(), "timeZone": "Asia/Tokyo"}
-                            event_data["end"]   = {"dateTime": edt.isoformat(), "timeZone": "Asia/Tokyo"}
+                            event_data["end"] = {"dateTime": edt.isoformat(), "timeZone": "Asia/Tokyo"}
                     except Exception as e:
                         st.error(f"行 {i} の日時パースに失敗しました: {e}")
                         progress.progress((i + 1) / total)
@@ -263,3 +262,4 @@ def render_tab_register(service, editable_calendar_options, user_id, current_cal
                     progress.progress((i + 1) / total)
 
                 st.success(f"✅ 登録: {added_count} / 🔧 更新: {updated_count} / ↪ スキップ: {skipped_count}")
+
