@@ -298,11 +298,6 @@ try:
     gh_nodes = walk_repo_tree(base_path="/", max_depth=3)
     st.markdown("📦 **GitHub上のCSV/Excel（全ツリー）**")
     st.write("📍 DEBUG nodes:", gh_nodes)
-    import requests
-    url = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/contents"
-    res = requests.get(url, headers=_headers())
-    st.write("Status:", res.status_code)
-    st.write("Response:", res.text)
 except Exception as e:
     st.write("ERROR:", e)
 
