@@ -3,18 +3,15 @@ from utils.helpers import safe_get, to_utc_range, default_fetch_window_years
 from utils.parsers import extract_worksheet_id_from_text
 
 import streamlit as st
-import requests
-from github_loader import _headers, GITHUB_OWNER, GITHUB_REPO
 
-st.write("GITHUB_PAT exists:", "GITHUB_PAT" in st.secrets)
+pat = st.secrets.get("GITHUB_PAT", None)
 
-res_user = requests.get("https://api.github.com/user", headers=_headers())
-st.write("User API Status:", res_user.status_code)
-
-url = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/contents"
-res_repo = requests.get(url, headers=_headers())
-st.write("Repo Contents Status:", res_repo.status_code)
-st.write(res_repo.text)
+st.write("PAT exists:", pat is not None)
+if pat:
+    st.write("PAT length:", len(pat))
+    st.write("PAT preview:", pat[:6] + "..." + pat[-4:])  # 最初6文字 + 最後4文字のみ表示
+    st.write("Has space at start:", pat.startswith(" "))
+    st.write("Has space at end:", pat.endswith(" "))
 
 import re
 import unicodedata
