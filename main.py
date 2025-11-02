@@ -296,6 +296,8 @@ selected_github_files: List[BytesIO] = []
 try:
     gh_nodes = walk_repo_tree(base_path="", max_depth=3)
     st.markdown("📦 **GitHub上のCSV/Excel（全ツリー）**")
+    st.write("📍 DEBUG nodes:", gh_nodes)
+
 
     if "gh_checked" not in st.session_state:
         st.session_state["gh_checked"] = {}
