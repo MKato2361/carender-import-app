@@ -3,14 +3,18 @@ from utils.helpers import safe_get, to_utc_range, default_fetch_window_years
 from utils.parsers import extract_worksheet_id_from_text
 
 import streamlit as st
-st.write("Loaded secrets keys:", list(st.secrets.keys()))
-import streamlit as st
 import requests
-from github_loader import _headers
+from github_loader import _headers, GITHUB_OWNER, GITHUB_REPO
 
-res = requests.get("https://api.github.com/user", headers=_headers())
-st.write("User API Status:", res.status_code)
-st.write(res.text)
+st.write("GITHUB_PAT exists:", "GITHUB_PAT" in st.secrets)
+
+res_user = requests.get("https://api.github.com/user", headers=_headers())
+st.write("User API Status:", res_user.status_code)
+
+url = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/contents"
+res_repo = requests.get(url, headers=_headers())
+st.write("Repo Contents Status:", res_repo.status_code)
+st.write(res_repo.text)
 
 import re
 import unicodedata
