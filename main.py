@@ -1,9 +1,9 @@
-import streamlit as st
-st.write("Loaded secrets keys:", list(st.secrets.keys()))
-
 from __future__ import annotations
 from utils.helpers import safe_get, to_utc_range, default_fetch_window_years
 from utils.parsers import extract_worksheet_id_from_text
+
+import streamlit as st
+st.write("Loaded secrets keys:", list(st.secrets.keys()))
 
 import re
 import unicodedata
