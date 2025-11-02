@@ -16,6 +16,17 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from github_loader import walk_repo_tree, load_file_bytes_from_github, is_supported_file
 from github_loader import _headers, GITHUB_OWNER, GITHUB_REPO
+from io import BytesIO
+from streamlit.runtime.uploaded_file_manager import UploadedFile
+
+def convert_bytes_to_uploadedfile(file_bytes: bytes, filename: str, mime_type: str = None):
+    """GitHub等から取得したバイトデータをStreamlitのUploadedFile互換に変換"""
+    return UploadedFile(
+        name=filename,
+        type=mime_type or "application/octet-stream",
+        data=file_bytes,
+    )
+
 
 
 
@@ -345,6 +356,32 @@ except Exception as e:
             st.session_state["uploaded_files"] = []
             st.session_state["merged_df_for_selector"] = pd.DataFrame()
             st.session_state["description_columns_pool"] = []
+# --- 統合ファイル管理 -----------------------------
+# 初期化
+if "uploaded_files" not in st.session_state:
+    st.session_state["uploaded_files"] = []
+
+# 1️⃣ ローカルアップロード分を統合
+if uploaded_files:
+    for f in uploaded_files:
+        if f not in st.session_state["uploaded_files"]:
+            st.session_state["uploaded_files"].append(f)
+
+# 2️⃣ GitHubから選択されたファイルを統合
+if selected_github_files:
+    for gh_file in selected_github_files:
+        uploaded_like = convert_bytes_to_uploadedfile(
+            gh_file.getvalue(),
+            gh_file.name,
+            "application/vnd.ms-excel" if gh_file.name.endswith(".xls") or gh_file.name.endswith(".xlsx") else "text/csv",
+        )
+        # 重複ファイル（同名）は置き換え
+        st.session_state["uploaded_files"] = [
+            f for f in st.session_state["uploaded_files"] if f.name != uploaded_like.name
+        ]
+        st.session_state["uploaded_files"].append(uploaded_like)
+
+# -------------------------------------------------
 
     if st.session_state.get("uploaded_files"):
         st.subheader("📄 処理対象ファイル一覧")
