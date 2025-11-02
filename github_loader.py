@@ -8,7 +8,7 @@ import streamlit as st
 
 # ====== 設定（必要に応じて変更）======
 GITHUB_OWNER = "MKato2361"        # 例: "my-org" or "my-user"
-GITHUB_REPO = "CI_FILES.git"       # 例: "my-private-repo"
+GITHUB_REPO = "CI_FILES"       # 例: "my-private-repo"
 GITHUB_API_BASE = "https://api.github.com"
 
 # ====== ユーティリティ ======
