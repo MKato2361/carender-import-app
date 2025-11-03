@@ -4,11 +4,7 @@ from datetime import date, timedelta
 from typing import List, Optional
 
 
-from utils.register_handler import (
-    prepare_events,
-    fetch_existing_events,
-    register_or_update_events,
-)
+
 from utils.helpers import default_fetch_window_years
 from excel_parser import process_excel_data_for_calendar
 from calendar_utils import fetch_all_events
