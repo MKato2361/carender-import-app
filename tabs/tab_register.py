@@ -1,3 +1,4 @@
+# tabs/tab_register.py
 import streamlit as st
 from typing import List, Optional, Dict
 import pandas as pd
@@ -132,7 +133,7 @@ def render_tab_register(service, editable_calendar_options, user_id, current_cal
             key=f"create_todo_checkbox_{user_id}",
         )
 
-        # 保存タイミング修正：ボタン押下時のみ保存（元の仕様踏襲しつつ整合性改善）
+        # 保存タイミング：変更時のみ即保存
         if create_todo != saved_create_todo_flag:
             set_user_setting(user_id, "create_todo_checkbox_state", create_todo)
             save_user_setting_to_firestore(user_id, "create_todo_checkbox_state", create_todo)
@@ -262,4 +263,3 @@ def render_tab_register(service, editable_calendar_options, user_id, current_cal
                     progress.progress((i + 1) / total)
 
                 st.success(f"✅ 登録: {added_count} / 🔧 更新: {updated_count} / ↪ スキップ: {skipped_count}")
-
