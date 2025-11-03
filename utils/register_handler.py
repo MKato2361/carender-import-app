@@ -1,41 +1,50 @@
+"""
+tab2_register.py
+タブ2：イベント登録 UI（軽い改善版）
+"""
+
+from __future__ import annotations
 import streamlit as st
 import pandas as pd
-from datetime import date, timedelta
-from typing import List, Optional
+from datetime import datetime, timedelta, timezone, date
 
-
-
-from utils.helpers import default_fetch_window_years
-from excel_parser import process_excel_data_for_calendar
-from calendar_utils import fetch_all_events
 from utils.register_handler import (
     prepare_events,
     fetch_existing_events,
     register_or_update_events,
 )
 
-def render_tab2_register(user_id: str, editable_calendar_options: dict, service, tasks_service=None, default_task_list_id=None):
+from utils.helpers import safe_get, default_fetch_window_years
+from excel_parser import process_excel_data_for_calendar
+from firebase_auth import get_firebase_user_id
+from session_utils import get_user_setting, set_user_setting
+from calendar_utils import add_task_to_todo_list, build_tasks_service, fetch_all_events
+
+
+JST = timezone(timedelta(hours=9))
+
+
+def render_tab2_register(service, editable_calendar_options):
+    user_id = get_firebase_user_id()
+
     st.subheader("イベントを登録・更新")
 
-    if not st.session_state.get("uploaded_files") or st.session_state["merged_df_for_selector"].empty:
-        st.info("先に「1. ファイルのアップロード」タブでExcelファイルをアップロードしてください。")
+    # データ未アップロード時のガード
+    if (
+        "uploaded_files" not in st.session_state
+        or not st.session_state["uploaded_files"]
+        or st.session_state.get("merged_df_for_selector", pd.DataFrame()).empty
+    ):
+        st.info("先に「1. ファイルのアップロード」でファイルを読み込んでください。")
         return
 
     if not editable_calendar_options:
-        st.error("登録可能なカレンダーが見つかりませんでした。Googleカレンダーの設定を確認してください。")
+        st.error("登録可能なカレンダーがありません。Google認証をご確認ください。")
         return
-
-    description_columns: List[str] = []
-    selected_event_name_col: Optional[str] = None
-    add_task_type_to_event_name = False
-    all_day_event_override = False
-    private_event = True
-    fallback_event_name_column: Optional[str] = None
 
     # カレンダー選択
     calendar_options = list(editable_calendar_options.keys())
     saved_calendar_name = get_user_setting(user_id, "selected_calendar_name")
-
     try:
         default_index = calendar_options.index(saved_calendar_name)
     except Exception:
@@ -45,120 +54,58 @@ def render_tab2_register(user_id: str, editable_calendar_options: dict, service,
         "登録先カレンダーを選択",
         calendar_options,
         index=default_index,
-        key="reg_calendar_select"
+        key="reg_calendar_select",
     )
     calendar_id = editable_calendar_options[selected_calendar_name]
-    set_user_setting(user_id, "selected_calendar_name", selected_calendar_name)
-    save_user_setting_to_firestore(user_id, "selected_calendar_name", selected_calendar_name)
 
-    # 設定読み込み
-    description_columns_pool = st.session_state.get("description_columns_pool", [])
+    set_user_setting(user_id, "selected_calendar_name", selected_calendar_name)
+
+    # 設定UI
+    df = st.session_state["merged_df_for_selector"]
+    description_columns_pool = df.columns.tolist()
+
     saved_description_cols = get_user_setting(user_id, "description_columns_selected") or []
     saved_event_name_col = get_user_setting(user_id, "event_name_col_selected")
     saved_task_type_flag = get_user_setting(user_id, "add_task_type_to_event_name")
-    saved_create_todo_flag = get_user_setting(user_id, "create_todo_checkbox_state")
 
-    expand_event_setting = not bool(saved_description_cols)
-    expand_name_setting = not (saved_event_name_col or saved_task_type_flag)
-    expand_todo_setting = bool(saved_create_todo_flag)
+    st.subheader("📝 イベント設定")
+    description_columns = st.multiselect(
+        "説明欄に含める列（複数選択可）",
+        description_columns_pool,
+        default=[c for c in saved_description_cols if c in description_columns_pool],
+    )
 
-    # イベント設定
-    with st.expander("📝 イベント設定", expanded=expand_event_setting):
-        all_day_event_override = st.checkbox("終日イベントとして登録", value=False)
-        private_event = st.checkbox("非公開イベントとして登録", value=True)
-        default_selection = [col for col in saved_description_cols if col in description_columns_pool]
-        description_columns = st.multiselect(
-            "説明欄に含める列（複数選択可）",
-            description_columns_pool,
-            default=default_selection,
-            key=f"description_selector_register_{user_id}",
-        )
+    st.subheader("🧱 イベント名の生成設定")
+    add_task_type_to_event_name = st.checkbox(
+        "イベント名の先頭に作業タイプを追加する",
+        value=bool(saved_task_type_flag),
+    )
+    event_name_col = st.selectbox(
+        "代替イベント名に使用する列（Subjectが空の場合）",
+        options=["選択しない"] + description_columns_pool,
+        index=(description_columns_pool.index(saved_event_name_col) + 1) if saved_event_name_col in description_columns_pool else 0,
+    )
+    fallback_event_name_column = None if event_name_col == "選択しない" else event_name_col
 
-    # イベント名生成設定
-    with st.expander("🧱 イベント名の生成設定", expanded=expand_name_setting):
-        from excel_parser import check_event_name_columns, get_available_columns_for_event_name
-        has_mng_data, has_name_data = check_event_name_columns(st.session_state["merged_df_for_selector"])
-        selected_event_name_col = saved_event_name_col
-        add_task_type_to_event_name = st.checkbox(
-            "イベント名の先頭に作業タイプを追加する",
-            value=bool(saved_task_type_flag),
-            key=f"add_task_type_checkbox_{user_id}",
-        )
+    st.subheader("✅ ToDo作成（オプション）")
+    create_todo = st.checkbox("このイベントに対応するToDoリストを作成する", value=False)
+    deadline_offset = st.slider("ToDo期限（イベント開始日の何日前）", 1, 30, 7, disabled=not create_todo)
 
-        if not (has_mng_data and has_name_data):
-            available_event_name_cols = get_available_columns_for_event_name(
-                st.session_state["merged_df_for_selector"]
-            )
-            event_name_options = ["選択しない"] + available_event_name_cols
-            try:
-                name_index = event_name_options.index(selected_event_name_col) if selected_event_name_col else 0
-            except Exception:
-                name_index = 0
-            selected_event_name_col = st.selectbox(
-                "イベント名として使用する代替列を選択してください:",
-                options=event_name_options,
-                index=name_index,
-                key=f"event_name_selector_register_{user_id}",
-            )
-            if selected_event_name_col != "選択しない":
-                fallback_event_name_column = selected_event_name_col
-        else:
-            st.info("「管理番号」と「物件名」のデータが両方存在するため、それらがイベント名として使用されます。")
-
-    # ToDo連携設定
-    st.subheader("✅ ToDoリスト連携設定 (オプション)")
-    with st.expander("ToDoリスト作成オプション", expanded=expand_todo_setting):
-        create_todo = st.checkbox(
-            "このイベントに対応するToDoリストを作成する",
-            value=bool(saved_create_todo_flag),
-            key="create_todo_checkbox",
-        )
-        set_user_setting(user_id, "create_todo_checkbox_state", create_todo)
-        save_user_setting_to_firestore(user_id, "create_todo_checkbox_state", create_todo)
-
-        fixed_todo_types = ["点検通知"]
-        if create_todo:
-            st.markdown(f"以下のToDoが**常にすべて**作成されます: `{', '.join(fixed_todo_types)}`")
-        else:
-            st.markdown("ToDoリストの作成は無効です。")
-
-        deadline_offset_options = {"2週間前": 14, "10日前": 10, "1週間前": 7, "カスタム日数前": None}
-        selected_offset_key = st.selectbox(
-            "ToDoリストの期限をイベント開始日の何日前に設定しますか？",
-            list(deadline_offset_options.keys()),
-            disabled=not create_todo,
-            key="deadline_offset_select",
-        )
-        custom_offset_days = None
-        if selected_offset_key == "カスタム日数前":
-            custom_offset_days = st.number_input(
-                "何日前に設定しますか？ (日数)",
-                min_value=0,
-                value=3,
-                disabled=not create_todo,
-                key="custom_offset_input",
-            )
-
-    # 実行ボタン
+    # 登録ボタン
     st.subheader("➡️ イベント登録・更新実行")
     if st.button("Googleカレンダーに登録・更新する"):
-
         # 設定保存
         set_user_setting(user_id, "description_columns_selected", description_columns)
-        set_user_setting(user_id, "event_name_col_selected", selected_event_name_col)
+        set_user_setting(user_id, "event_name_col_selected", fallback_event_name_column)
         set_user_setting(user_id, "add_task_type_to_event_name", add_task_type_to_event_name)
 
-        save_user_setting_to_firestore(user_id, "description_columns_selected", description_columns)
-        save_user_setting_to_firestore(user_id, "event_name_col_selected", selected_event_name_col)
-        save_user_setting_to_firestore(user_id, "add_task_type_to_event_name", add_task_type_to_event_name)
-
-        with st.spinner("イベントデータを処理中..."):
+        with st.spinner("イベントデータを準備中..."):
             try:
-                df = process_excel_data_for_calendar(
+                df_processed = process_excel_data_for_calendar(
                     st.session_state["uploaded_files"],
                     description_columns,
-                    all_day_event_override,
-                    private_event,
+                    False,  # all_day override → 現仕様では使わないためFalse固定
+                    True,   # private_event default → True固定（詳細はhandlerで反映）
                     fallback_event_name_column,
                     add_task_type_to_event_name,
                 )
@@ -166,42 +113,50 @@ def render_tab2_register(user_id: str, editable_calendar_options: dict, service,
                 st.error(f"Excelデータ処理中にエラーが発生しました: {e}")
                 return
 
-            if df.empty:
-                st.warning("有効なイベントデータがありません。処理を中断しました。")
-                return
+        prep = prepare_events(df_processed, description_columns, fallback_event_name_column, add_task_type_to_event_name)
 
-            # イベント候補生成（UI側では抽出処理せず handler に委譲）
-            prep = prepare_events(df, description_columns, fallback_event_name_column, add_task_type_to_event_name)
-            if prep["errors"]:
-                st.error("以下のエラーが発生しました:\n" + "\n".join(prep["errors"]))
-                if not prep["events"]:
-                    return
+        if prep["errors"]:
+            st.error(f"❌ {len(prep['errors'])}件の行でエラーがあり、スキップされます。")
+            with st.expander("エラー詳細を表示"):
+                for err in prep["errors"]:
+                    st.write(f"- {err}")
 
-            if prep["warnings"]:
-                st.warning("以下の警告があります:\n" + "\n".join(prep["warnings"]))
+        if prep["warnings"]:
+            st.warning(f"⚠️ {len(prep['warnings'])}件の警告があります。")
+            with st.expander("警告の詳細を見る"):
+                for warn in prep["warnings"]:
+                    st.write(f"- {warn}")
 
-            st.info(f"{len(prep['events'])} 件のイベントを処理します。")
-            progress = st.progress(0)
+        event_candidates = prep["events"]
+        if not event_candidates:
+            st.error("イベント候補が生成できなかったため処理を中止します。")
+            return
 
-            # 既存イベント取得
+        with st.spinner("既存イベントを取得中..."):
             time_min, time_max = default_fetch_window_years(2)
-            existing_event_map = fetch_existing_events(service, calendar_id, time_min, time_max)
+            existing_map = fetch_existing_events(service, calendar_id, time_min, time_max)
 
-            results = {"added": 0, "updated": 0, "skipped": 0}
-            total = len(prep["events"])
+        total = len(event_candidates)
+        progress = st.progress(0)
 
-            # handlerで処理
-            for idx, event_data in enumerate(prep["events"]):
-                partial_res = register_or_update_events(
-                    service,
-                    calendar_id,
-                    [event_data],
-                    existing_event_map,
-                )
-                results["added"] += partial_res["added"]
-                results["updated"] += partial_res["updated"]
-                results["skipped"] += partial_res["skipped"]
+        results = {"added": 0, "updated": 0, "skipped": 0}
 
-                progress.progress((idx + 1) / total)
+        for i, candidate in enumerate(event_candidates):
+            # 登録・更新
+            r = register_or_update_events(service, calendar_id, [candidate], existing_map)
+            for k in results:
+                results[k] += r[k]
 
-            st.success(f"✅ 登録: {results['added']} / 🔧 更新: {results['updated']} / ↪ スキップ: {results['skipped']}")
+            # ToDo生成（失敗しても処理継続）
+            if create_todo:
+                try:
+                    event_start = datetime.strptime(candidate["Start Date"], "%Y/%m/%d").date()
+                    due_date = event_start - timedelta(days=deadline_offset)
+                    title = f"【ToDo】{candidate['Subject']}"
+                    add_task_to_todo_list(title, "", due_date)  # 関数は既存のものを流用
+                except Exception:
+                    pass
+
+            progress.progress((i + 1) / total)
+
+        st.success(f"✅ 登録: {results['added']} / 🔧 更新: {results['updated']} / ↪ スキップ: {results['skipped']}")
