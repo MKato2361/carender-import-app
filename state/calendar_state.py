@@ -1,50 +1,43 @@
 # state/calendar_state.py
-"""
-全タブで共通して利用する「選択中カレンダー」の状態管理モジュール
-・常にタブ間共有
-・SessionState + Firestore 両方で保持
-"""
-
 import streamlit as st
-from session_utils import get_user_setting, set_user_setting
-from firebase_admin import firestore
 
-db = firestore.client()
+# 全タブで共通利用するカレンダー選択の保存/取得
 
-_KEY = "selected_calendar_name"
+def get_calendar(user_id: str, editable_calendar_options: dict, default_name: str = None) -> str:
+    # 1) セッション
+    name = st.session_state.get("selected_calendar_name")
+    if name and name in editable_calendar_options:
+        return name
 
+    # 2) ユーザ設定（存在すれば）
+    try:
+        from user_settings import get_user_setting
+        saved = get_user_setting(user_id, "selected_calendar_name")
+        if saved and saved in editable_calendar_options:
+            st.session_state["selected_calendar_name"] = saved
+            return saved
+    except Exception:
+        pass
 
-def get_calendar(user_id: str, default: str = None) -> str | None:
-    """
-    現在選択中のカレンダー名を取得する。
-    優先順：SessionState → Firestore → default引数
-    """
-    # 1. SessionStateにあれば最優先
-    if _KEY in st.session_state:
-        return st.session_state[_KEY]
+    # 3) デフォルト or 最初の要素
+    if default_name and default_name in editable_calendar_options:
+        st.session_state["selected_calendar_name"] = default_name
+        return default_name
 
-    # 2. Firestore保存分を取得
-    saved = get_user_setting(user_id, _KEY)
-    if saved:
-        st.session_state[_KEY] = saved
-        return saved
-
-    # 3. defaultがあれば採用
-    if default:
-        st.session_state[_KEY] = default
-        return default
+    if editable_calendar_options:
+        first = list(editable_calendar_options.keys())[0]
+        st.session_state["selected_calendar_name"] = first
+        return first
 
     return None
 
 
-def set_calendar(user_id: str, calendar_name: str) -> None:
-    """
-    選択したカレンダー名を保存（SessionState + Firestore）
-    """
-    st.session_state[_KEY] = calendar_name
-    set_user_setting(user_id, _KEY, calendar_name)
-
-    # Firestoreにも保存（merge=Trueで他設定を壊さない）
-    db.collection("user_settings").document(user_id).set(
-        {_KEY: calendar_name}, merge=True
-    )
+def set_calendar(user_id: str, calendar_name: str):
+    st.session_state["selected_calendar_name"] = calendar_name
+    # Firestore等があれば保存
+    try:
+        from user_settings import set_user_setting, save_user_setting_to_firestore
+        set_user_setting(user_id, "selected_calendar_name", calendar_name)
+        save_user_setting_to_firestore(user_id, "selected_calendar_name", calendar_name)
+    except Exception:
+        pass
