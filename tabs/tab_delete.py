@@ -1,52 +1,40 @@
+# tabs/tab_delete.py
 import streamlit as st
 from datetime import date, datetime, timedelta, timezone
-from typing import Dict
-from state.calendar_state import get_calendar, set_calendar
-
+from state.calendar_state import set_calendar
 from utils.event_utils import fetch_all_events
 from utils.todo_utils import find_and_delete_tasks_by_event_id
 from utils.timezone import JST
 
-
 def render_tab_delete(service, editable_calendar_options, user_id, current_calendar_name: str):
     st.subheader("イベントを削除")
 
-    # ---- カレンダー選択（タブ上部 × サイドバー同期）----
+    # カレンダー選択（同期）
     if not editable_calendar_options:
         st.error("削除可能なカレンダーが見つかりませんでした。Googleカレンダーの設定を確認してください。")
         return
-    else:
-        calendar_names = list(editable_calendar_options.keys())
-        try:
-            idx = calendar_names.index(current_calendar_name)
-        except Exception:
-            idx = 0
+    calendar_names = list(editable_calendar_options.keys())
+    try:
+        idx = calendar_names.index(current_calendar_name)
+    except Exception:
+        idx = 0
+    selected_tab_calendar = st.selectbox(
+        "削除対象カレンダーを選択", calendar_names, index=idx, key="del_calendar_select_tab"
+    )
+    if selected_tab_calendar != current_calendar_name:
+        set_calendar(user_id, selected_tab_calendar)
+        st.session_state["selected_calendar_name"] = selected_tab_calendar
+        st.rerun()
+    selected_calendar_name_del = selected_tab_calendar
+    calendar_id_del = editable_calendar_options[selected_calendar_name_del]
 
-        selected_tab_calendar = st.selectbox(
-            "削除対象カレンダーを選択",
-            calendar_names,
-            index=idx,
-            key="del_calendar_select_tab"
-        )
-
-        # サイドバー & 全タブ同期
-        if selected_tab_calendar != current_calendar_name:
-            set_calendar(user_id, selected_tab_calendar)
-            st.session_state["selected_calendar_name"] = selected_tab_calendar
-            st.rerun()
-
-        selected_calendar_name_del = selected_tab_calendar
-        calendar_id_del = editable_calendar_options[selected_calendar_name_del]
-
-    # ---- 以下、あなたが貼ったコード：ロジック改変なし ----
-
+    # 期間と実行
     st.subheader("🗓️ 削除期間の選択")
     today_date = date.today()
     delete_start_date = st.date_input("削除開始日", value=today_date - timedelta(days=30))
-    delete_end_date = st.date_input("削除終了日", value=today_date)
+    delete_end_date   = st.date_input("削除終了日", value=today_date)
     delete_related_todos = st.checkbox(
-        "関連するToDoリストも削除する (イベント詳細にIDが記載されている場合)",
-        value=False
+        "関連するToDoリストも削除する (イベント詳細にIDが記載されている場合)", value=False
     )
 
     if delete_start_date > delete_end_date:
@@ -56,7 +44,6 @@ def render_tab_delete(service, editable_calendar_options, user_id, current_calen
     st.subheader("🗑️ 削除実行")
     if "confirm_delete" not in st.session_state:
         st.session_state["confirm_delete"] = False
-
     if not st.session_state["confirm_delete"]:
         if st.button("選択期間のイベントを削除する", type="primary"):
             st.session_state["confirm_delete"] = True
@@ -89,7 +76,6 @@ def render_tab_delete(service, editable_calendar_options, user_id, current_calen
         with col1:
             if st.button("✅ 実行", type="primary", use_container_width=True):
                 st.session_state["confirm_delete"] = False
-
                 time_min_utc, time_max_utc = to_utc_range_btn(delete_start_date, delete_end_date)
                 events_to_delete = fetch_all_events(service, calendar_id_del, time_min_utc, time_max_utc)
 
@@ -100,7 +86,6 @@ def render_tab_delete(service, editable_calendar_options, user_id, current_calen
                 deleted_events_count = 0
                 deleted_todos_count = 0
                 total_events = len(events_to_delete or [])
-
                 progress_bar = st.progress(0)
                 status_text = st.empty()
 
@@ -108,7 +93,6 @@ def render_tab_delete(service, editable_calendar_options, user_id, current_calen
                     event_summary = event.get("summary", "不明なイベント")
                     event_id = event["id"]
                     status_text.text(f"イベント '{event_summary}' を削除中... ({i}/{total_events})")
-
                     try:
                         if delete_related_todos and st.session_state.get("tasks_service") and st.session_state.get("default_task_list_id"):
                             deleted_task_count_for_event = find_and_delete_tasks_by_event_id(
@@ -120,10 +104,8 @@ def render_tab_delete(service, editable_calendar_options, user_id, current_calen
 
                         service.events().delete(calendarId=calendar_id_del, eventId=event_id).execute()
                         deleted_events_count += 1
-
                     except Exception as e:
                         st.error(f"イベント '{event_summary}' (ID: {event_id}) の削除に失敗しました: {e}")
-
                     progress_bar.progress(i / total_events)
 
                 status_text.empty()
