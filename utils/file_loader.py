@@ -2,10 +2,9 @@
 file_loader.py
 タブ1（ファイルアップロード）専用の非UIロジックを管理するモジュール
 
-役割：
-- アップロード/ GitHub 選択ファイルの統合
-- 重複ファイルの排除
-- DataFrame統合処理（excel_parser を利用）
+追加機能:
+- 壊れたファイルを自動除外
+- 除外したファイル名を警告表示
 """
 
 from typing import List, Any
@@ -38,20 +37,48 @@ def clear_uploaded_files() -> None:
 
 def merge_uploaded_files() -> None:
     """
-    session_state['uploaded_files'] に保持されているファイル群をマージし、
-    merged_df_for_selector と description_columns_pool を更新する。
+    session_state['uploaded_files'] をマージ。
+    壊れているファイルは除外し、警告を表示する。
     """
-    if not st.session_state.get("uploaded_files"):
+    uploaded = st.session_state.get("uploaded_files", [])
+    if not uploaded:
         st.session_state["merged_df_for_selector"] = None
         st.session_state["description_columns_pool"] = []
         return
 
-    try:
-        merged_df = _load_and_merge_dataframes(st.session_state["uploaded_files"])
-        st.session_state["merged_df_for_selector"] = merged_df
-        st.session_state["description_columns_pool"] = merged_df.columns.tolist()
-    except Exception as e:
-        st.error(f"ファイルの読み込みに失敗しました: {e}")
+    valid_files = []
+    invalid_files = []
+
+    # ✅ 1つずつ読み込みテストし、壊れたものを除外
+    for f in uploaded:
+        try:
+            # 単体読み込みテスト（失敗するなら破損）
+            _load_and_merge_dataframes([f])
+            valid_files.append(f)
+        except Exception:
+            invalid_files.append(f)
+
+    # 壊れたファイルを session_state から除去
+    if invalid_files:
+        for f in invalid_files:
+            if f in st.session_state["uploaded_files"]:
+                st.session_state["uploaded_files"].remove(f)
+
+        # ⚠️ ユーザーへ通知（1行目に表示）
+        names = "、".join(getattr(f, "name", "不明なファイル") for f in invalid_files)
+        st.warning(f"⚠️ 以下のファイルは破損しているため除外しました：{names}\n別のファイルをアップロードしてください。")
+
+    # 有効なファイルのみマージ
+    if valid_files:
+        try:
+            merged_df = _load_and_merge_dataframes(valid_files)
+            st.session_state["merged_df_for_selector"] = merged_df
+            st.session_state["description_columns_pool"] = merged_df.columns.tolist()
+        except Exception as e:
+            st.error(f"ファイルの読み込み中にエラーが発生しました: {e}")
+            st.session_state["merged_df_for_selector"] = None
+            st.session_state["description_columns_pool"] = []
+    else:
         st.session_state["merged_df_for_selector"] = None
         st.session_state["description_columns_pool"] = []
 
