@@ -19,6 +19,11 @@ from github_loader import _headers, GITHUB_OWNER, GITHUB_REPO
 from io import BytesIO
 from streamlit.runtime.uploaded_file_manager import UploadedFile
 
+from tabs.tab2_register import render_tab2_register
+
+with tabs[1]:
+    render_tab2_register(service, editable_calendar_options)
+
 def convert_bytes_to_uploadedfile(file_bytes: bytes, filename: str, mime_type: str = None):
     """GitHub等から取得したバイトデータをStreamlitのUploadedFile互換に変換"""
     return UploadedFile(
