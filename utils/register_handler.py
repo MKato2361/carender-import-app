@@ -8,7 +8,11 @@ from typing import List, Optional
 from utils.helpers import default_fetch_window_years
 from excel_parser import process_excel_data_for_calendar
 from calendar_utils import fetch_all_events
-
+from utils.register_handler import (
+    prepare_events,
+    fetch_existing_events,
+    register_or_update_events,
+)
 
 def render_tab2_register(user_id: str, editable_calendar_options: dict, service, tasks_service=None, default_task_list_id=None):
     st.subheader("イベントを登録・更新")
