@@ -30,7 +30,7 @@ import streamlit as st
 import pandas as pd
 from io import BytesIO
 # ←このあたりの import 群の直下に追加してください。
-
+from tabs.tab1_upload import render_tab1_upload
 class GitHubUploadedFile:
     def __init__(self, file_bytes: bytes, name: str, type: str = None):
         self._file_bytes = file_bytes
