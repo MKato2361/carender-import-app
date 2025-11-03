@@ -108,7 +108,7 @@ def prepare_events(
 
     return results
     
-    from datetime import datetime, date, timedelta, timezone
+from datetime import datetime, date, timedelta, timezone
 from typing import Any, Dict, List, Tuple, Optional
 
 JST = timezone(timedelta(hours=9))
