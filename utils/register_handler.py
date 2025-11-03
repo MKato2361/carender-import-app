@@ -3,11 +3,7 @@ import pandas as pd
 from datetime import date, timedelta
 from typing import List, Optional
 
-from utils.session_utils import (
-    get_user_setting,
-    set_user_setting,
-    save_user_setting_to_firestore,
-)
+
 from utils.register_handler import (
     prepare_events,
     fetch_existing_events,
