@@ -55,6 +55,8 @@ from tabs.tab2_register import render_tab2_register
 from tabs.tab3_delete import render_tab3_delete
 from tabs.tab4_duplicates import render_tab4_duplicates
 from calendar_utils import fetch_all_events
+from tabs.tab5_export import render_tab5_export
+
 
 
 
@@ -337,118 +339,8 @@ with tabs[3]:
 # 9) タブ5: カレンダーイベントをExcel/CSVへ出力（安全ファイル名版）
 # ==================================================
 with tabs[4]:
-    st.subheader("カレンダーイベントをExcelに出力")
+    render_tab5_export(editable_calendar_options, service, fetch_all_events)
 
-    import re
-    import unicodedata
-
-    def safe_filename(name: str) -> str:
-        """日本語保持・全角→半角・禁止文字除去の安全ファイル名生成"""
-        name = unicodedata.normalize("NFKC", name)  # 全角→半角
-        name = re.sub(r'[\/\\\:\*\?\"\<\>\|]', '', name)  # 禁止文字除去
-        name = name.strip(" .")  # 先頭末尾 . と空白除去
-        return name or "output"
-
-    if not editable_calendar_options:
-        st.error("利用可能なカレンダーが見つかりません。")
-    else:
-        selected_calendar_name_export = st.selectbox(
-            "出力対象カレンダーを選択",
-            list(editable_calendar_options.keys()),
-            key="export_calendar_select"
-        )
-        calendar_id_export = editable_calendar_options[selected_calendar_name_export]
-
-        st.subheader("🗓️ 出力期間の選択")
-        today_date_export = date.today()
-        export_start_date = st.date_input("出力開始日", value=today_date_export - timedelta(days=30))
-        export_end_date = st.date_input("出力終了日", value=today_date_export)
-        export_format = st.radio("出力形式を選択", ("CSV", "Excel"), index=0)
-
-        if export_start_date > export_end_date:
-            st.error("出力開始日は終了日より前に設定してください。")
-        else:
-            if st.button("指定期間のイベントを読み込む"):
-                with st.spinner("イベントを読み込み中..."):
-                    try:
-                        time_min_utc, time_max_utc = to_utc_range(export_start_date, export_end_date)
-                        events_to_export = fetch_all_events(service, calendar_id_export, time_min_utc, time_max_utc)
-
-                        if not events_to_export:
-                            st.info("指定期間内にイベントは見つかりませんでした。")
-                        else:
-                            extracted_data: List[dict] = []
-                            for event in events_to_export:
-                                description_text = event.get("description", "") or ""
-                                wonum_match = RE_WONUM.search(description_text)
-                                assetnum_match = RE_ASSETNUM.search(description_text)
-                                worktype_match = RE_WORKTYPE.search(description_text)
-                                title_match = RE_TITLE.search(description_text)
-
-                                wonum = (wonum_match.group(1).strip() if wonum_match else "") or ""
-                                assetnum = (assetnum_match.group(1).strip() if assetnum_match else "") or ""
-                                worktype = (worktype_match.group(1).strip() if worktype_match else "") or ""
-                                description_val = title_match.group(1).strip() if title_match else ""
-
-                                start_time = event["start"].get("dateTime") or event["start"].get("date") or ""
-                                end_time = event["end"].get("dateTime") or event["end"].get("date") or ""
-
-                                def to_jst_iso(s: str) -> str:
-                                    try:
-                                        if "T" in s and ("+" in s or s.endswith("Z")):
-                                            dt = datetime.fromisoformat(s.replace("Z", "+00:00")).astimezone(JST)
-                                            return dt.isoformat(timespec="seconds")
-                                    except Exception:
-                                        pass
-                                    return s
-
-                                schedstart = to_jst_iso(start_time)
-                                schedfinish = to_jst_iso(end_time)
-
-                                extracted_data.append({
-                                    "WONUM": wonum,
-                                    "DESCRIPTION": description_val,
-                                    "ASSETNUM": assetnum,
-                                    "WORKTYPE": worktype,
-                                    "SCHEDSTART": schedstart,
-                                    "SCHEDFINISH": schedfinish,
-                                    "LEAD": "",
-                                    "JESSCHEDFIXED": "",
-                                    "SITEID": "JES",
-                                })
-
-                            output_df = pd.DataFrame(extracted_data)
-                            st.dataframe(output_df)
-
-                            # 🔥 安全ファイル名生成
-                            start_str = export_start_date.strftime("%Y%m%d")
-                            end_str = export_end_date.strftime("%m%d")
-                            safe_cal_name = safe_filename(selected_calendar_name_export)
-                            file_base_name = f"{safe_cal_name}_{start_str}_{end_str}"
-
-                            if export_format == "CSV":
-                                csv_buffer = output_df.to_csv(index=False).encode("utf-8-sig")
-                                st.download_button(
-                                    label="✅ CSVファイルとしてダウンロード",
-                                    data=csv_buffer,
-                                    file_name=f"{file_base_name}.csv",
-                                    mime="text/csv",
-                                )
-                            else:
-                                buffer = BytesIO()
-                                with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
-                                    output_df.to_excel(writer, index=False, sheet_name="カレンダーイベント")
-                                buffer.seek(0)
-                                st.download_button(
-                                    label="✅ Excelファイルとしてダウンロード",
-                                    data=buffer,
-                                    file_name=f"{file_base_name}.xlsx",
-                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                                )
-
-                            st.success(f"{len(output_df)} 件のイベントを読み込みました。")
-                    except Exception as e:
-                        st.error(f"イベントの読み込み中にエラーが発生しました: {e}")
 
 # ==================================================
 # 10) サイドバー
