@@ -1,5 +1,3 @@
-# ★★★ 差し替え版：WONUM空を完全排除する完成コード ★★★
-
 import re
 import unicodedata
 from datetime import datetime, date, timedelta, timezone
@@ -18,6 +16,7 @@ WONUM_PATTERN = re.compile(
 JST = timezone(timedelta(hours=9))
 
 def extract_wonum(description_text: str) -> str:
+    """Descriptionから作業指示書番号を抽出（全角→半角、表記ゆれ吸収）"""
     if not description_text:
         return ""
     s = unicodedata.normalize("NFKC", description_text)
@@ -123,14 +122,15 @@ def render_tab5_export(editable_calendar_options, service, fetch_all_events):
                 # DataFrame生成
                 df_all = pd.DataFrame(extracted_data)
 
-                # ★ WONUMが空・空白・改行・None・NaNを完全除外
-                df_filtered = df_all[
-                    df_all["WONUM"]
+                # ★ WONUMが空・空白・改行・不可視文字・None・NaNを完全除外
+                df_filtered = df_all.copy()
+                df_filtered["WONUM"] = (
+                    df_filtered["WONUM"]
                     .astype(str)
-                    .str.replace(r"\s+", "", regex=True)
-                    .replace("nan", "", regex=False)
-                    != ""
-                ]
+                    .replace(["nan", "None", "NaN"], "", regex=False)
+                    .str.replace(r"[\s\u3000\u200B-\u200D\ufeff]+", "", regex=True)
+                )
+                df_filtered = df_filtered[df_filtered["WONUM"] != ""]
 
                 excluded_count = len(df_all) - len(df_filtered)
 
