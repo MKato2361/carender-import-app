@@ -1,3 +1,5 @@
+# ★★★ 差し替え版：WONUM空を完全排除する完成コード ★★★
+
 import re
 import unicodedata
 from datetime import datetime, date, timedelta, timezone
@@ -22,7 +24,6 @@ def extract_wonum(description_text: str) -> str:
     m = WONUM_PATTERN.search(s)
     return (m.group(1).strip() if m else "")
 
-# 他タグ（必要に応じ拡張可能）
 RE_ASSETNUM = re.compile(r"\[管理番号[：:]\s*(.*?)\]")
 RE_WORKTYPE = re.compile(r"\[作業タイプ[：:]\s*(.*?)\]")
 RE_TITLE = re.compile(r"\[タイトル[：:]\s*(.*?)\]")
@@ -37,7 +38,7 @@ def to_utc_range(d1: date, d2: date):
 
 
 def render_tab5_export(editable_calendar_options, service, fetch_all_events):
-    """タブ5: カレンダーイベントをExcel/CSVへ出力（一覧生成後にwonum空除外版）"""
+    """タブ5: カレンダーイベントをExcel/CSVへ出力（WONUM空完全除外版）"""
 
     st.subheader("カレンダーイベントをExcelに出力")
 
@@ -82,7 +83,7 @@ def render_tab5_export(editable_calendar_options, service, fetch_all_events):
 
                 for event in events_to_export:
                     description_text = event.get("description", "") or ""
-                    wonum = extract_wonum(description_text)  # ← 一旦全件抽出
+                    wonum = extract_wonum(description_text)
 
                     assetnum_match = RE_ASSETNUM.search(description_text or "")
                     worktype_match = RE_WORKTYPE.search(description_text or "")
@@ -119,18 +120,26 @@ def render_tab5_export(editable_calendar_options, service, fetch_all_events):
                         "SITEID": "JES",
                     })
 
-                # ✅ DataFrame生成 → wonum空欄除外
+                # DataFrame生成
                 df_all = pd.DataFrame(extracted_data)
-                df_filtered = df_all[df_all["WONUM"].str.strip() != ""]
+
+                # ★ WONUMが空・空白・改行・None・NaNを完全除外
+                df_filtered = df_all[
+                    df_all["WONUM"]
+                    .astype(str)
+                    .str.replace(r"\s+", "", regex=True)
+                    .replace("nan", "", regex=False)
+                    != ""
+                ]
+
                 excluded_count = len(df_all) - len(df_filtered)
 
-                # 画面表示は wonumありのみ
+                # 表示（WONUMありのみ）
                 st.dataframe(df_filtered)
 
                 if excluded_count > 0:
                     st.warning(f"⚠️ 作業指示書番号なしのイベント {excluded_count} 件を除外しました。")
 
-                # 出力用
                 output_df = df_filtered.copy()
 
                 start_str = export_start_date.strftime("%Y%m%d")
@@ -158,7 +167,7 @@ def render_tab5_export(editable_calendar_options, service, fetch_all_events):
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     )
 
-                st.success(f"{len(output_df)} 件のイベントを読み込みました。（※番号なし除外済）")
+                st.success(f"{len(output_df)} 件のイベントを読み込みました。（※番号なし完全除外済）")
 
             except Exception as e:
                 st.error(f"イベントの読み込み中にエラーが発生しました: {e}")
