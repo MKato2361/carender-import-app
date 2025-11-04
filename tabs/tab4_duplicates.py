@@ -2,8 +2,6 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
-
-# 正規表現は main.py と共有する場合、必要なら再定義する
 import re
 import unicodedata
 
@@ -15,7 +13,6 @@ def normalize_worksheet_id(s: Optional[str]) -> Optional[str]:
         return s
     return unicodedata.normalize("NFKC", s).strip()
 
-# --- 内部関数（main.pyのローカル関数をコピー） ---
 def parse_created(dt_str: Optional[str]) -> datetime:
     try:
         if dt_str:
@@ -25,9 +22,10 @@ def parse_created(dt_str: Optional[str]) -> datetime:
     return datetime.min.replace(tzinfo=timezone.utc)
 
 
-def render_tab4_duplicates(service, editable_calendar_options):
+def render_tab4_duplicates(service, editable_calendar_options, fetch_all_events):
     st.subheader("🔍 重複イベントの検出・削除")
 
+    # メッセージ復元
     if "last_dup_message" in st.session_state and st.session_state["last_dup_message"]:
         msg_type, msg_text = st.session_state["last_dup_message"]
         if msg_type in {"success", "error", "info", "warning"}:
@@ -36,10 +34,12 @@ def render_tab4_duplicates(service, editable_calendar_options):
             st.info(msg_text)
         st.session_state["last_dup_message"] = None
 
+    # カレンダー選択
     calendar_options = list(editable_calendar_options.keys())
     selected_calendar = st.selectbox("対象カレンダーを選択", calendar_options, key="dup_calendar_select")
     calendar_id = editable_calendar_options[selected_calendar]
 
+    # 削除モード
     delete_mode = st.radio(
         "削除モードを選択",
         ["手動で選択して削除", "古い方を自動削除", "新しい方を自動削除"],
@@ -47,6 +47,7 @@ def render_tab4_duplicates(service, editable_calendar_options):
         key="dup_delete_mode"
     )
 
+    # Session 初期化
     if "dup_df" not in st.session_state:
         st.session_state["dup_df"] = pd.DataFrame()
     if "auto_delete_ids" not in st.session_state:
@@ -54,11 +55,14 @@ def render_tab4_duplicates(service, editable_calendar_options):
     if "last_dup_message" not in st.session_state:
         st.session_state["last_dup_message"] = None
 
+    # ===== 重複チェック =====
     if st.button("重複イベントをチェック", key="run_dup_check"):
-        from calendar_utils import fetch_all_events, default_fetch_window_years
 
         with st.spinner("カレンダー内のイベントを取得中..."):
-            time_min, time_max = default_fetch_window_years(2)
+            # 2年分の検索範囲（default_fetch_window_years の代替）
+            now_utc = datetime.now(timezone.utc)
+            time_min = (now_utc - timedelta(days=365*2)).isoformat()
+            time_max = (now_utc + timedelta(days=365*2)).isoformat()
             events = fetch_all_events(service, calendar_id, time_min, time_max)
 
         if not events:
@@ -70,6 +74,7 @@ def render_tab4_duplicates(service, editable_calendar_options):
 
         st.success(f"{len(events)} 件のイベントを取得しました。")
 
+        # worksheet_id を抽出
         rows = []
         for e in events:
             desc = (e.get("description") or "").strip()
@@ -98,6 +103,7 @@ def render_tab4_duplicates(service, editable_calendar_options):
             st.session_state["current_delete_mode"] = delete_mode
             st.rerun()
 
+        # 自動削除モード
         if delete_mode != "手動で選択して削除":
             auto_delete_ids: List[str] = []
             for _, group in dup_df.groupby("worksheet_id"):
@@ -108,12 +114,14 @@ def render_tab4_duplicates(service, editable_calendar_options):
                 )
                 if len(group_sorted) <= 1:
                     continue
+
                 if delete_mode == "古い方を自動削除":
                     delete_targets = group_sorted.iloc[:-1]
                 elif delete_mode == "新しい方を自動削除":
                     delete_targets = group_sorted.iloc[1:]
                 else:
                     continue
+
                 auto_delete_ids.extend(delete_targets["id"].tolist())
 
             st.session_state["auto_delete_ids"] = auto_delete_ids
@@ -124,6 +132,7 @@ def render_tab4_duplicates(service, editable_calendar_options):
 
         st.rerun()
 
+    # ===== テーブル & 削除UI =====
     if not st.session_state["dup_df"].empty:
         dup_df = st.session_state["dup_df"]
         current_mode = st.session_state.get("current_delete_mode", "手動で選択して削除")
@@ -131,6 +140,7 @@ def render_tab4_duplicates(service, editable_calendar_options):
         st.warning(f"⚠️ {dup_df['worksheet_id'].nunique()} 種類の重複作業指示書が見つかりました。（合計 {len(dup_df)} イベント）")
         st.dataframe(dup_df[["worksheet_id", "summary", "created", "start", "end", "id"]], use_container_width=True)
 
+        # ===== 手動削除 =====
         if current_mode == "手動で選択して削除":
             delete_ids = st.multiselect(
                 "削除するイベントを選択してください（イベントIDで指定）",
@@ -161,8 +171,10 @@ def render_tab4_duplicates(service, editable_calendar_options):
                 st.session_state["dup_df"] = pd.DataFrame()
                 st.rerun()
 
+        # ===== 自動削除 =====
         else:
             auto_delete_ids = st.session_state["auto_delete_ids"]
+
             if not auto_delete_ids:
                 st.info("削除対象のイベントが見つかりませんでした。")
             else:
