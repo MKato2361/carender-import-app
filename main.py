@@ -280,6 +280,8 @@ with google_auth_placeholder.container():
         google_auth_placeholder.empty()
 
 service, editable_calendar_options = ensure_services(creds)
+tasks_service = st.session_state.get("tasks_service")
+default_task_list_id = st.session_state.get("default_task_list_id")
 
 # ==================================================
 # 4) UI（Tabs）
