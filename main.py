@@ -54,6 +54,8 @@ def convert_bytes_to_uploadedfile(file_bytes: bytes, filename: str, mime_type: s
 from tabs.tab2_register import render_tab2_register
 from tabs.tab3_delete import render_tab3_delete
 from tabs.tab4_duplicates import render_tab4_duplicates
+from calendar_utils import fetch_all_events
+
 
 
 # ---- アプリ固有モジュール ----
@@ -327,8 +329,8 @@ with tabs[2]:
 # 8) タブ4: 重複イベントの検出・削除（現行踏襲）
 # ==================================================
 with tabs[3]:
-    from calendar_utils import fetch_all_events  # ← 追加（最少変更）
     render_tab4_duplicates(service, editable_calendar_options, fetch_all_events)
+
 
 
 # ==================================================
