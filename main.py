@@ -327,7 +327,9 @@ with tabs[2]:
 # 8) タブ4: 重複イベントの検出・削除（現行踏襲）
 # ==================================================
 with tabs[3]:
-    render_tab4_duplicates(service, editable_calendar_options)
+    from calendar_utils import fetch_all_events  # ← 追加（最少変更）
+    render_tab4_duplicates(service, editable_calendar_options, fetch_all_events)
+
 
 # ==================================================
 # 9) タブ5: カレンダーイベントをExcel/CSVへ出力（安全ファイル名版）
