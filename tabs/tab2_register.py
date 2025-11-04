@@ -71,222 +71,154 @@ def extract_worksheet_id_from_description(desc: str) -> str | None:
     return unicodedata.normalize("NFKC", m.group(1)).strip()
 
 
+# ===== 追加: 作業外予定ファイルを汎用的に読み取り、既存フロー互換のDataFrameへ整形 =====
+def _read_outside_file_to_df(file_obj) -> pd.DataFrame:
+    name = getattr(file_obj, "name", "")
+    if name.lower().endswith((".xlsx", ".xls")):
+        df = pd.read_excel(file_obj, dtype=str)
+    else:
+        # CSV: エンコーディングをいくつか試す
+        for enc in ("utf-8-sig", "cp932", "utf-8"):
+            try:
+                df = pd.read_csv(file_obj, dtype=str, encoding=enc, errors="ignore")
+                break
+            except Exception:
+                df = None
+        if df is None:
+            raise ValueError("CSVの読み込みに失敗しました（対応エンコーディング不明）。")
+    df = df.fillna("")
+    return df
+
+
+def _build_calendar_df_from_outside(df_raw: pd.DataFrame, private_event: bool, all_day_override: bool) -> pd.DataFrame:
+    """
+    作業外予定の生データから、既存処理と互換な列構成の DataFrame を生成する
+    必要列:
+      Subject, Description, All Day Event, Private, Start Date, End Date, Start Time, End Time, Location(任意)
+    仕様:
+      - イベント名: 備考 + " [作業外予定]"
+      - Description: 「理由コード」列
+      - 時刻が両方ない行は終日にフォールバック（Q1=Noに基づき“常に終日”ではない）
+    """
+    # 必須列チェック
+    if "備考" not in df_raw.columns:
+        raise ValueError("作業外予定ファイルに『備考』列が見つかりません。")
+    if "理由コード" not in df_raw.columns:
+        raise ValueError("作業外予定ファイルに『理由コード』列が見つかりません。")
+
+    # 日付・時刻候補（柔軟に拾う）
+    start_date_candidates = ["開始日", "日付", "開始日時", "Start Date", "Date"]
+    end_date_candidates = ["終了日", "終了日時", "End Date"]
+    start_time_candidates = ["開始時刻", "開始時間", "Start Time"]
+    end_time_candidates = ["終了時刻", "終了時間", "End Time"]
+    location_candidates = ["場所", "現場名", "所在地", "Location"]
+
+    def pick(col_names):
+        for c in col_names:
+            if c in df_raw.columns:
+                return c
+        return None
+
+    c_sd = pick(start_date_candidates)
+    c_ed = pick(end_date_candidates)
+    c_st = pick(start_time_candidates)
+    c_et = pick(end_time_candidates)
+    c_loc = pick(location_candidates)
+
+    rows = []
+    for _, r in df_raw.iterrows():
+        subject = f"{str(r['備考']).strip()} [作業外予定]".strip()
+        description = str(r["理由コード"]).strip()
+
+        # 日付
+        sd_raw = (str(r[c_sd]).strip() if c_sd else "")
+        ed_raw = (str(r[c_ed]).strip() if c_ed else "")
+
+        # 多くのフォーマットを想定してYYYY/MM/DDへ寄せる
+        def norm_date(s: str) -> Optional[str]:
+            s = s.replace("-", "/").replace(".", "/").strip()
+            for fmt in ("%Y/%m/%d", "%Y/%m/%d %H:%M", "%m/%d/%Y", "%Y/%m/%d %H:%M:%S"):
+                try:
+                    return datetime.strptime(s, fmt).strftime("%Y/%m/%d")
+                except Exception:
+                    continue
+            # 8桁数字(YYYYMMDD)も許容
+            if s.isdigit() and len(s) == 8:
+                return f"{s[0:4]}/{s[4:6]}/{s[6:8]}"
+            return "" if not s else s  # そのまま返す（後工程で失敗時に終日化）
+
+        sd = norm_date(sd_raw)
+        ed = norm_date(ed_raw) if ed_raw else sd
+
+        # 時刻
+        st_raw = (str(r[c_st]).strip() if c_st else "")
+        et_raw = (str(r[c_et]).strip() if c_et else "")
+
+        def norm_time(t: str) -> Optional[str]:
+            t = t.replace(".", ":").strip()
+            for fmt in ("%H:%M", "%H:%M:%S"):
+                try:
+                    return datetime.strptime(t, fmt).strftime("%H:%M")
+                except Exception:
+                    continue
+            # 数字3-4桁(HHMM)を許容
+            if t.isdigit() and len(t) in (3, 4):
+                t = t.zfill(4)
+                return f"{t[:2]}:{t[2:]}"
+            return ""
+
+        stime = norm_time(st_raw)
+        etime = norm_time(et_raw)
+
+        # 時刻が無い/片方のみ → 後工程で安全に扱う
+        location = (str(r[c_loc]).strip() if c_loc else "")
+
+        rows.append(
+            {
+                "Subject": subject,
+                "Description": description,
+                "All Day Event": "True" if all_day_override else "False",  # 基本False（Q1=No）、ただしUIで上書き可
+                "Private": "True" if private_event else "False",
+                "Start Date": sd or "",
+                "End Date": ed or (sd or ""),
+                "Start Time": stime or "",
+                "End Time": etime or "",
+                "Location": location,
+            }
+        )
+
+    df = pd.DataFrame(rows)
+
+    # 行ごとに「時刻が両方空 or 日付欠落」は終日へフォールバック
+    def apply_fallback(row):
+        if row["All Day Event"] == "True":
+            return row
+        if not row["Start Date"]:
+            row["All Day Event"] = "True"
+            return row
+        if (not row["Start Time"]) and (not row["End Time"]):
+            row["All Day Event"] = "True"
+            return row
+        # 片側のみ時刻がある場合は1時間想定で補完
+        if row["Start Time"] and not row["End Time"]:
+            try:
+                dt = datetime.strptime(row["Start Time"], "%H:%M")
+                end_dt = (dt + timedelta(hours=1)).strftime("%H:%M")
+                row["End Time"] = end_dt
+            except Exception:
+                row["All Day Event"] = "True"
+        if row["End Time"] and not row["Start Time"]:
+            try:
+                dt = datetime.strptime(row["End Time"], "%H:%M")
+                start_dt = (dt - timedelta(hours=1)).strftime("%H:%M")
+                row["Start Time"] = start_dt
+            except Exception:
+                row["All Day Event"] = "True"
+        return row
+
+    df = df.apply(apply_fallback, axis=1)
+    return df
+
+
 def render_tab2_register(user_id: str, editable_calendar_options: dict, service, tasks_service=None, default_task_list_id=None):
     st.subheader("イベントを登録・更新")
-
-    if not st.session_state.get("uploaded_files") or st.session_state["merged_df_for_selector"].empty:
-        st.info("先に「1. ファイルのアップロード」タブでExcelファイルをアップロードしてください。")
-        return
-
-    if not editable_calendar_options:
-        st.error("登録可能なカレンダーが見つかりませんでした。Googleカレンダーの設定を確認してください。")
-        return
-
-    # --- カレンダー選択 ---
-    calendar_options = list(editable_calendar_options.keys())
-    saved_calendar_name = get_user_setting(user_id, "selected_calendar_name")
-    try:
-        default_index = calendar_options.index(saved_calendar_name)
-    except Exception:
-        default_index = 0
-
-    selected_calendar_name = st.selectbox(
-        "登録先カレンダーを選択",
-        calendar_options,
-        index=default_index,
-        key="reg_calendar_select"
-    )
-    calendar_id = editable_calendar_options[selected_calendar_name]
-
-    set_user_setting(user_id, "selected_calendar_name", selected_calendar_name)
-
-    # --- 設定ロード ---
-    description_columns_pool = st.session_state.get("description_columns_pool", [])
-    saved_description_cols = get_user_setting(user_id, "description_columns_selected") or []
-    saved_event_name_col = get_user_setting(user_id, "event_name_col_selected")
-    saved_task_type_flag = get_user_setting(user_id, "add_task_type_to_event_name")
-    saved_create_todo_flag = get_user_setting(user_id, "create_todo_checkbox_state")
-
-    expand_event_setting = not bool(saved_description_cols)
-    expand_name_setting = not (saved_event_name_col or saved_task_type_flag)
-    expand_todo_setting = bool(saved_create_todo_flag)
-
-    # --- イベント設定 ---
-    with st.expander("📝 イベント設定", expanded=expand_event_setting):
-        all_day_event_override = st.checkbox("終日イベントとして登録", value=False)
-        private_event = st.checkbox("非公開イベントとして登録", value=True)
-
-        default_selection = [col for col in saved_description_cols if col in description_columns_pool]
-        description_columns = st.multiselect(
-            "説明欄に含める列（複数選択可）",
-            description_columns_pool,
-            default=default_selection,
-            key=f"description_selector_register_{user_id}",
-        )
-
-    # --- イベント名生成設定 ---
-    with st.expander("🧱 イベント名の生成設定", expanded=expand_name_setting):
-        has_mng_data, has_name_data = check_event_name_columns(st.session_state["merged_df_for_selector"])
-        selected_event_name_col = saved_event_name_col
-        add_task_type_to_event_name = st.checkbox(
-            "イベント名の先頭に作業タイプを追加する",
-            value=bool(saved_task_type_flag),
-            key=f"add_task_type_checkbox_{user_id}",
-        )
-        fallback_event_name_column = None
-
-        if not (has_mng_data and has_name_data):
-            available_event_name_cols = get_available_columns_for_event_name(
-                st.session_state["merged_df_for_selector"]
-            )
-            event_name_options = ["選択しない"] + available_event_name_cols
-            try:
-                name_index = event_name_options.index(selected_event_name_col) if selected_event_name_col else 0
-            except Exception:
-                name_index = 0
-            selected_event_name_col = st.selectbox(
-                "イベント名として使用する代替列を選択してください:",
-                options=event_name_options,
-                index=name_index,
-                key=f"event_name_selector_register_{user_id}",
-            )
-            if selected_event_name_col != "選択しない":
-                fallback_event_name_column = selected_event_name_col
-        else:
-            st.info("「管理番号」と「物件名」のデータが両方存在するため、それらがイベント名として使用されます。")
-
-    # --- ToDo設定 (UIのみ移植 / 処理ロジック維持) ---
-    st.subheader("✅ ToDoリスト連携設定 (オプション)")
-    with st.expander("ToDoリスト作成オプション", expanded=expand_todo_setting):
-        create_todo = st.checkbox(
-            "このイベントに対応するToDoリストを作成する",
-            value=bool(saved_create_todo_flag),
-            key="create_todo_checkbox",
-        )
-        set_user_setting(user_id, "create_todo_checkbox_state", create_todo)
-
-        fixed_todo_types = ["点検通知"]
-        if create_todo:
-            st.markdown(f"以下のToDoが**常にすべて**作成されます: `{', '.join(fixed_todo_types)}`")
-        else:
-            st.markdown("ToDoリストの作成は無効です。")
-
-        deadline_offset_options = {"2週間前": 14, "10日前": 10, "1週間前": 7, "カスタム日数前": None}
-        selected_offset_key = st.selectbox(
-            "ToDoリストの期限をイベント開始日の何日前に設定しますか？",
-            list(deadline_offset_options.keys()),
-            disabled=not create_todo,
-            key="deadline_offset_select",
-        )
-        custom_offset_days = None
-        if selected_offset_key == "カスタム日数前":
-            custom_offset_days = st.number_input(
-                "何日前に設定しますか？ (日数)",
-                min_value=0,
-                value=3,
-                disabled=not create_todo,
-                key="custom_offset_input",
-            )
-
-    # --- 実行ボタン ---
-    st.subheader("➡️ イベント登録・更新実行")
-    if st.button("Googleカレンダーに登録・更新する"):
-
-        # 保存
-        set_user_setting(user_id, "description_columns_selected", description_columns)
-        set_user_setting(user_id, "event_name_col_selected", selected_event_name_col)
-        set_user_setting(user_id, "add_task_type_to_event_name", add_task_type_to_event_name)
-
-        # ===== イベント登録処理 =====
-        with st.spinner("イベントデータを処理中..."):
-            try:
-                df = process_excel_data_for_calendar(
-                    st.session_state["uploaded_files"],
-                    description_columns,
-                    all_day_event_override,
-                    private_event,
-                    fallback_event_name_column,
-                    add_task_type_to_event_name,
-                )
-            except Exception as e:
-                st.error(f"Excelデータ処理中にエラーが発生しました: {e}")
-                return
-
-            if df.empty:
-                st.warning("有効なイベントデータがありません。処理を中断しました。")
-                return
-
-            st.info(f"{len(df)} 件のイベントを処理します。")
-            progress = st.progress(0)
-
-            added_count = 0
-            updated_count = 0
-            skipped_count = 0
-
-            time_min, time_max = default_fetch_window_years(2)
-            with st.spinner("既存イベントを取得中..."):
-                events = fetch_all_events(service, calendar_id, time_min, time_max)
-
-            worksheet_to_event: Dict[str, dict] = {}
-            for event in events or []:
-                wid = extract_worksheet_id_from_description(event.get("description") or "")
-                if wid:
-                    worksheet_to_event[wid] = event
-
-            total = len(df)
-
-            for i, row in df.iterrows():
-                desc_text = safe_get(row, "Description", "")
-                worksheet_id = extract_worksheet_id_from_text(desc_text)
-
-                all_day_flag = safe_get(row, "All Day Event", "True")
-                private_flag = safe_get(row, "Private", "True")
-                start_date_str = safe_get(row, "Start Date", "")
-                end_date_str = safe_get(row, "End Date", "")
-                start_time_str = safe_get(row, "Start Time", "")
-                end_time_str = safe_get(row, "End Time", "")
-
-                event_data = {
-                    "summary": safe_get(row, "Subject", ""),
-                    "location": safe_get(row, "Location", ""),
-                    "description": desc_text,
-                    "transparency": "transparent" if private_flag == "True" else "opaque",
-                }
-
-                try:
-                    if all_day_flag == "True":
-                        sd = datetime.strptime(start_date_str, "%Y/%m/%d").date()
-                        ed = datetime.strptime(end_date_str, "%Y/%m/%d").date()
-                        event_data["start"] = {"date": sd.strftime("%Y-%m-%d")}
-                        event_data["end"] = {"date": (ed + timedelta(days=1)).strftime("%Y-%m-%d")}
-                    else:
-                        sdt = datetime.strptime(f"{start_date_str} {start_time_str}", "%Y/%m/%d %H:%M").replace(tzinfo=JST)
-                        edt = datetime.strptime(f"{end_date_str} {end_time_str}", "%Y/%m/%d %H:%M").replace(tzinfo=JST)
-                        event_data["start"] = {"dateTime": sdt.isoformat(), "timeZone": "Asia/Tokyo"}
-                        event_data["end"] = {"dateTime": edt.isoformat(), "timeZone": "Asia/Tokyo"}
-                except Exception as e:
-                    st.error(f"行 {i} の日時パースに失敗しました: {e}")
-                    progress.progress((i + 1) / total)
-                    continue
-
-                existing_event = worksheet_to_event.get(worksheet_id) if worksheet_id else None
-
-                try:
-                    if existing_event:
-                        if is_event_changed(existing_event, event_data):
-                            _ = update_event_if_needed(service, calendar_id, existing_event["id"], event_data)
-                            updated_count += 1
-                        else:
-                            skipped_count += 1
-                    else:
-                        added_event = add_event_to_calendar(service, calendar_id, event_data)
-                        if added_event:
-                            added_count += 1
-                            if worksheet_id:
-                                worksheet_to_event[worksheet_id] = added_event
-                except Exception as e:
-                    st.error(f"イベント '{event_data.get('summary','(無題)')}' の登録/更新に失敗しました: {e}")
-
-                progress.progress((i + 1) / total)
-
-            st.success(f"✅ 登録: {added_count} / 🔧 更新: {updated_count} / ↪ スキップ: {skipped_count}")
