@@ -29,6 +29,9 @@ def render_tab1_upload():
     if "merged_df_for_selector" not in st.session_state:
         st.session_state["merged_df_for_selector"] = None
 
+    if "gh_checked" not in st.session_state:
+        st.session_state["gh_checked"] = {}
+
     with st.expander("ℹ️作業手順と補足"):
         st.info(
             """
@@ -77,9 +80,6 @@ def render_tab1_upload():
         try:
             gh_nodes = walk_repo_tree(base_path="", max_depth=3)
             st.markdown("📦 **GitHub上のCSV/Excel（作業指示書用）**")
-
-            if "gh_checked" not in st.session_state:
-                st.session_state["gh_checked"] = {}
 
             for node in gh_nodes:
                 if node["type"] == "file" and is_supported_file(node["name"]):
@@ -142,10 +142,11 @@ def render_tab1_upload():
             st.info(f"📊 データ列数: {len(df.columns)}、行数: {len(df)}")
 
     # ==========================================================
-    # クリアボタン
+    # クリアボタン（GitHubのチェックもリセット）
     # ==========================================================
     if st.button("🗑️ すべてのアップロードファイルをクリア", help="登録済みファイルとデータを削除します。"):
         clear_uploaded_files()
         st.session_state["uploaded_outside_work_file"] = None
+        st.session_state["gh_checked"] = {}  # ← GitHubのチェック状態リセット追加
         st.success("アップロード済みファイルをクリアしました。")
         st.rerun()
