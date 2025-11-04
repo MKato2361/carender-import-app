@@ -3,6 +3,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from typing import Dict, List, Optional
+
 from utils.helpers import safe_get
 from utils.parsers import extract_worksheet_id_from_text
 from excel_parser import (
@@ -26,16 +27,11 @@ JST = ZoneInfo("Asia/Tokyo")
 
 def is_event_changed(existing_event: dict, new_event_data: dict) -> bool:
     nz = lambda v: (v or "")
-    if nz(existing_event.get("summary")) != nz(new_event_data.get("summary")):
-        return True
-    if nz(existing_event.get("description")) != nz(new_event_data.get("description")):
-        return True
-    if nz(existing_event.get("transparency")) != nz(new_event_data.get("transparency")):
-        return True
-    if (existing_event.get("start") or {}) != (new_event_data.get("start") or {}):
-        return True
-    if (existing_event.get("end") or {}) != (new_event_data.get("end") or {}):
-        return True
+    if nz(existing_event.get("summary")) != nz(new_event_data.get("summary")): return True
+    if nz(existing_event.get("description")) != nz(new_event_data.get("description")): return True
+    if nz(existing_event.get("transparency")) != nz(new_event_data.get("transparency")): return True
+    if (existing_event.get("start") or {}) != (new_event_data.get("start") or {}): return True
+    if (existing_event.get("end") or {}) != (new_event_data.get("end") or {}): return True
     return False
 
 
@@ -48,33 +44,35 @@ def default_fetch_window_years(years: int = 2):
 
 
 def extract_worksheet_id_from_description(desc: str) -> str | None:
-    import re
-    import unicodedata
+    import re, unicodedata
     RE_WORKSHEET_ID = re.compile(r"\[作業指示書[：:]\s*([0-9０-９]+)\]")
-    if not desc:
-        return None
+    if not desc: return None
     m = RE_WORKSHEET_ID.search(desc)
-    if not m:
-        return None
+    if not m: return None
     return unicodedata.normalize("NFKC", m.group(1)).strip()
 
 
+# ---- timezone-safe datetime converter ----
+import re
 def _to_dt(val: str) -> Optional[datetime]:
-    if not val or not isinstance(val, str):
-        return None
-    s = val.strip().replace("T", " ").replace(".", " ").replace("　", " ")
-    s = s.replace("/", "-")
+    if val is None: return None
+    s = str(val).strip()
+    if not s: return None
 
-    # Try strict ISO parse first
-    try:
-        ts = pd.to_datetime(s, utc=True)
-        return ts.tz_convert(JST).to_pydatetime()
-    except Exception:
-        pass
+    s = s.replace("T", " ").replace("　", " ")
+    s = s.replace("/", "-").replace(".", " ")
 
-    # Try non-UTC parse
+    tz_suffix = re.search(r'(Z|[+-]\d{2}:?\d{2})$', s) is not None
+
+    if tz_suffix:
+        try:
+            ts = pd.to_datetime(s, utc=True, errors="raise")
+            return ts.tz_convert(JST).to_pydatetime()
+        except Exception:
+            pass
+
     try:
-        ts = pd.to_datetime(s)
+        ts = pd.to_datetime(s, errors="raise")
         if ts.tzinfo is None:
             ts = ts.tz_localize(JST)
         else:
@@ -83,14 +81,9 @@ def _to_dt(val: str) -> Optional[datetime]:
     except Exception:
         pass
 
-    # Try defined formats
     fmts = [
-        "%Y-%m-%d %H:%M:%S",
-        "%Y-%m-%d %H:%M",
-        "%Y-%m-%d",
-        "%Y/%m/%d %H:%M:%S",
-        "%Y/%m/%d %H:%M",
-        "%Y/%m/%d",
+        "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d",
+        "%Y/%m/%d %H:%M:%S", "%Y/%m/%d %H:%M", "%Y/%m/%d",
     ]
     for fmt in fmts:
         try:
@@ -98,17 +91,16 @@ def _to_dt(val: str) -> Optional[datetime]:
             return dt.replace(tzinfo=JST)
         except Exception:
             continue
+
     return None
 
 
 def _split_dt_cell(val: str) -> tuple[str, str]:
     if isinstance(val, datetime):
-    dt = val.astimezone(JST) if val.tzinfo else val.replace(tzinfo=JST)
-else:
-    dt = _to_dt(val)
-
-    if not dt:
-        return "", ""
+        dt = val.astimezone(JST) if val.tzinfo else val.replace(tzinfo=JST)
+    else:
+        dt = _to_dt(val)
+    if not dt: return "", ""
     return dt.strftime("%Y/%m/%d"), dt.strftime("%H:%M")
 
 
@@ -117,16 +109,14 @@ def _normalize_minute_str(dt_like: datetime | str) -> str:
         d = _to_dt(dt_like)
     else:
         d = dt_like
-    if not d:
-        return ""
+    if not d: return ""
     d = d.astimezone(JST)
     return d.strftime("%Y-%m-%dT%H:%M")
 
 
 def _normalize_event_times_to_key(start_dict: dict, end_dict: dict) -> tuple[str, str]:
     def norm_one(d: dict) -> str:
-        if not d:
-            return ""
+        if not d: return ""
         if "dateTime" in d and d["dateTime"]:
             return _normalize_minute_str(d["dateTime"])
         if "date" in d and d["date"]:
@@ -162,14 +152,12 @@ def _strip_outside_suffix(subject: str) -> str:
     return s[:-len(suf)].rstrip() if s.endswith(suf) else s
 
 
+# ---- 作業外予定 DataFrame 読み込み（datetime保持版）----
 def _read_outside_file_to_df(file_obj) -> pd.DataFrame:
     name = getattr(file_obj, "name", "")
-    
-    # 1) Excelはdtype=objectで読み込み、datetime型を保持
     if name.lower().endswith((".xlsx", ".xls")):
         df = pd.read_excel(file_obj, dtype=object)
     else:
-        # 2) CSVは文字化け対策しつつdtype=objectで読み込み
         for enc in ("utf-8-sig", "cp932", "utf-8"):
             try:
                 df = pd.read_csv(file_obj, dtype=object, encoding=enc, errors="ignore")
@@ -177,16 +165,13 @@ def _read_outside_file_to_df(file_obj) -> pd.DataFrame:
             except Exception:
                 df = None
         if df is None:
-            raise ValueError("CSVの読み込みに失敗しました（対応エンコーディング不明）。")
+            raise ValueError("CSV読み込み失敗")
 
-    # ❗ ここがポイント：datetime列を文字列化しない
-    # fillna("") は object列のみに限定し、datetime列は触らない
     for col in df.columns:
         if df[col].dtype == object:
             df[col] = df[col].fillna("")
 
     return df
-
 def _build_calendar_df_from_outside(df_raw: pd.DataFrame, private_event: bool, all_day_override: bool) -> pd.DataFrame:
     if "備考" not in df_raw.columns:
         raise ValueError("作業外予定ファイルに『備考』列が見つかりません。")
@@ -225,8 +210,8 @@ def _build_calendar_df_from_outside(df_raw: pd.DataFrame, private_event: bool, a
         description = str(r["理由コード"]).strip()
 
         if col_start_dt and col_end_dt:
-            sd, stime = _split_dt_cell(str(r[col_start_dt]))
-            ed, etime = _split_dt_cell(str(r[col_end_dt]))
+            sd, stime = _split_dt_cell(r[col_start_dt])
+            ed, etime = _split_dt_cell(r[col_end_dt])
         else:
             def get(c): return (str(r[c]).strip() if c and c in r and pd.notna(r[c]) else "")
             sd = get(c_sd).replace("-", "/")
@@ -235,7 +220,6 @@ def _build_calendar_df_from_outside(df_raw: pd.DataFrame, private_event: bool, a
             etime = fix_hhmm(get(c_et))
 
         all_day = "True" if all_day_override else "False"
-
         if all_day != "True":
             if not sd:
                 all_day = "True"
@@ -316,14 +300,12 @@ def render_tab2_register(user_id: str, editable_calendar_options: dict, service,
     with st.expander("📝 イベント設定", expanded=not outside_mode):
         all_day_event_override = st.checkbox("終日イベントとして登録", value=False, key=f"all_day_override_{'outside' if outside_mode else 'work'}")
         private_event = st.checkbox("非公開イベントとして登録", value=True, key=f"private_event_{'outside' if outside_mode else 'work'}")
-
         if outside_mode:
             description_columns = []
         else:
             description_columns_pool = st.session_state.get("description_columns_pool", [])
             saved_description_cols = get_user_setting(user_id, "description_columns_selected") or []
             default_selection = [col for col in saved_description_cols if col in description_columns_pool]
-
             description_columns = st.multiselect(
                 "説明欄に含める列（複数選択可）",
                 description_columns_pool,
@@ -352,26 +334,21 @@ def render_tab2_register(user_id: str, editable_calendar_options: dict, service,
             if not (has_mng_data and has_name_data):
                 available_event_name_cols = get_available_columns_for_event_name(st.session_state["merged_df_for_selector"])
                 event_name_options = ["選択しない"] + available_event_name_cols
-
                 try:
                     name_index = event_name_options.index(saved_event_name_col) if saved_event_name_col else 0
                 except Exception:
                     name_index = 0
-
                 selected_event_name_col = st.selectbox(
                     "イベント名として使用する代替列を選択してください:",
                     options=event_name_options,
                     index=name_index,
                     key=f"event_name_selector_register_{user_id}",
                 )
-
                 if selected_event_name_col != "選択しない":
                     fallback_event_name_column = selected_event_name_col
-
                 set_user_setting(user_id, "event_name_col_selected", selected_event_name_col)
             else:
                 st.info("「管理番号」と「物件名」のデータが両方存在するため、それらがイベント名として使用されます。")
-
             set_user_setting(user_id, "add_task_type_to_event_name", add_task_type_to_event_name)
 
     if not outside_mode:
@@ -391,7 +368,11 @@ def render_tab2_register(user_id: str, editable_calendar_options: dict, service,
     try:
         if outside_mode:
             raw_df = _read_outside_file_to_df(outside_file)
-            df = _build_calendar_df_from_outside(raw_df, private_event=private_event, all_day_override=all_day_event_override)
+            df = _build_calendar_df_from_outside(
+                raw_df,
+                private_event=private_event,
+                all_day_override=all_day_event_override,
+            )
         else:
             df = process_excel_data_for_calendar(
                 st.session_state["uploaded_files"],
