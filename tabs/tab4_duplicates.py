@@ -1,0 +1,194 @@
+import streamlit as st
+import pandas as pd
+from datetime import datetime, timedelta, timezone
+from typing import List, Optional
+
+# 正規表現は main.py と共有する場合、必要なら再定義する
+import re
+import unicodedata
+
+# --- 正規表現（main.pyと同じものをコピー） ---
+RE_WORKSHEET_ID = re.compile(r"\[作業指示書[：:]\s*([0-9０-９]+)\]")
+
+def normalize_worksheet_id(s: Optional[str]) -> Optional[str]:
+    if not s:
+        return s
+    return unicodedata.normalize("NFKC", s).strip()
+
+# --- 内部関数（main.pyのローカル関数をコピー） ---
+def parse_created(dt_str: Optional[str]) -> datetime:
+    try:
+        if dt_str:
+            return datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
+    except Exception:
+        pass
+    return datetime.min.replace(tzinfo=timezone.utc)
+
+
+def render_tab4_duplicates(service, editable_calendar_options):
+    st.subheader("🔍 重複イベントの検出・削除")
+
+    if "last_dup_message" in st.session_state and st.session_state["last_dup_message"]:
+        msg_type, msg_text = st.session_state["last_dup_message"]
+        if msg_type in {"success", "error", "info", "warning"}:
+            getattr(st, msg_type)(msg_text)
+        else:
+            st.info(msg_text)
+        st.session_state["last_dup_message"] = None
+
+    calendar_options = list(editable_calendar_options.keys())
+    selected_calendar = st.selectbox("対象カレンダーを選択", calendar_options, key="dup_calendar_select")
+    calendar_id = editable_calendar_options[selected_calendar]
+
+    delete_mode = st.radio(
+        "削除モードを選択",
+        ["手動で選択して削除", "古い方を自動削除", "新しい方を自動削除"],
+        horizontal=True,
+        key="dup_delete_mode"
+    )
+
+    if "dup_df" not in st.session_state:
+        st.session_state["dup_df"] = pd.DataFrame()
+    if "auto_delete_ids" not in st.session_state:
+        st.session_state["auto_delete_ids"] = []
+    if "last_dup_message" not in st.session_state:
+        st.session_state["last_dup_message"] = None
+
+    if st.button("重複イベントをチェック", key="run_dup_check"):
+        from calendar_utils import fetch_all_events, default_fetch_window_years
+
+        with st.spinner("カレンダー内のイベントを取得中..."):
+            time_min, time_max = default_fetch_window_years(2)
+            events = fetch_all_events(service, calendar_id, time_min, time_max)
+
+        if not events:
+            st.session_state["last_dup_message"] = ("info", "イベントが見つかりませんでした。")
+            st.session_state["dup_df"] = pd.DataFrame()
+            st.session_state["auto_delete_ids"] = []
+            st.session_state["current_delete_mode"] = delete_mode
+            st.rerun()
+
+        st.success(f"{len(events)} 件のイベントを取得しました。")
+
+        rows = []
+        for e in events:
+            desc = (e.get("description") or "").strip()
+            m = RE_WORKSHEET_ID.search(desc)
+            worksheet_id = normalize_worksheet_id(m.group(1)) if m else None
+            start_time = e["start"].get("dateTime", e["start"].get("date"))
+            end_time   = e["end"].get("dateTime", e["end"].get("date"))
+            rows.append({
+                "id": e["id"],
+                "summary": e.get("summary", ""),
+                "worksheet_id": worksheet_id,
+                "created": e.get("created"),
+                "start": start_time,
+                "end": end_time,
+            })
+
+        df = pd.DataFrame(rows)
+        df_valid = df[df["worksheet_id"].notna()].copy()
+        dup_mask = df_valid.duplicated(subset=["worksheet_id"], keep=False)
+        dup_df = df_valid[dup_mask].sort_values(["worksheet_id", "created"])
+
+        st.session_state["dup_df"] = dup_df
+        if dup_df.empty:
+            st.session_state["last_dup_message"] = ("info", "重複している作業指示書番号は見つかりませんでした。")
+            st.session_state["auto_delete_ids"] = []
+            st.session_state["current_delete_mode"] = delete_mode
+            st.rerun()
+
+        if delete_mode != "手動で選択して削除":
+            auto_delete_ids: List[str] = []
+            for _, group in dup_df.groupby("worksheet_id"):
+                group_sorted = group.sort_values(
+                    ["created", "id"],
+                    key=lambda s: s.map(parse_created) if s.name == "created" else s,
+                    ascending=True
+                )
+                if len(group_sorted) <= 1:
+                    continue
+                if delete_mode == "古い方を自動削除":
+                    delete_targets = group_sorted.iloc[:-1]
+                elif delete_mode == "新しい方を自動削除":
+                    delete_targets = group_sorted.iloc[1:]
+                else:
+                    continue
+                auto_delete_ids.extend(delete_targets["id"].tolist())
+
+            st.session_state["auto_delete_ids"] = auto_delete_ids
+            st.session_state["current_delete_mode"] = delete_mode
+        else:
+            st.session_state["auto_delete_ids"] = []
+            st.session_state["current_delete_mode"] = delete_mode
+
+        st.rerun()
+
+    if not st.session_state["dup_df"].empty:
+        dup_df = st.session_state["dup_df"]
+        current_mode = st.session_state.get("current_delete_mode", "手動で選択して削除")
+
+        st.warning(f"⚠️ {dup_df['worksheet_id'].nunique()} 種類の重複作業指示書が見つかりました。（合計 {len(dup_df)} イベント）")
+        st.dataframe(dup_df[["worksheet_id", "summary", "created", "start", "end", "id"]], use_container_width=True)
+
+        if current_mode == "手動で選択して削除":
+            delete_ids = st.multiselect(
+                "削除するイベントを選択してください（イベントIDで指定）",
+                dup_df["id"].tolist(),
+                key="manual_delete_ids"
+            )
+            confirm = st.checkbox("削除操作を確認しました", value=False, key="manual_del_confirm")
+
+            if st.button("🗑️ 選択したイベントを削除", type="primary", disabled=not confirm, key="run_manual_delete"):
+                deleted_count = 0
+                errors: List[str] = []
+
+                for eid in delete_ids:
+                    try:
+                        service.events().delete(calendarId=calendar_id, eventId=eid).execute()
+                        deleted_count += 1
+                    except Exception as e:
+                        errors.append(f"イベントID {eid} の削除に失敗: {e}")
+
+                if deleted_count > 0:
+                    st.session_state["last_dup_message"] = ("success", f"✅ {deleted_count} 件のイベントを削除しました。")
+
+                if errors:
+                    st.error("以下のイベントの削除に失敗しました:\n" + "\n".join(errors))
+                    if deleted_count == 0:
+                        st.session_state["last_dup_message"] = ("error", "⚠️ 削除処理中にエラーが発生しました。詳細はログを確認してください。")
+
+                st.session_state["dup_df"] = pd.DataFrame()
+                st.rerun()
+
+        else:
+            auto_delete_ids = st.session_state["auto_delete_ids"]
+            if not auto_delete_ids:
+                st.info("削除対象のイベントが見つかりませんでした。")
+            else:
+                st.warning(f"以下のモードで {len(auto_delete_ids)} 件のイベントを自動削除します: **{current_mode}**")
+                st.write(auto_delete_ids)
+
+                confirm = st.checkbox("削除操作を確認しました", value=False, key="auto_del_confirm_final")
+
+                if st.button("🗑️ 自動削除を実行", type="primary", disabled=not confirm, key="run_auto_delete"):
+                    deleted_count = 0
+                    errors: List[str] = []
+
+                    for eid in auto_delete_ids:
+                        try:
+                            service.events().delete(calendarId=calendar_id, eventId=eid).execute()
+                            deleted_count += 1
+                        except Exception as e:
+                            errors.append(f"イベントID {eid} の削除に失敗: {e}")
+
+                    if deleted_count > 0:
+                        st.session_state["last_dup_message"] = ("success", f"✅ {deleted_count} 件のイベントを削除しました。")
+
+                    if errors:
+                        st.error("以下のイベントの削除に失敗しました:\n" + "\n".join(errors))
+                        if deleted_count == 0:
+                            st.session_state["last_dup_message"] = ("error", "⚠️ 削除処理中にエラーが発生しました。詳細はログを確認してください。")
+
+                    st.session_state["dup_df"] = pd.DataFrame()
+                    st.rerun()
