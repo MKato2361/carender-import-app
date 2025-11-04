@@ -54,134 +54,63 @@ def extract_worksheet_id_from_description(desc: str) -> str | None:
         return None
     return unicodedata.normalize("NFKC", m.group(1)).strip()
 
-def _read_outside_file_to_df(file_obj) -> pd.DataFrame:
-    name = getattr(file_obj, "name", "")
-    if name.lower().endswith((".xlsx", ".xls")):
-        df = pd.read_excel(file_obj, dtype=str)
-    else:
-        for enc in ("utf-8-sig", "cp932", "utf-8"):
-            try:
-                df = pd.read_csv(file_obj, dtype=str, encoding=enc, errors="ignore")
-                break
-            except Exception:
-                df = None
-        if df is None:
-            raise ValueError("CSVの読み込みに失敗しました（対応エンコーディング不明）。")
-    return df.fillna("")
-
-def _build_calendar_df_from_outside(df_raw: pd.DataFrame, private_event: bool, all_day_override: bool) -> pd.DataFrame:
-    if "備考" not in df_raw.columns:
-        raise ValueError("作業外予定ファイルに『備考』列が見つかりません。")
-    if "理由コード" not in df_raw.columns:
-        raise ValueError("作業外予定ファイルに『理由コード』列が見つかりません。")
-    col_start_dt = "開始日時" if "開始日時" in df_raw.columns else None
-    col_end_dt   = "終了日時" if "終了日時" in df_raw.columns else None
-    start_date_candidates = ["開始日", "日付", "Start Date", "Date"]
-    end_date_candidates   = ["終了日", "End Date", "Date2"]
-    start_time_candidates = ["開始時刻", "開始時間", "Start Time"]
-    end_time_candidates   = ["終了時刻", "終了時間", "End Time"]
-    location_candidates   = ["Location"]
-    def pick(col_names):
-        for c in col_names:
-            if c in df_raw.columns:
-                return c
+def _to_dt(val: str) -> Optional[datetime]:
+    if not val or not isinstance(val, str):
         return None
-    c_sd = pick(start_date_candidates)
-    c_ed = pick(end_date_candidates)
-    c_st = pick(start_time_candidates)
-    c_et = pick(end_time_candidates)
-    c_loc = pick(location_candidates)
-    def split_dt_to_date_time(val: str) -> tuple[str, str]:
-        if not val or not isinstance(val, str):
-            return "", ""
-        s = val.strip().replace("T", " ").replace(".", " ")
+    s = val.strip().replace("T", " ").replace(".", " ").replace("　", " ")
+    s = s.replace("/", "-")
+    try:
+        ts = pd.to_datetime(s, errors="raise", utc=True)
+        return ts.tz_convert("Asia/Tokyo").to_pydatetime()
+    except Exception:
         try:
             ts = pd.to_datetime(s, errors="raise")
-            return ts.strftime("%Y/%m/%d"), ts.strftime("%H:%M")
+            if ts.tzinfo is None:
+                ts = ts.tz_localize("Asia/Tokyo")
+            else:
+                ts = ts.tz_convert("Asia/Tokyo")
+            return ts.to_pydatetime()
         except Exception:
-            s2 = s.replace("-", "/")
-            for fmt in ("%Y/%m/%d %H:%M:%S", "%Y/%m/%d %H:%M", "%Y/%m/%d", "%m/%d/%Y %H:%M:%S", "%m/%d/%Y %H:%M"):
+            fmts = ["%Y-%m-%d %H:%M:%S","%Y-%m-%d %H:%M","%Y-%m-%d","%Y/%m/%d %H:%M:%S","%Y/%m/%d %H:%M","%Y/%m/%d"]
+            for fmt in fmts:
                 try:
-                    dt = datetime.strptime(s2, fmt)
-                    return dt.strftime("%Y/%m/%d"), ("" if "%H" not in fmt else dt.strftime("%H:%M"))
+                    dt = datetime.strptime(s, fmt).replace(tzinfo=JST)
+                    return dt
                 except Exception:
                     continue
+    return None
+
+def _split_dt_cell(val: str) -> tuple[str, str]:
+    dt = _to_dt(val)
+    if not dt:
         return "", ""
-    def fix_hhmm(t: str) -> str:
-        t = (t or "").strip().replace(".", ":")
-        if t.isdigit() and len(t) in (3, 4):
-            t = t.zfill(4)
-            return f"{t[:2]}:{t[2:]}"
-        return t
-    rows = []
-    for _, r in df_raw.iterrows():
-        subject = f"{str(r['備考']).strip()} [作業外予定]".strip()
-        description = str(r["理由コード"]).strip()
-        location = ""  # D指定
-        if col_start_dt and col_end_dt:
-            sd, stime = split_dt_to_date_time(str(r[col_start_dt]))
-            ed, etime = split_dt_to_date_time(str(r[col_end_dt]))
-        else:
-            def get_val(c): return (str(r[c]).strip() if c and c in r and pd.notna(r[c]) else "")
-            sd = get_val(c_sd).replace("-", "/")
-            ed = get_val(c_ed).replace("-", "/") or sd
-            stime = fix_hhmm(get_val(c_st))
-            etime = fix_hhmm(get_val(c_et))
-        all_day = "True" if all_day_override else "False"
-        def ensure_safe(row_sd: str, row_ed: str, row_st: str, row_et: str) -> tuple[str, str, str, str, str]:
-            local_all_day = all_day
-            if local_all_day == "True":
-                return row_sd, (row_ed or row_sd), "", "", local_all_day
-            if not row_sd:
-                return row_sd, row_ed, row_st, row_et, "True"
-            if (not row_st) and (not row_et):
-                return row_sd, (row_ed or row_sd), "", "", "True"
-            if row_st and not row_et:
-                try:
-                    dt = datetime.strptime(row_st, "%H:%M")
-                    row_et = (dt + timedelta(hours=1)).strftime("%H:%M")
-                except Exception:
-                    return row_sd, (row_ed or row_sd), "", "", "True"
-            if row_et and not row_st:
-                try:
-                    dt = datetime.strptime(row_et, "%H:%M")
-                    row_st = (dt - timedelta(hours=1)).strftime("%H:%M")
-                except Exception:
-                    return row_sd, (row_ed or row_sd), "", "", "True"
-            return row_sd, (row_ed or row_sd), row_st, row_et, local_all_day
-        sd, ed, stime, etime, all_day_final = ensure_safe(sd, ed, stime, etime)
-        rows.append(
-            {
-                "Subject": subject,
-                "Description": description,
-                "All Day Event": all_day_final,
-                "Private": "True" if private_event else "False",
-                "Start Date": sd or "",
-                "End Date": ed or (sd or ""),
-                "Start Time": stime or "",
-                "End Time": etime or "",
-                "Location": location,
-            }
-        )
-    return pd.DataFrame(rows)
+    return dt.strftime("%Y/%m/%d"), dt.strftime("%H:%M")
+
+def _normalize_minute_str(dt_like: datetime | str) -> str:
+    if isinstance(dt_like, str):
+        d = _to_dt(dt_like)
+    else:
+        d = dt_like
+    if not d:
+        return ""
+    if d.tzinfo is None:
+        d = d.replace(tzinfo=JST)
+    else:
+        d = d.astimezone(JST)
+    return d.strftime("%Y-%m-%dT%H:%M")
 
 def _normalize_event_times_to_key(start_dict: dict, end_dict: dict) -> tuple[str, str]:
     def norm_one(d: dict) -> str:
         if not d:
             return ""
         if "dateTime" in d and d["dateTime"]:
-            try:
-                dt = pd.to_datetime(d["dateTime"])
-                dt = dt.tz_convert("Asia/Tokyo") if dt.tzinfo else dt.tz_localize("Asia/Tokyo")
-                return dt.strftime("%Y-%m-%dT%H:%M")
-            except Exception:
-                try:
-                    dt = datetime.fromisoformat(d["dateTime"].replace("Z", "+00:00")).astimezone(JST)
-                    return dt.strftime("%Y-%m-%dT%H:%M")
-                except Exception:
-                    return str(d["dateTime"])
+            return _normalize_minute_str(d["dateTime"])
         if "date" in d and d["date"]:
-            return f"{d['date']}"
+            try:
+                sd = datetime.strptime(d["date"], "%Y-%m-%d").replace(tzinfo=JST)
+                return sd.strftime("%Y-%m-%d")
+            except Exception:
+                return d["date"]
         return ""
     return norm_one(start_dict), norm_one(end_dict)
 
@@ -204,6 +133,98 @@ def _strip_outside_suffix(subject: str) -> str:
     s = subject or ""
     suf = " [作業外予定]"
     return s[:-len(suf)].rstrip() if s.endswith(suf) else s
+
+def _read_outside_file_to_df(file_obj) -> pd.DataFrame:
+    name = getattr(file_obj, "name", "")
+    if name.lower().endswith((".xlsx", ".xls")):
+        df = pd.read_excel(file_obj, dtype=str)
+    else:
+        for enc in ("utf-8-sig", "cp932", "utf-8"):
+            try:
+                df = pd.read_csv(file_obj, dtype=str, encoding=enc, errors="ignore")
+                break
+            except Exception:
+                df = None
+        if df is None:
+            raise ValueError("CSVの読み込みに失敗しました（対応エンコーディング不明）。")
+    return df.fillna("")
+
+def _build_calendar_df_from_outside(df_raw: pd.DataFrame, private_event: bool, all_day_override: bool) -> pd.DataFrame:
+    if "備考" not in df_raw.columns:
+        raise ValueError("作業外予定ファイルに『備考』列が見つかりません。")
+    if "理由コード" not in df_raw.columns:
+        raise ValueError("作業外予定ファイルに『理由コード』列が見つかりません。")
+    col_start_dt = "開始日時" if "開始日時" in df_raw.columns else None
+    col_end_dt = "終了日時" if "終了日時" in df_raw.columns else None
+    start_date_candidates = ["開始日", "日付", "Start Date", "Date"]
+    end_date_candidates = ["終了日", "End Date", "Date2"]
+    start_time_candidates = ["開始時刻", "開始時間", "Start Time"]
+    end_time_candidates = ["終了時刻", "終了時間", "End Time"]
+
+    def pick(col_names):
+        for c in col_names:
+            if c in df_raw.columns:
+                return c
+        return None
+
+    c_sd = pick(start_date_candidates)
+    c_ed = pick(end_date_candidates)
+    c_st = pick(start_time_candidates)
+    c_et = pick(end_time_candidates)
+
+    def fix_hhmm(t: str) -> str:
+        t = (t or "").strip().replace(".", ":")
+        if t.isdigit() and len(t) in (3, 4):
+            t = t.zfill(4)
+            return f"{t[:2]}:{t[2:]}"
+        return t
+
+    rows = []
+    for _, r in df_raw.iterrows():
+        subject = f"{str(r['備考']).strip()} [作業外予定]".strip()
+        description = str(r["理由コード"]).strip()
+        if col_start_dt and col_end_dt:
+            sd, stime = _split_dt_cell(str(r[col_start_dt]))
+            ed, etime = _split_dt_cell(str(r[col_end_dt]))
+        else:
+            get = lambda c: (str(r[c]).strip() if c and c in r and pd.notna(r[c]) else "")
+            sd = get(c_sd).replace("-", "/")
+            ed = get(c_ed).replace("-", "/") or sd
+            stime = fix_hhmm(get(c_st))
+            etime = fix_hhmm(get(c_et))
+        all_day = "True" if all_day_override else "False"
+        if all_day != "True":
+            if not sd:
+                all_day = "True"
+            elif not stime and not etime:
+                all_day = "True"
+            else:
+                if stime and not etime:
+                    try:
+                        dt = datetime.strptime(stime, "%H:%M")
+                        etime = (dt + timedelta(hours=1)).strftime("%H:%M")
+                    except Exception:
+                        all_day = "True"
+                if etime and not stime:
+                    try:
+                        dt = datetime.strptime(etime, "%H:%M")
+                        stime = (dt - timedelta(hours=1)).strftime("%H:%M")
+                    except Exception:
+                        all_day = "True"
+        rows.append(
+            {
+                "Subject": subject,
+                "Description": description,
+                "All Day Event": all_day,
+                "Private": "True" if private_event else "False",
+                "Start Date": sd or "",
+                "End Date": (ed or sd or ""),
+                "Start Time": stime or "",
+                "End Time": etime or "",
+                "Location": "",
+            }
+        )
+    return pd.DataFrame(rows)
 
 def render_tab2_register(user_id: str, editable_calendar_options: dict, service, tasks_service=None, default_task_list_id=None):
     st.subheader("イベントを登録・更新")
@@ -351,7 +372,6 @@ def render_tab2_register(user_id: str, editable_calendar_options: dict, service,
                 continue
             key = f"{core}|{s_key}|{e_key}"
             outside_key_to_event[key] = ev
-
     total = len(df)
     for i, row in df.iterrows():
         desc_text = safe_get(row, "Description", "")
@@ -362,12 +382,14 @@ def render_tab2_register(user_id: str, editable_calendar_options: dict, service,
         end_date_str = safe_get(row, "End Date", "")
         start_time_str = safe_get(row, "Start Time", "")
         end_time_str = safe_get(row, "End Time", "")
+
         event_data = {
             "summary": subject,
             "location": safe_get(row, "Location", ""),
             "description": desc_text,
             "transparency": "transparent" if private_flag == "True" else "opaque",
         }
+
         try:
             if all_day_flag == "True":
                 sd = datetime.strptime(start_date_str, "%Y/%m/%d").date()
@@ -425,5 +447,3 @@ def render_tab2_register(user_id: str, editable_calendar_options: dict, service,
         progress.progress((i + 1) / total)
 
     st.success(f"✅ 登録: {added_count} / 🔧 更新: {updated_count} / ↪ スキップ: {skipped_count}")
-
-
