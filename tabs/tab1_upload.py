@@ -142,11 +142,23 @@ def render_tab1_upload():
             st.info(f"📊 データ列数: {len(df.columns)}、行数: {len(df)}")
 
     # ==========================================================
-    # クリアボタン（GitHubのチェックもリセット）
+    # クリアボタン（完全リセット処理）
     # ==========================================================
-    if st.button("🗑️ すべてのアップロードファイルをクリア", help="登録済みファイルとデータを削除します。"):
-        clear_uploaded_files()
+    if st.button("🗑️ すべてのアップロードファイルをクリア", help="登録済みファイル・GitHub選択を全て削除します。"):
+
+        # 1) ファイル情報クリア
+        clear_uploaded_files()  # uploaded_files & merged_df_for_selector の初期処理
         st.session_state["uploaded_outside_work_file"] = None
-        st.session_state["gh_checked"] = {}  # ← GitHubのチェック状態リセット追加
-        st.success("アップロード済みファイルをクリアしました。")
+        st.session_state["merged_df_for_selector"] = None  # 念のため明示的にクリア
+
+        # 2) GitHubチェック全削除
+        if "gh_checked" in st.session_state:
+            st.session_state["gh_checked"] = {}
+
+        # 3) GitHubチェックボックスkey自体を削除（UIから完全消去）
+        keys_to_delete = [k for k in list(st.session_state.keys()) if k.startswith("gh::")]
+        for k in keys_to_delete:
+            st.session_state.pop(k, None)
+
+        st.success("アップロード済みファイルとGitHub選択をすべてクリアしました。")
         st.rerun()
