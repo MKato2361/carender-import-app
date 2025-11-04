@@ -30,15 +30,15 @@ def to_utc_range(d1: date, d2: date):
 
 
 def render_tab5_export(editable_calendar_options, service, fetch_all_events):
-    """タブ5: カレンダーイベントをExcel/CSVへ出力（元コード完全維持版）"""
+    """タブ5: カレンダーイベントをExcel/CSVへ出力（番号なし除外＋除外件数表示版）"""
 
     st.subheader("カレンダーイベントをExcelに出力")
 
     def safe_filename(name: str) -> str:
         """日本語保持・全角→半角・禁止文字除去の安全ファイル名生成"""
-        name = unicodedata.normalize("NFKC", name)  # 全角→半角
-        name = re.sub(r'[\/\\\:\*\?\"\<\>\|]', "", name)  # 禁止文字除去
-        name = name.strip(" .")  # 先頭末尾 . と空白除去
+        name = unicodedata.normalize("NFKC", name)
+        name = re.sub(r'[\/\\\:\*\?\"\<\>\|]', "", name)
+        name = name.strip(" .")
         return name or "output"
 
     if not editable_calendar_options:
@@ -73,6 +73,8 @@ def render_tab5_export(editable_calendar_options, service, fetch_all_events):
                     return
 
                 extracted_data: List[dict] = []
+                excluded_count = 0   # ★ 除外件数カウンタ追加
+
                 for event in events_to_export:
                     description_text = event.get("description", "") or ""
                     wonum_match = RE_WONUM.search(description_text)
@@ -84,6 +86,11 @@ def render_tab5_export(editable_calendar_options, service, fetch_all_events):
                     assetnum = (assetnum_match.group(1).strip() if assetnum_match else "") or ""
                     worktype = (worktype_match.group(1).strip() if worktype_match else "") or ""
                     description_val = title_match.group(1).strip() if title_match else ""
+
+                    # ★ 作業指示書番号が無いイベントは除外（カウント）
+                    if not wonum:
+                        excluded_count += 1
+                        continue
 
                     start_time = event["start"].get("dateTime") or event["start"].get("date") or ""
                     end_time = event["end"].get("dateTime") or event["end"].get("date") or ""
@@ -115,7 +122,10 @@ def render_tab5_export(editable_calendar_options, service, fetch_all_events):
                 output_df = pd.DataFrame(extracted_data)
                 st.dataframe(output_df)
 
-                # 🔥 安全ファイル名生成
+                # ★ 除外件数を表示
+                if excluded_count > 0:
+                    st.warning(f"⚠️ 作業指示書番号なしのイベント {excluded_count} 件を除外しました。")
+
                 start_str = export_start_date.strftime("%Y%m%d")
                 end_str = export_end_date.strftime("%m%d")
                 safe_cal_name = safe_filename(selected_calendar_name_export)
@@ -141,7 +151,7 @@ def render_tab5_export(editable_calendar_options, service, fetch_all_events):
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     )
 
-                st.success(f"{len(output_df)} 件のイベントを読み込みました。")
+                st.success(f"{len(output_df)} 件のイベントを読み込みました。（※番号なし除外済）")
 
             except Exception as e:
                 st.error(f"イベントの読み込み中にエラーが発生しました: {e}")
