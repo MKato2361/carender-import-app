@@ -102,7 +102,11 @@ def _to_dt(val: str) -> Optional[datetime]:
 
 
 def _split_dt_cell(val: str) -> tuple[str, str]:
+    if isinstance(val, datetime):
+    dt = val.astimezone(JST) if val.tzinfo else val.replace(tzinfo=JST)
+else:
     dt = _to_dt(val)
+
     if not dt:
         return "", ""
     return dt.strftime("%Y/%m/%d"), dt.strftime("%H:%M")
@@ -160,18 +164,29 @@ def _strip_outside_suffix(subject: str) -> str:
 
 def _read_outside_file_to_df(file_obj) -> pd.DataFrame:
     name = getattr(file_obj, "name", "")
+    
+    # 1) Excelはdtype=objectで読み込み、datetime型を保持
     if name.lower().endswith((".xlsx", ".xls")):
-        df = pd.read_excel(file_obj, dtype=str)
+        df = pd.read_excel(file_obj, dtype=object)
     else:
-        for enc in ("utf-8-ssig", "cp932", "utf-8"):
+        # 2) CSVは文字化け対策しつつdtype=objectで読み込み
+        for enc in ("utf-8-sig", "cp932", "utf-8"):
             try:
-                df = pd.read_csv(file_obj, dtype=str, encoding=enc, errors="ignore")
+                df = pd.read_csv(file_obj, dtype=object, encoding=enc, errors="ignore")
                 break
             except Exception:
                 df = None
         if df is None:
             raise ValueError("CSVの読み込みに失敗しました（対応エンコーディング不明）。")
-    return df.fillna("")
+
+    # ❗ ここがポイント：datetime列を文字列化しない
+    # fillna("") は object列のみに限定し、datetime列は触らない
+    for col in df.columns:
+        if df[col].dtype == object:
+            df[col] = df[col].fillna("")
+
+    return df
+
 def _build_calendar_df_from_outside(df_raw: pd.DataFrame, private_event: bool, all_day_override: bool) -> pd.DataFrame:
     if "備考" not in df_raw.columns:
         raise ValueError("作業外予定ファイルに『備考』列が見つかりません。")
