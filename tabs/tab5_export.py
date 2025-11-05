@@ -15,6 +15,7 @@ WONUM_PATTERN = re.compile(
 
 JST = timezone(timedelta(hours=9))
 
+
 def extract_wonum(description_text: str) -> str:
     """Descriptionから作業指示書番号を抽出（全角→半角、表記ゆれ吸収）"""
     if not description_text:
@@ -23,9 +24,38 @@ def extract_wonum(description_text: str) -> str:
     m = WONUM_PATTERN.search(s)
     return (m.group(1).strip() if m else "")
 
+
+def _clean_wonum(val) -> str:
+    """WONUMの“実質空”を厳密判定するためのクリーナー"""
+    if val is None:
+        return ""
+    s = str(val)
+
+    # 正規化（全角→半角など）
+    s = unicodedata.normalize("NFKC", s)
+
+    # NaN/None の文字列化を空扱い
+    if s.lower() in ("nan", "none"):
+        return ""
+
+    # 不可視文字（Cfカテゴリ＝ゼロ幅スペース等）除去
+    s = "".join(ch for ch in s if unicodedata.category(ch) != "Cf")
+
+    # BOM/特殊空白除去
+    s = s.replace("\ufeff", "")     # BOM
+    s = s.replace("\u00A0", " ")    # NBSP
+    s = s.replace("\u3000", " ")    # 全角スペース
+
+    # 空白・改行・タブ除去
+    s = s.strip()
+
+    return s
+
+
 RE_ASSETNUM = re.compile(r"\[管理番号[：:]\s*(.*?)\]")
 RE_WORKTYPE = re.compile(r"\[作業タイプ[：:]\s*(.*?)\]")
 RE_TITLE = re.compile(r"\[タイトル[：:]\s*(.*?)\]")
+
 
 def to_utc_range(d1: date, d2: date):
     start_dt_utc = datetime.combine(d1, datetime.min.time(), tzinfo=JST).astimezone(timezone.utc)
@@ -122,15 +152,9 @@ def render_tab5_export(editable_calendar_options, service, fetch_all_events):
                 # DataFrame生成
                 df_all = pd.DataFrame(extracted_data)
 
-                # ★ WONUMが空・空白・改行・不可視文字・None・NaNを完全除外
-                df_filtered = df_all.copy()
-                df_filtered["WONUM"] = (
-                    df_filtered["WONUM"]
-                    .astype(str)
-                    .replace(["nan", "None", "NaN"], "", regex=False)
-                    .str.replace(r"[\s\u3000\u200B-\u200D\ufeff]+", "", regex=True)
-                )
-                df_filtered = df_filtered[df_filtered["WONUM"] != ""]
+                # ★ “実質空”をクリーナーで判定して完全除外
+                mask_keep = df_all["WONUM"].apply(_clean_wonum) != ""
+                df_filtered = df_all[mask_keep].copy()
 
                 excluded_count = len(df_all) - len(df_filtered)
 
