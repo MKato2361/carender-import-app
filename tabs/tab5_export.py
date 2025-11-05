@@ -7,15 +7,28 @@ from io import BytesIO
 import pandas as pd
 import streamlit as st
 
-# --- 正規化抽出用（全角/半角/改行/表記ゆれ対応） ---
+# ==============================
+# 正規表現（全角/半角/表記ゆれ対応）
+# ==============================
 WONUM_PATTERN = re.compile(
     r"[［\[]?\s*作業指示書(?:番号)?[：:]\s*([0-9A-Za-z\-]+)\s*[］\]]?",
     flags=re.IGNORECASE
 )
 
+ASSETNUM_PATTERN = re.compile(
+    r"[［\[]?\s*管理番号[：:]\s*([0-9A-Za-z\-]+)\s*[］\]]?",
+    flags=re.IGNORECASE
+)
+
+WORKTYPE_PATTERN = re.compile(r"\[作業タイプ[：:]\s*(.*?)\]")
+TITLE_PATTERN = re.compile(r"\[タイトル[：:]\s*(.*?)\]")
+
 JST = timezone(timedelta(hours=9))
 
 
+# ==============================
+# 抽出 & クリーニング関数
+# ==============================
 def extract_wonum(description_text: str) -> str:
     """Descriptionから作業指示書番号を抽出（全角→半角、表記ゆれ吸収）"""
     if not description_text:
@@ -25,8 +38,17 @@ def extract_wonum(description_text: str) -> str:
     return (m.group(1).strip() if m else "")
 
 
-def _clean_wonum(val) -> str:
-    """WONUMの“実質空”を厳密判定するためのクリーナー"""
+def extract_assetnum(description_text: str) -> str:
+    """Descriptionから管理番号を抽出（全角→半角、表記ゆれ吸収）"""
+    if not description_text:
+        return ""
+    s = unicodedata.normalize("NFKC", description_text)
+    m = ASSETNUM_PATTERN.search(s)
+    return (m.group(1).strip() if m else "")
+
+
+def _clean(val) -> str:
+    """“実質空”を厳密判定するためのクリーナー（WONUM/ASSETNUM共通）"""
     if val is None:
         return ""
     s = str(val)
@@ -52,11 +74,9 @@ def _clean_wonum(val) -> str:
     return s
 
 
-RE_ASSETNUM = re.compile(r"\[管理番号[：:]\s*(.*?)\]")
-RE_WORKTYPE = re.compile(r"\[作業タイプ[：:]\s*(.*?)\]")
-RE_TITLE = re.compile(r"\[タイトル[：:]\s*(.*?)\]")
-
-
+# ==============================
+# 日付処理
+# ==============================
 def to_utc_range(d1: date, d2: date):
     start_dt_utc = datetime.combine(d1, datetime.min.time(), tzinfo=JST).astimezone(timezone.utc)
     end_dt_utc = datetime.combine(d2, datetime.max.time(), tzinfo=JST).astimezone(timezone.utc)
@@ -66,8 +86,11 @@ def to_utc_range(d1: date, d2: date):
     )
 
 
+# ==============================
+# タブ5本体
+# ==============================
 def render_tab5_export(editable_calendar_options, service, fetch_all_events):
-    """タブ5: カレンダーイベントをExcel/CSVへ出力（抽出不可完全除外版）"""
+    """タブ5: カレンダーイベントをExcel/CSVへ出力（WONUM & ASSETNUM 抽出不可完全除外版）"""
 
     st.subheader("カレンダーイベントをExcelに出力")
 
@@ -114,25 +137,24 @@ def render_tab5_export(editable_calendar_options, service, fetch_all_events):
                 for event in events_to_export:
                     description_text = event.get("description", "") or ""
 
-                    # 抽出処理
+                    # 抽出処理（+クリーニング）
                     wonum_raw = extract_wonum(description_text)
-                    wonum = _clean_wonum(wonum_raw)
+                    assetnum_raw = extract_assetnum(description_text)
+                    wonum = _clean(wonum_raw)
+                    assetnum = _clean(assetnum_raw)
 
-                    # ★ 抽出不可（空扱い）は即除外
-                    if not wonum:
+                    # ★ 抽出不可（空扱い）は即除外（WONUM or ASSETNUMが空なら除外）
+                    if not wonum or not assetnum:
                         excluded_count += 1
                         continue
 
-                    # 追加情報抽出（任意）
-                    assetnum_match = RE_ASSETNUM.search(description_text or "")
-                    worktype_match = RE_WORKTYPE.search(description_text or "")
-                    title_match = RE_TITLE.search(description_text or "")
-
-                    assetnum = (assetnum_match.group(1).strip() if assetnum_match else "") or ""
+                    # 追加情報（任意）
+                    worktype_match = WORKTYPE_PATTERN.search(description_text or "")
+                    title_match = TITLE_PATTERN.search(description_text or "")
                     worktype = (worktype_match.group(1).strip() if worktype_match else "") or ""
                     description_val = title_match.group(1).strip() if title_match else ""
 
-                    # 日付処理
+                    # 日付
                     start_time = event["start"].get("dateTime") or event["start"].get("date") or ""
                     end_time = event["end"].get("dateTime") or event["end"].get("date") or ""
 
@@ -149,9 +171,9 @@ def render_tab5_export(editable_calendar_options, service, fetch_all_events):
                     schedfinish = to_jst_iso(end_time)
 
                     extracted_data.append({
-                        "WONUM": wonum,  # ← 抽出成功した番号のみ
-                        "DESCRIPTION": description_val,
+                        "WONUM": wonum,
                         "ASSETNUM": assetnum,
+                        "DESCRIPTION": description_val,
                         "WORKTYPE": worktype,
                         "SCHEDSTART": schedstart,
                         "SCHEDFINISH": schedfinish,
@@ -166,11 +188,11 @@ def render_tab5_export(editable_calendar_options, service, fetch_all_events):
                 st.dataframe(df_filtered)
 
                 if excluded_count > 0:
-                    st.warning(f"⚠️ 作業指示書番号なし（抽出不可） {excluded_count} 件を除外しました。")
+                    st.warning(f"⚠️ 作業指示書番号/管理番号なし（抽出不可） {excluded_count} 件を除外しました。")
 
                 output_df = df_filtered.copy()
 
-                # ファイル名組立
+                # ファイル名
                 start_str = export_start_date.strftime("%Y%m%d")
                 end_str = export_end_date.strftime("%m%d")
                 safe_cal_name = safe_filename(selected_calendar_name_export)
