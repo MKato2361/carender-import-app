@@ -1,4 +1,3 @@
-from __future__ import annotations
 import re
 import unicodedata
 from datetime import datetime, date, timedelta, timezone
@@ -8,18 +7,14 @@ from io import BytesIO
 import pandas as pd
 import streamlit as st
 
-
-# ==========================
-# 正規表現 & ユーティリティ
-# ==========================
-
-JST = timezone(timedelta(hours=9))
-
-# 作業指示書番号抽出（全角/半角/表記ゆれ対応）
+# --- 正規化抽出用（全角/半角/改行/表記ゆれ対応） ---
 WONUM_PATTERN = re.compile(
     r"[［\[]?\s*作業指示書(?:番号)?[：:]\s*([0-9A-Za-z\-]+)\s*[］\]]?",
     flags=re.IGNORECASE
 )
+
+JST = timezone(timedelta(hours=9))
+
 
 def extract_wonum(description_text: str) -> str:
     """Descriptionから作業指示書番号を抽出（全角→半角、表記ゆれ吸収）"""
@@ -31,16 +26,19 @@ def extract_wonum(description_text: str) -> str:
 
 
 def _clean_wonum(val) -> str:
-    """文字列の“実質空”を厳密判定するためのクリーナー（WONUM/ASSETNUM共通で使用）"""
+    """WONUMの“実質空”を厳密判定するためのクリーナー"""
     if val is None:
         return ""
     s = str(val)
+
+    # 正規化（全角→半角など）
     s = unicodedata.normalize("NFKC", s)
 
+    # NaN/None の文字列化を空扱い
     if s.lower() in ("nan", "none"):
         return ""
 
-    # 不可視文字（ゼロ幅スペース等）除去
+    # 不可視文字（Cfカテゴリ＝ゼロ幅スペース等）除去
     s = "".join(ch for ch in s if unicodedata.category(ch) != "Cf")
 
     # BOM/特殊空白除去
@@ -48,7 +46,10 @@ def _clean_wonum(val) -> str:
     s = s.replace("\u00A0", " ")    # NBSP
     s = s.replace("\u3000", " ")    # 全角スペース
 
-    return s.strip()
+    # 空白・改行・タブ除去
+    s = s.strip()
+
+    return s
 
 
 RE_ASSETNUM = re.compile(r"\[管理番号[：:]\s*(.*?)\]")
@@ -65,15 +66,8 @@ def to_utc_range(d1: date, d2: date):
     )
 
 
-# ==========================
-#  タブ５メイン処理
-# ==========================
-
 def render_tab5_export(editable_calendar_options, service, fetch_all_events):
-    """
-    タブ5: カレンダーイベントをExcel/CSVへ出力
-    - WONUM & ASSETNUM が4文字以上入力されているもののみ抽出
-    """
+    """タブ5: カレンダーイベントをExcel/CSVへ出力（抽出不可完全除外版）"""
 
     st.subheader("カレンダーイベントをExcelに出力")
 
@@ -115,28 +109,30 @@ def render_tab5_export(editable_calendar_options, service, fetch_all_events):
                     return
 
                 extracted_data: List[dict] = []
+                excluded_count = 0
 
                 for event in events_to_export:
                     description_text = event.get("description", "") or ""
 
-                    wonum = extract_wonum(description_text)
-                    assetnum_match = RE_ASSETNUM.search(description_text or "")
-                    assetnum = (assetnum_match.group(1).strip() if assetnum_match else "") or ""
+                    # 抽出処理
+                    wonum_raw = extract_wonum(description_text)
+                    wonum = _clean_wonum(wonum_raw)
 
-                    # クリーニング
-                    wonum_clean = _clean_wonum(wonum)
-                    assetnum_clean = _clean_wonum(assetnum)
-
-                    # ★ 4文字以上でない場合は除外
-                    if len(wonum_clean) < 4 or len(assetnum_clean) < 4:
+                    # ★ 抽出不可（空扱い）は即除外
+                    if not wonum:
+                        excluded_count += 1
                         continue
 
+                    # 追加情報抽出（任意）
+                    assetnum_match = RE_ASSETNUM.search(description_text or "")
                     worktype_match = RE_WORKTYPE.search(description_text or "")
                     title_match = RE_TITLE.search(description_text or "")
 
+                    assetnum = (assetnum_match.group(1).strip() if assetnum_match else "") or ""
                     worktype = (worktype_match.group(1).strip() if worktype_match else "") or ""
                     description_val = title_match.group(1).strip() if title_match else ""
 
+                    # 日付処理
                     start_time = event["start"].get("dateTime") or event["start"].get("date") or ""
                     end_time = event["end"].get("dateTime") or event["end"].get("date") or ""
 
@@ -153,9 +149,9 @@ def render_tab5_export(editable_calendar_options, service, fetch_all_events):
                     schedfinish = to_jst_iso(end_time)
 
                     extracted_data.append({
-                        "WONUM": wonum_clean,
-                        "ASSETNUM": assetnum_clean,
+                        "WONUM": wonum,  # ← 抽出成功した番号のみ
                         "DESCRIPTION": description_val,
+                        "ASSETNUM": assetnum,
                         "WORKTYPE": worktype,
                         "SCHEDSTART": schedstart,
                         "SCHEDFINISH": schedfinish,
@@ -164,19 +160,23 @@ def render_tab5_export(editable_calendar_options, service, fetch_all_events):
                         "SITEID": "JES",
                     })
 
-                output_df = pd.DataFrame(extracted_data)
+                df_filtered = pd.DataFrame(extracted_data)
 
-                st.dataframe(output_df)
+                # 表示（番号ありのみ）
+                st.dataframe(df_filtered)
 
-                if len(output_df) == 0:
-                    st.warning("⚠️ WONUM & ASSETNUM が4文字以上のイベントが1件もありませんでした。")
-                    return
+                if excluded_count > 0:
+                    st.warning(f"⚠️ 作業指示書番号なし（抽出不可） {excluded_count} 件を除外しました。")
 
+                output_df = df_filtered.copy()
+
+                # ファイル名組立
                 start_str = export_start_date.strftime("%Y%m%d")
                 end_str = export_end_date.strftime("%m%d")
                 safe_cal_name = safe_filename(selected_calendar_name_export)
                 file_base_name = f"{safe_cal_name}_{start_str}_{end_str}"
 
+                # ダウンロード
                 if export_format == "CSV":
                     csv_buffer = output_df.to_csv(index=False).encode("utf-8-sig")
                     st.download_button(
@@ -197,7 +197,7 @@ def render_tab5_export(editable_calendar_options, service, fetch_all_events):
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     )
 
-                st.success(f"{len(output_df)} 件のイベントを出力しました。（※WONUM & ASSETNUM 4文字以上のみ）")
+                st.success(f"{len(output_df)} 件のイベントを読み込みました。（※番号なし抽出不可は除外済）")
 
             except Exception as e:
                 st.error(f"イベントの読み込み中にエラーが発生しました: {e}")
