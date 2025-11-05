@@ -56,6 +56,8 @@ from tabs.tab3_delete import render_tab3_delete
 from tabs.tab4_duplicates import render_tab4_duplicates
 from calendar_utils import fetch_all_events
 from tabs.tab5_export import render_tab5_export
+render_tab5_export(editable_calendar_options, service, fetch_all_events)
+
 
 
 
