@@ -31,7 +31,7 @@ def extract_wonum(description_text: str) -> str:
 
 
 def _clean_wonum(val) -> str:
-    """WONUMの“実質空”を厳密判定するためのクリーナー"""
+    """WONUM/ASSETNUMの“実質空”を厳密判定するためのクリーナー"""
     if val is None:
         return ""
     s = str(val)
@@ -70,7 +70,7 @@ def to_utc_range(d1: date, d2: date):
 # ==========================
 
 def render_tab5_export(editable_calendar_options, service, fetch_all_events):
-    """タブ5: カレンダーイベントをExcel/CSVへ出力（WONUMありのみ）"""
+    """タブ5: カレンダーイベントをExcel/CSVへ出力（WONUM & ASSETNUM 両方ありのみ）"""
 
     st.subheader("カレンダーイベントをExcelに出力")
 
@@ -115,17 +115,18 @@ def render_tab5_export(editable_calendar_options, service, fetch_all_events):
 
                 for event in events_to_export:
                     description_text = event.get("description", "") or ""
-                    wonum = extract_wonum(description_text)
 
-                    # ★ WONUMが空なら「追加しない」（ここで除外）
-                    if _clean_wonum(wonum) == "":
+                    wonum = extract_wonum(description_text)
+                    assetnum_match = RE_ASSETNUM.search(description_text or "")
+                    assetnum = (assetnum_match.group(1).strip() if assetnum_match else "") or ""
+
+                    # ★変更：WONUM or ASSETNUM が空なら追加しない
+                    if _clean_wonum(wonum) == "" or _clean_wonum(assetnum) == "":
                         continue
 
-                    assetnum_match = RE_ASSETNUM.search(description_text or "")
                     worktype_match = RE_WORKTYPE.search(description_text or "")
                     title_match = RE_TITLE.search(description_text or "")
 
-                    assetnum = (assetnum_match.group(1).strip() if assetnum_match else "") or ""
                     worktype = (worktype_match.group(1).strip() if worktype_match else "") or ""
                     description_val = title_match.group(1).strip() if title_match else ""
 
@@ -146,8 +147,8 @@ def render_tab5_export(editable_calendar_options, service, fetch_all_events):
 
                     extracted_data.append({
                         "WONUM": wonum,
+                        "ASSETNUM": assetnum,     # ★ assetnum追加
                         "DESCRIPTION": description_val,
-                        "ASSETNUM": assetnum,
                         "WORKTYPE": worktype,
                         "SCHEDSTART": schedstart,
                         "SCHEDFINISH": schedfinish,
@@ -158,20 +159,17 @@ def render_tab5_export(editable_calendar_options, service, fetch_all_events):
 
                 output_df = pd.DataFrame(extracted_data)
 
-                # テーブル表示
                 st.dataframe(output_df)
 
                 if len(output_df) == 0:
-                    st.warning("⚠️ 作業指示書番号ありのイベントが1件もありませんでした。")
+                    st.warning("⚠️ 作業指示書番号 & 管理番号ありのイベントが1件もありませんでした。")
                     return
 
-                # ファイル名生成
                 start_str = export_start_date.strftime("%Y%m%d")
                 end_str = export_end_date.strftime("%m%d")
                 safe_cal_name = safe_filename(selected_calendar_name_export)
                 file_base_name = f"{safe_cal_name}_{start_str}_{end_str}"
 
-                # ダウンロードボタン生成
                 if export_format == "CSV":
                     csv_buffer = output_df.to_csv(index=False).encode("utf-8-sig")
                     st.download_button(
@@ -192,7 +190,8 @@ def render_tab5_export(editable_calendar_options, service, fetch_all_events):
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     )
 
-                st.success(f"{len(output_df)} 件のイベントを出力しました。（※WONUMありのみ）")
+                st.success(f"{len(output_df)} 件のイベントを出力しました。（※WONUM & ASSETNUM 両方ありのみ）")
 
             except Exception as e:
                 st.error(f"イベントの読み込み中にエラーが発生しました: {e}")
+
