@@ -31,7 +31,7 @@ def extract_wonum(description_text: str) -> str:
 
 
 def _clean_wonum(val) -> str:
-    """WONUM/ASSETNUMの“実質空”を厳密判定するためのクリーナー"""
+    """文字列の“実質空”を厳密判定するためのクリーナー（WONUM/ASSETNUM共通で使用）"""
     if val is None:
         return ""
     s = str(val)
@@ -70,7 +70,10 @@ def to_utc_range(d1: date, d2: date):
 # ==========================
 
 def render_tab5_export(editable_calendar_options, service, fetch_all_events):
-    """タブ5: カレンダーイベントをExcel/CSVへ出力（WONUM & ASSETNUM 両方ありのみ）"""
+    """
+    タブ5: カレンダーイベントをExcel/CSVへ出力
+    - WONUM & ASSETNUM が4文字以上入力されているもののみ抽出
+    """
 
     st.subheader("カレンダーイベントをExcelに出力")
 
@@ -120,8 +123,12 @@ def render_tab5_export(editable_calendar_options, service, fetch_all_events):
                     assetnum_match = RE_ASSETNUM.search(description_text or "")
                     assetnum = (assetnum_match.group(1).strip() if assetnum_match else "") or ""
 
-                    # ★変更：WONUM or ASSETNUM が空なら追加しない
-                    if _clean_wonum(wonum) == "" or _clean_wonum(assetnum) == "":
+                    # クリーニング
+                    wonum_clean = _clean_wonum(wonum)
+                    assetnum_clean = _clean_wonum(assetnum)
+
+                    # ★ 4文字以上でない場合は除外
+                    if len(wonum_clean) < 4 or len(assetnum_clean) < 4:
                         continue
 
                     worktype_match = RE_WORKTYPE.search(description_text or "")
@@ -146,8 +153,8 @@ def render_tab5_export(editable_calendar_options, service, fetch_all_events):
                     schedfinish = to_jst_iso(end_time)
 
                     extracted_data.append({
-                        "WONUM": wonum,
-                        "ASSETNUM": assetnum,     # ★ assetnum追加
+                        "WONUM": wonum_clean,
+                        "ASSETNUM": assetnum_clean,
                         "DESCRIPTION": description_val,
                         "WORKTYPE": worktype,
                         "SCHEDSTART": schedstart,
@@ -162,7 +169,7 @@ def render_tab5_export(editable_calendar_options, service, fetch_all_events):
                 st.dataframe(output_df)
 
                 if len(output_df) == 0:
-                    st.warning("⚠️ 作業指示書番号 & 管理番号ありのイベントが1件もありませんでした。")
+                    st.warning("⚠️ WONUM & ASSETNUM が4文字以上のイベントが1件もありませんでした。")
                     return
 
                 start_str = export_start_date.strftime("%Y%m%d")
@@ -190,8 +197,7 @@ def render_tab5_export(editable_calendar_options, service, fetch_all_events):
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     )
 
-                st.success(f"{len(output_df)} 件のイベントを出力しました。（※WONUM & ASSETNUM 両方ありのみ）")
+                st.success(f"{len(output_df)} 件のイベントを出力しました。（※WONUM & ASSETNUM 4文字以上のみ）")
 
             except Exception as e:
                 st.error(f"イベントの読み込み中にエラーが発生しました: {e}")
-
