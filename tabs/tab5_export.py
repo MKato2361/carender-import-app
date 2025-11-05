@@ -1,3 +1,4 @@
+from __future__ import annotations
 import re
 import unicodedata
 from datetime import datetime, date, timedelta, timezone
@@ -7,14 +8,18 @@ from io import BytesIO
 import pandas as pd
 import streamlit as st
 
-# --- 正規化抽出用（全角/半角/改行/表記ゆれ対応） ---
+
+# ==========================
+# 正規表現 & ユーティリティ
+# ==========================
+
+JST = timezone(timedelta(hours=9))
+
+# 作業指示書番号抽出（全角/半角/表記ゆれ対応）
 WONUM_PATTERN = re.compile(
     r"[［\[]?\s*作業指示書(?:番号)?[：:]\s*([0-9A-Za-z\-]+)\s*[］\]]?",
     flags=re.IGNORECASE
 )
-
-JST = timezone(timedelta(hours=9))
-
 
 def extract_wonum(description_text: str) -> str:
     """Descriptionから作業指示書番号を抽出（全角→半角、表記ゆれ吸収）"""
@@ -30,15 +35,12 @@ def _clean_wonum(val) -> str:
     if val is None:
         return ""
     s = str(val)
-
-    # 正規化（全角→半角など）
     s = unicodedata.normalize("NFKC", s)
 
-    # NaN/None の文字列化を空扱い
     if s.lower() in ("nan", "none"):
         return ""
 
-    # 不可視文字（Cfカテゴリ＝ゼロ幅スペース等）除去
+    # 不可視文字（ゼロ幅スペース等）除去
     s = "".join(ch for ch in s if unicodedata.category(ch) != "Cf")
 
     # BOM/特殊空白除去
@@ -46,10 +48,7 @@ def _clean_wonum(val) -> str:
     s = s.replace("\u00A0", " ")    # NBSP
     s = s.replace("\u3000", " ")    # 全角スペース
 
-    # 空白・改行・タブ除去
-    s = s.strip()
-
-    return s
+    return s.strip()
 
 
 RE_ASSETNUM = re.compile(r"\[管理番号[：:]\s*(.*?)\]")
@@ -66,8 +65,12 @@ def to_utc_range(d1: date, d2: date):
     )
 
 
+# ==========================
+#  タブ５メイン処理
+# ==========================
+
 def render_tab5_export(editable_calendar_options, service, fetch_all_events):
-    """タブ5: カレンダーイベントをExcel/CSVへ出力（WONUM空完全除外版）"""
+    """タブ5: カレンダーイベントをExcel/CSVへ出力（WONUMありのみ）"""
 
     st.subheader("カレンダーイベントをExcelに出力")
 
@@ -114,6 +117,10 @@ def render_tab5_export(editable_calendar_options, service, fetch_all_events):
                     description_text = event.get("description", "") or ""
                     wonum = extract_wonum(description_text)
 
+                    # ★ WONUMが空なら「追加しない」（ここで除外）
+                    if _clean_wonum(wonum) == "":
+                        continue
+
                     assetnum_match = RE_ASSETNUM.search(description_text or "")
                     worktype_match = RE_WORKTYPE.search(description_text or "")
                     title_match = RE_TITLE.search(description_text or "")
@@ -149,28 +156,22 @@ def render_tab5_export(editable_calendar_options, service, fetch_all_events):
                         "SITEID": "JES",
                     })
 
-                # DataFrame生成
-                df_all = pd.DataFrame(extracted_data)
+                output_df = pd.DataFrame(extracted_data)
 
-                # ★ “実質空”をクリーナーで判定して完全除外
-                mask_keep = df_all["WONUM"].apply(_clean_wonum) != ""
-                df_filtered = df_all[mask_keep].copy()
+                # テーブル表示
+                st.dataframe(output_df)
 
-                excluded_count = len(df_all) - len(df_filtered)
+                if len(output_df) == 0:
+                    st.warning("⚠️ 作業指示書番号ありのイベントが1件もありませんでした。")
+                    return
 
-                # 表示（WONUMありのみ）
-                st.dataframe(df_filtered)
-
-                if excluded_count > 0:
-                    st.warning(f"⚠️ 作業指示書番号なしのイベント {excluded_count} 件を除外しました。")
-
-                output_df = df_filtered.copy()
-
+                # ファイル名生成
                 start_str = export_start_date.strftime("%Y%m%d")
                 end_str = export_end_date.strftime("%m%d")
                 safe_cal_name = safe_filename(selected_calendar_name_export)
                 file_base_name = f"{safe_cal_name}_{start_str}_{end_str}"
 
+                # ダウンロードボタン生成
                 if export_format == "CSV":
                     csv_buffer = output_df.to_csv(index=False).encode("utf-8-sig")
                     st.download_button(
@@ -191,7 +192,7 @@ def render_tab5_export(editable_calendar_options, service, fetch_all_events):
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     )
 
-                st.success(f"{len(output_df)} 件のイベントを読み込みました。（※番号なし完全除外済）")
+                st.success(f"{len(output_df)} 件のイベントを出力しました。（※WONUMありのみ）")
 
             except Exception as e:
                 st.error(f"イベントの読み込み中にエラーが発生しました: {e}")
