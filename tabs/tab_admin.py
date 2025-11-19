@@ -65,8 +65,7 @@ def upload_file_to_github(target_path: str, content: bytes, message: str) -> Dic
     payload: Dict[str, object] = {
         "message": message,
         "content": b64_content,
-        # ブランチ指定：必要に応じて変更
-        "branch": "main",
+        "branch": "main",  # 必要に応じてブランチ名を変更
     }
 
     # 既存ファイルか確認
@@ -264,8 +263,9 @@ def render_tab_admin(
                     st.error(f"アップロード中にエラーが発生しました: {e}")
 
         st.markdown("---")
-        st.subheader("ディレクトリ内のファイル一覧 / 削除")
+        st.subheader("ディレクトリ内のファイル一覧 / 一括削除")
 
+        # 一覧キャッシュ制御
         if st.button("一覧を再取得", key="admin_github_reload"):
             st.session_state.pop("admin_github_last_list", None)
 
@@ -280,43 +280,104 @@ def render_tab_admin(
         else:
             items = st.session_state[cache_key]
 
-        if not items:
-            st.info("ファイルが見つかりませんでした。パスや権限を確認してください。")
+        # ファイルだけ対象
+        file_items = [it for it in items if it.get("type") == "file"]
+
+        if not file_items:
+            st.info("削除対象のファイルが見つかりませんでした（type=file がありません）。")
             return
 
-        st.caption("※ type=file のみ削除対象です。削除すると GitHub 上から即時消えるため慎重に操作してください。")
+        # 「全ファイル削除」チェックボックス
+        delete_all = st.checkbox(
+            "⚠️ このディレクトリ内の全ファイルを削除する（type=file のみ）",
+            key="admin_github_delete_all",
+            help="チェックが入っている状態で『選択したファイルを削除』ボタンを押すと、"
+                 "下の一覧に表示されているファイルがすべて削除されます。",
+        )
 
-        for item in items:
-            if item.get("type") != "file":
-                continue
+        st.caption("※ 行のチェックボックスで選択して削除することもできます。")
 
+        # 行ごとのチェック状態を記録（デバッグ用途）
+        # selected_keys: List[str] = []
+
+        st.markdown("#### ファイル一覧（チェックして削除）")
+        for item in file_items:
             path = item.get("path")
             sha = item.get("sha")
             size = item.get("size")
             html_url = item.get("html_url")
 
-            col_f1, col_f2, col_f3, col_f4 = st.columns([4, 2, 2, 2])
+            cb_key = f"admin_github_ck_{sha}"
+
+            col_f0, col_f1, col_f2, col_f3, col_f4 = st.columns([1, 4, 2, 2, 2])
+
+            with col_f0:
+                st.checkbox("", key=cb_key)
+
             with col_f1:
                 if html_url:
                     st.markdown(f"[`{path}`]({html_url})")
                 else:
                     st.write(f"`{path}`")
+
             with col_f2:
                 st.write(f"SHA: `{sha[:7]}`" if sha else "-")
+
             with col_f3:
                 st.write(f"{size} bytes" if size is not None else "")
+
             with col_f4:
-                btn_key = f"del_{sha}"
-                if st.button("削除", key=btn_key):
+                st.write("")
+
+        st.markdown("---")
+
+        # 削除ボタン
+        if st.button("🗑️ 選択したファイルを削除", type="primary", key="admin_github_delete_selected"):
+            # 削除対象を決定
+            targets: List[Dict] = []
+
+            if delete_all:
+                # delete_all ON → file_items 全部削除
+                targets = file_items
+            else:
+                # individual チェック ON のものだけ削除
+                for item in file_items:
+                    sha = item.get("sha")
+                    cb_key = f"admin_github_ck_{sha}"
+                    if st.session_state.get(cb_key):
+                        targets.append(item)
+
+            if not targets:
+                st.warning("削除対象のファイルが選択されていません。")
+            else:
+                error_count = 0
+                for item in targets:
+                    path = item.get("path")
+                    sha = item.get("sha")
+                    if not path or not sha:
+                        continue
                     try:
                         delete_file_from_github(
                             target_path=path,
                             sha=sha,
                             message=f"Delete from admin UI ({datetime.now().strftime('%Y-%m-%d %H:%M')})",
                         )
-                        st.success(f"削除完了: `{path}`")
-                        # 再取得のためキャッシュ削除
-                        st.session_state.pop(cache_key, None)
-                        st.experimental_rerun()
                     except Exception as e:
-                        st.error(f"削除中にエラーが発生しました: {e}")
+                        error_count += 1
+                        st.error(f"削除中にエラーが発生しました: {path} ({e})")
+
+                if error_count == 0:
+                    st.success(f"{len(targets)} 件のファイルを削除しました。")
+                else:
+                    st.warning(f"{len(targets)} 件中 {error_count} 件でエラーが発生しました。")
+
+                # 再取得のためキャッシュ削除＆チェック解除
+                st.session_state.pop(cache_key, None)
+                for item in file_items:
+                    sha = item.get("sha")
+                    cb_key = f"admin_github_ck_{sha}"
+                    if cb_key in st.session_state:
+                        del st.session_state[cb_key]
+                st.session_state["admin_github_delete_all"] = False
+
+                st.rerun()
