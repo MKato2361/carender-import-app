@@ -56,6 +56,9 @@ from tabs.tab3_delete import render_tab3_delete
 from tabs.tab4_duplicates import render_tab4_duplicates
 from calendar_utils import fetch_all_events
 from tabs.tab5_export import render_tab5_export
+from tabs.tab_admin import render_tab_admin
+
+from utils.user_roles import get_or_create_user, get_user_role, ROLE_ADMIN
 
 
 
@@ -275,6 +278,17 @@ def save_user_setting_to_firestore(user_id: str, setting_key: str, setting_value
 load_user_settings_from_firestore(user_id)
 
 # ==================================================
+# 2-b) ユーザー情報 / 権限
+# ==================================================
+current_user_email = user_id
+current_user_name: Optional[str] = None
+
+# Firestore 上にユーザードキュメントを作成＆ロール取得
+user_doc = get_or_create_user(current_user_email, current_user_name)
+current_role = user_doc.get("role") or get_user_role(current_user_email)
+is_admin = current_role == ROLE_ADMIN
+
+# ==================================================
 # 3) Google 認証
 # ==================================================
 google_auth_placeholder = st.empty()
@@ -295,13 +309,18 @@ default_task_list_id = st.session_state.get("default_task_list_id")
 # 4) UI（Tabs）
 # ==================================================
 st.markdown('<div class="fixed-tabs">', unsafe_allow_html=True)
-tabs = st.tabs([
+
+tab_labels = [
     "1. ファイルのアップロード",
     "2. イベントの登録",
     "3. イベントの削除",
     "4. 重複イベントの検出・削除",
     "5. イベントのExcel出力",
-])
+]
+if is_admin:
+    tab_labels.append("6. 管理者メニュー")
+
+tabs = st.tabs(tab_labels)
 st.markdown("</div>", unsafe_allow_html=True)
 
 if "uploaded_files" not in st.session_state:
@@ -344,7 +363,18 @@ with tabs[4]:
 
 
 # ==================================================
-# 10) サイドバー
+# 10) タブ6: 管理者メニュー（ユーザー管理 / ファイル管理）
+# ==================================================
+if is_admin:
+    with tabs[5]:
+        render_tab_admin(
+            current_user_email=current_user_email,
+            current_user_name=current_user_name,
+        )
+
+
+# ==================================================
+# 11) サイドバー
 # ==================================================
 with st.sidebar:
     with st.expander("⚙ デフォルト設定の管理", expanded=False):
