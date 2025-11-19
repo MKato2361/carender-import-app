@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import List, Dict, Optional
+from typing import Dict, List, Optional
 
 import firebase_admin
 from firebase_admin import firestore
@@ -12,7 +12,7 @@ from firebase_admin import firestore
 # Firestore コレクション名
 USER_COLLECTION = "app_users"
 
-# ロール定義
+# ロール
 ROLE_USER = "user"
 ROLE_ADMIN = "admin"
 
@@ -47,7 +47,7 @@ class AppUser:
 
 
 def _get_db():
-    # 既に初期化済みなら再初期化しない
+    """firebase_admin が初期化されていなければ初期化して Firestore クライアントを返す。"""
     if not firebase_admin._apps:
         firebase_admin.initialize_app()
     return firestore.client()
@@ -55,8 +55,10 @@ def _get_db():
 
 def get_or_create_user(email: str, display_name: Optional[str] = None) -> Dict:
     """
-    ログイン時に呼び出して、ユーザー情報を Firestore に作成/更新する。
-    戻り値は dict（AppUser.to_dict）で返します。
+    ログイン時などに呼び出し：
+    - app_users/{email} があれば updated_at を更新
+    - なければ role=user で新規作成
+    戻り値は dict 形式。
     """
     if not email:
         raise ValueError("email is required")
@@ -70,17 +72,13 @@ def get_or_create_user(email: str, display_name: Optional[str] = None) -> Dict:
 
     if snapshot.exists:
         data = snapshot.to_dict() or {}
-        # 表示名が変わっていたら更新
-        update_data = {}
+        update_data: Dict[str, object] = {"updated_at": now_iso}
         if display_name and data.get("display_name") != display_name:
             update_data["display_name"] = display_name
-        update_data["updated_at"] = now_iso
-        if update_data:
-            doc_ref.update(update_data)
-            data.update(update_data)
+        doc_ref.update(update_data)
+        data.update(update_data)
         return data
 
-    # 新規作成（デフォルトは一般ユーザー）
     user = AppUser(
         email=email,
         display_name=display_name,
@@ -94,27 +92,33 @@ def get_or_create_user(email: str, display_name: Optional[str] = None) -> Dict:
 
 def get_user_role(email: str) -> str:
     """
-    メールアドレスからロールを取得。存在しなければ一般ユーザーとして作成。
+    メールアドレスからロールを取得。
+    ドキュメントが存在しない場合は user として作成して user を返す。
     """
     if not email:
         return ROLE_USER
+
     email = email.strip().lower()
     db = _get_db()
     doc_ref = db.collection(USER_COLLECTION).document(email)
     snapshot = doc_ref.get()
+
     if not snapshot.exists:
         data = get_or_create_user(email)
         return data.get("role", ROLE_USER)
+
     data = snapshot.to_dict() or {}
     return data.get("role", ROLE_USER)
 
 
 def set_user_role(email: str, role: str) -> None:
     """
-    ユーザーのロールを更新（admin/user など）。
+    ユーザーのロールを admin / user に更新。
+    ドキュメントが存在しない場合は新規作成。
     """
     if not email:
         raise ValueError("email is required")
+
     role = role.strip().lower()
     if role not in (ROLE_USER, ROLE_ADMIN):
         raise ValueError(f"invalid role: {role}")
@@ -125,10 +129,10 @@ def set_user_role(email: str, role: str) -> None:
 
     now_iso = datetime.utcnow().isoformat(timespec="seconds") + "Z"
     snapshot = doc_ref.get()
+
     if snapshot.exists:
         doc_ref.update({"role": role, "updated_at": now_iso})
     else:
-        # 存在しない場合は新規作成
         user = AppUser(
             email=email,
             display_name=None,
@@ -141,7 +145,7 @@ def set_user_role(email: str, role: str) -> None:
 
 def list_users() -> List[Dict]:
     """
-    Firestore 上の app_users コレクションをすべて取得。
+    app_users コレクションのユーザー一覧を created_at 昇順で取得。
     """
     db = _get_db()
     docs = db.collection(USER_COLLECTION).order_by("created_at").stream()
