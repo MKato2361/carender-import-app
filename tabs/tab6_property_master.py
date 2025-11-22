@@ -7,6 +7,7 @@ from io import BytesIO
 
 import pandas as pd
 import streamlit as st
+from firebase_admin import firestore  # ★ 追加：ユーザーごとのID保存用
 
 
 # ==========================
@@ -203,7 +204,7 @@ def load_sheet_as_df(
     header = values[0]
     rows = values[1:] if len(values) > 1 else []
 
-    # ★ ここで各行の長さをヘッダー長に合わせてパディング／切り詰め
+    # 行ごとの差をパディング／切り詰め
     padded_rows = []
     for row in rows:
         if len(row) < len(header):
@@ -422,8 +423,29 @@ def render_tab6_property_master(
     - 物件基本情報 / 物件マスタ を同一スプレッドシートの別シートとして管理
     - Excel/CSV から基本情報を取り込み、差分プレビュー → シート反映
     - 物件マスタは Data Editor で編集 → シート保存
+    - 物件マスタ用スプレッドシートIDはユーザーごとに Firestore に保存
     """
     st.subheader("物件マスタ管理")
+
+    # ------------------------------
+    # Firestore からユーザーごとのIDを読み込み
+    # ------------------------------
+    db = None
+    stored_sheet_id: Optional[str] = None
+    if current_user_email:
+        try:
+            db = firestore.client()
+            doc = db.collection("user_settings").document(current_user_email).get()
+            if doc.exists:
+                stored_sheet_id = (doc.to_dict() or {}).get("property_master_spreadsheet_id") or None
+        except Exception as e:
+            st.warning(f"物件マスタ用スプレッドシートIDの読み込みに失敗しました: {e}")
+
+    # 初回ロード時：session_state にまだ入ってなければ Firestore or default からセット
+    if "pm_spreadsheet_id" not in st.session_state or not st.session_state["pm_spreadsheet_id"]:
+        initial_id = stored_sheet_id or default_spreadsheet_id
+        if initial_id:
+            st.session_state["pm_spreadsheet_id"] = initial_id
 
     # ------------------------------
     # スプレッドシート設定 & 新規作成
@@ -445,7 +467,18 @@ def render_tab6_property_master(
                         )
                         st.session_state["pm_spreadsheet_id"] = new_id
                         st.success(f"新しいスプレッドシートを作成しました。\nID: {new_id}")
-                        st.info("必要であれば、このIDを secrets.toml の PROPERTY_MASTER_SHEET_ID に保存してください。")
+
+                        # ★ Firestore に保存（ユーザーごと）
+                        if db and current_user_email:
+                            try:
+                                db.collection("user_settings").document(current_user_email).set(
+                                    {"property_master_spreadsheet_id": new_id},
+                                    merge=True,
+                                )
+                                st.info("このスプレッドシートIDをユーザー設定に保存しました。次回から自動で読み込まれます。")
+                            except Exception as ee:
+                                st.warning(f"スプレッドシートIDの保存に失敗しました: {ee}")
+
                     except Exception as e:
                         st.error(f"スプレッドシートの新規作成に失敗しました: {e}")
 
@@ -474,6 +507,17 @@ def render_tab6_property_master(
             )
 
         load_btn = st.button("物件マスタ ＋ 基本情報を読み込む", type="primary")
+
+        # ★ 手入力でIDを変更した場合も Firestore に保存
+        if db and current_user_email and spreadsheet_id:
+            try:
+                if stored_sheet_id != spreadsheet_id:
+                    db.collection("user_settings").document(current_user_email).set(
+                        {"property_master_spreadsheet_id": spreadsheet_id},
+                        merge=True,
+                    )
+            except Exception as e:
+                st.warning(f"スプレッドシートIDの保存に失敗しました: {e}")
 
     # ------------------------------
     # 物件基本情報：Excel/CSV → シート
