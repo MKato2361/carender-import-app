@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Optional, Any
+from io import BytesIO
 
 import pandas as pd
 import streamlit as st
@@ -250,18 +251,42 @@ def save_df_to_sheet(
 def load_basic_info_from_uploaded(uploaded_file) -> pd.DataFrame:
     """
     アップロードされた Excel/CSV から物件基本情報 DataFrame を作成。
+    - Excel: そのまま read_excel
+    - CSV : まず UTF-8 / UTF-8-SIG を試し、ダメなら CP932(Shift_JIS) で再トライ
     """
     if uploaded_file is None:
         return pd.DataFrame(columns=BASIC_COLUMNS)
 
     name = uploaded_file.name.lower()
+
+    # --- Excel の場合 ---
     if name.endswith(".xlsx") or name.endswith(".xls"):
         df = pd.read_excel(uploaded_file, dtype=str)
-    else:
-        df = pd.read_csv(uploaded_file, dtype=str)
+        df = df.astype(str).apply(lambda col: col.str.strip())
+        return _normalize_df(df, BASIC_COLUMNS)
 
-    df = df.astype(str).apply(lambda col: col.str.strip())
-    return _normalize_df(df, BASIC_COLUMNS)
+    # --- CSV の場合 ---
+    # 一度バイト列として読み込み、複数エンコーディングでトライする
+    raw_bytes = uploaded_file.read()
+
+    # 以降、この関数の中だけで raw_bytes を使い切る前提
+    encodings_to_try = ["utf-8", "utf-8-sig", "cp932"]
+
+    last_err: Optional[Exception] = None
+    for enc in encodings_to_try:
+        try:
+            df = pd.read_csv(BytesIO(raw_bytes), dtype=str, encoding=enc)
+            df = df.astype(str).apply(lambda col: col.str.strip())
+            return _normalize_df(df, BASIC_COLUMNS)
+        except UnicodeDecodeError as e:
+            last_err = e
+            continue
+        except Exception as e:
+            last_err = e
+            continue
+
+    st.error(f"CSVファイルの読み込みに失敗しました。エンコーディングを確認してください。（最後のエラー: {last_err}）")
+    return pd.DataFrame(columns=BASIC_COLUMNS)
 
 
 def diff_basic_info(current_df: pd.DataFrame, new_df: pd.DataFrame):
@@ -375,7 +400,6 @@ def render_tab6_property_master(
                             sheets_service,
                             user_email=current_user_email,
                         )
-                        # ★ ここで session_state を更新するが、この後に text_input を作るのでOK
                         st.session_state["pm_spreadsheet_id"] = new_id
                         st.success(f"新しいスプレッドシートを作成しました。\nID: {new_id}")
                         st.info("必要であれば、このIDを secrets.toml の PROPERTY_MASTER_SHEET_ID に保存してください。")
@@ -436,7 +460,6 @@ def render_tab6_property_master(
                 st.error("Excel/CSV ファイルをアップロードしてください。")
             else:
                 try:
-                    # シートとヘッダーを保証
                     ensure_sheet_and_headers(
                         sheets_service,
                         spreadsheet_id,
