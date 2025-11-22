@@ -181,6 +181,7 @@ def load_sheet_as_df(
 ) -> pd.DataFrame:
     """
     A1 からの内容を DataFrame として取得し、指定列に揃えて返す。
+    ※ 行によって列数がバラバラでも、ヘッダー数に合わせてパディングする。
     """
     if not sheets_service or not spreadsheet_id:
         return pd.DataFrame(columns=columns)
@@ -202,9 +203,20 @@ def load_sheet_as_df(
     header = values[0]
     rows = values[1:] if len(values) > 1 else []
 
-    df = pd.DataFrame(rows, columns=header)
+    # ★ ここで各行の長さをヘッダー長に合わせてパディング／切り詰め
+    padded_rows = []
+    for row in rows:
+        if len(row) < len(header):
+            padded_rows.append(row + [""] * (len(header) - len(row)))
+        elif len(row) > len(header):
+            padded_rows.append(row[:len(header)])
+        else:
+            padded_rows.append(row)
+
+    df = pd.DataFrame(padded_rows, columns=header)
     df = df.astype(str).apply(lambda col: col.str.strip())
-    # 足りない列補完
+
+    # 足りない列補完（BASIC_COLUMNS / MASTER_COLUMNS に揃える）
     for col in columns:
         if col not in df.columns:
             df[col] = ""
@@ -300,7 +312,6 @@ def load_basic_info_from_uploaded(uploaded_file) -> pd.DataFrame:
         return _map_basic_from_raw_df(df)
 
     # --- CSV の場合 ---
-    # 一度バイト列として読み込み、複数エンコーディングでトライする
     raw_bytes = uploaded_file.read()
 
     encodings_to_try = ["utf-8", "utf-8-sig", "cp932"]
