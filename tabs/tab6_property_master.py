@@ -4,10 +4,12 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional, Any
 from io import BytesIO
+import re
+import unicodedata
 
 import pandas as pd
 import streamlit as st
-from firebase_admin import firestore  # ★ 追加：ユーザーごとのID保存用
+from firebase_admin import firestore  # ユーザーごとのID保存用
 
 
 # ==========================
@@ -75,6 +77,33 @@ def _normalize_df(df: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
     if not df.empty:
         df = df.astype(str).apply(lambda col: col.str.strip())
     return df
+
+
+def parse_notice_deadline_to_days(text: str) -> tuple[str, str]:
+    """
+    「点検通知先１通知期限」の文字列 → 日数（文字列）と、解析できなかった場合用のメモ
+      - 例: "1週間前" → ("7", "")
+      - 例: "10日前" → ("10", "")
+      - それ以外 → ("", 元の文字列)
+    """
+    s = str(text or "").strip()
+    if not s:
+        return "", ""
+
+    s_norm = unicodedata.normalize("NFKC", s)  # 全角→半角など
+    # 〇週間
+    m = re.search(r"(\d+)\s*週", s_norm)
+    if m:
+        days = int(m.group(1)) * 7
+        return str(days), ""
+    # 〇日前 / 〇日
+    m = re.search(r"(\d+)\s*日", s_norm)
+    if m:
+        days = int(m.group(1))
+        return str(days), ""
+
+    # 解析できないものは備考側へ回す
+    return "", s
 
 
 # ==========================
@@ -217,7 +246,7 @@ def load_sheet_as_df(
     df = pd.DataFrame(padded_rows, columns=header)
     df = df.astype(str).apply(lambda col: col.str.strip())
 
-    # 足りない列補完（BASIC_COLUMNS / MASTER_COLUMNS に揃える）
+    # 足りない列補完
     for col in columns:
         if col not in df.columns:
             df[col] = ""
@@ -261,6 +290,45 @@ def save_df_to_sheet(
 # 物件基本情報：Excel/CSV 読み込み & 差分
 # ==========================
 
+def load_raw_from_uploaded(uploaded_file) -> pd.DataFrame:
+    """
+    アップロードされた Excel/CSV を「そのまま」DataFrame にする（全列保持）。
+    文字列化＆stripだけ実施。
+    """
+    if uploaded_file is None:
+        return pd.DataFrame()
+
+    name = uploaded_file.name.lower()
+
+    # Excel
+    if name.endswith(".xlsx") or name.endswith(".xls"):
+        df = pd.read_excel(uploaded_file, dtype=str)
+        if not df.empty:
+            df = df.astype(str).apply(lambda col: col.str.strip())
+        return df
+
+    # CSV
+    raw_bytes = uploaded_file.read()
+    encodings_to_try = ["utf-8", "utf-8-sig", "cp932"]
+    last_err: Optional[Exception] = None
+
+    for enc in encodings_to_try:
+        try:
+            df = pd.read_csv(BytesIO(raw_bytes), dtype=str, encoding=enc)
+            if not df.empty:
+                df = df.astype(str).apply(lambda col: col.str.strip())
+            return df
+        except UnicodeDecodeError as e:
+            last_err = e
+            continue
+        except Exception as e:
+            last_err = e
+            continue
+
+    st.error(f"CSVファイルの読み込みに失敗しました。エンコーディングを確認してください。（最後のエラー: {last_err}）")
+    return pd.DataFrame()
+
+
 def _map_basic_from_raw_df(df: pd.DataFrame) -> pd.DataFrame:
     """
     元の DataFrame（どんなヘッダー名でもOK）から BASIC_COLUMNS を構成する。
@@ -268,7 +336,7 @@ def _map_basic_from_raw_df(df: pd.DataFrame) -> pd.DataFrame:
       - 管理番号  ← 物件の管理番号 / 物件管理番号 / 管理番号
       - 住所     ← 物件情報-住所1 / 住所 / 所在地
       - 契約種別 ← 契約種類 / 契約種別
-      - 窓口会社 ← 窓口会社 / 契約先名 / 窓口名
+      - 窓口会社 ← 窓口名優先、なければ契約先名、なければ窓口会社
     """
     df = df.copy()
     if not df.empty:
@@ -285,7 +353,8 @@ def _map_basic_from_raw_df(df: pd.DataFrame) -> pd.DataFrame:
     mapped["管理番号"] = pick("管理番号", "物件の管理番号", "物件管理番号", "物件番号")
     mapped["物件名"] = pick("物件名", "施設名")
     mapped["住所"] = pick("住所", "物件情報-住所1", "住所1", "所在地")
-    mapped["窓口会社"] = pick("窓口会社", "契約先名", "窓口名")
+    # 窓口会社：窓口名 → 契約先名 → 窓口会社 の順で優先
+    mapped["窓口会社"] = pick("窓口名", "契約先名", "窓口会社")
     mapped["担当部署"] = pick("担当部署", "部署名")
     mapped["担当者名"] = pick("担当者名", "担当者")
     mapped["契約種別"] = pick("契約種別", "契約種類")
@@ -296,47 +365,10 @@ def _map_basic_from_raw_df(df: pd.DataFrame) -> pd.DataFrame:
     return _normalize_df(mapped, BASIC_COLUMNS)
 
 
-def load_basic_info_from_uploaded(uploaded_file) -> pd.DataFrame:
-    """
-    アップロードされた Excel/CSV から物件基本情報 DataFrame を作成。
-    - Excel: そのまま read_excel → ヘッダーマッピング
-    - CSV : まず UTF-8 / UTF-8-SIG を試し、ダメなら CP932(Shift_JIS) で再トライ → ヘッダーマッピング
-    """
-    if uploaded_file is None:
-        return pd.DataFrame(columns=BASIC_COLUMNS)
-
-    name = uploaded_file.name.lower()
-
-    # --- Excel の場合 ---
-    if name.endswith(".xlsx") or name.endswith(".xls"):
-        df = pd.read_excel(uploaded_file, dtype=str)
-        return _map_basic_from_raw_df(df)
-
-    # --- CSV の場合 ---
-    raw_bytes = uploaded_file.read()
-
-    encodings_to_try = ["utf-8", "utf-8-sig", "cp932"]
-    last_err: Optional[Exception] = None
-
-    for enc in encodings_to_try:
-        try:
-            df = pd.read_csv(BytesIO(raw_bytes), dtype=str, encoding=enc)
-            return _map_basic_from_raw_df(df)
-        except UnicodeDecodeError as e:
-            last_err = e
-            continue
-        except Exception as e:
-            last_err = e
-            continue
-
-    st.error(f"CSVファイルの読み込みに失敗しました。エンコーディングを確認してください。（最後のエラー: {last_err}）")
-    return pd.DataFrame(columns=BASIC_COLUMNS)
-
-
 def diff_basic_info(current_df: pd.DataFrame, new_df: pd.DataFrame):
     """
     current_df: 現在シートに入っている基本情報
-    new_df    : 新しくアップロードされた Excel/CSV を読み込んだ基本情報
+    new_df    : 新しくアップロードされた基本情報（BASIC_COLUMNS）
 
     戻り値:
       - new_rows     : 新規追加行
@@ -374,6 +406,155 @@ def diff_basic_info(current_df: pd.DataFrame, new_df: pd.DataFrame):
         updated_rows[f"{col}_旧"] = updated_cur[col].values
 
     return new_rows, updated_rows, deleted_rows
+
+
+# ==========================
+# 物件マスタへの自動マッピング
+# ==========================
+
+def _map_master_from_raw_df(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    元の DataFrame から物件マスタ用の MASTER_COLUMNS を構成する。
+    （管理番号が空の行は除外）
+    """
+    df = df.copy()
+    if not df.empty:
+        df = df.astype(str).apply(lambda col: col.str.strip())
+    if df.empty:
+        return pd.DataFrame(columns=MASTER_COLUMNS)
+
+    n_all = len(df)
+
+    def pick0(*names: str) -> pd.Series:
+        for name in names:
+            if name in df.columns:
+                return df[name]
+        return pd.Series([""] * n_all)
+
+    # まず管理番号を見て、空行を除外
+    mgmt_all = pick0("管理番号", "物件の管理番号", "物件管理番号", "物件番号")
+    mask = mgmt_all.astype(str).str.strip() != ""
+    df2 = df[mask].reset_index(drop=True)
+    if df2.empty:
+        return pd.DataFrame(columns=MASTER_COLUMNS)
+
+    n = len(df2)
+
+    def pick(*names: str) -> pd.Series:
+        for name in names:
+            if name in df2.columns:
+                return df2[name]
+        return pd.Series([""] * n)
+
+    # 出力用 DataFrame（全列空で初期化）
+    out = pd.DataFrame({col: [""] * n for col in MASTER_COLUMNS})
+
+    # 管理番号
+    out["管理番号"] = pick("管理番号", "物件の管理番号", "物件管理番号", "物件番号")
+
+    # 点検実施月 ← 点検月そのまま
+    out["点検実施月"] = pick("点検月", "点検実施月")
+
+    # 連絡期限_日前 ＋ 通知期限の原文を備考用に保持
+    deadline_series = pick("点検通知先１通知期限", "点検通知先1通知期限")
+    days_list: list[str] = []
+    notes_from_deadline: list[str] = []
+    for v in deadline_series:
+        days, note = parse_notice_deadline_to_days(v)
+        days_list.append(days)
+        notes_from_deadline.append(note)
+    out["連絡期限_日前"] = pd.Series(days_list)
+
+    # 通知方法
+    method1 = pick("点検通知先１通知方法", "点検通知先1通知方法")
+    method2 = pick("点検通知先２通知方法", "点検通知先2通知方法")
+
+    tel1_series = pick("点検通知先１TEL", "点検通知先1TEL")
+    tel2_series = pick("点検通知先２TEL", "点検通知先2TEL")
+    tel_fallback = pick("TEL")
+
+    fax1_series = pick("点検通知先１FAX", "点検通知先1FAX")
+    fax2_series = pick("点検通知先２FAX", "点検通知先2FAX")
+    fax_fallback = pick("FAX")
+
+    mail1_series = pick("点検通知先１Email/URL", "点検通知先1Email/URL", "点検通知先１Email", "点検通知先1Email")
+    mail2_series = pick("点検通知先２Email/URL", "点検通知先2Email/URL", "点検通知先２Email", "点検通知先2Email")
+
+    window_name = pick("窓口名")
+    contract_name = pick("契約先名")
+    contact2_name = pick("点検通知先２点検通知先", "点検通知先2点検通知先")
+
+    sticker_type = pick("貼紙貼付書式", "貼紙貼付様式")
+    sticker_count = pick("貼紙枚数")
+
+    notes_combined: list[str] = []
+
+    for i in range(n):
+        # --- 連絡方法1 ---
+        m1_raw = str(method1.iloc[i]) if i < len(method1) else ""
+        m1_norm = unicodedata.normalize("NFKC", m1_raw).upper()
+        if ("TEL" in m1_norm) or ("電話" in m1_raw):
+            out.at[i, "連絡方法_電話1"] = "1"
+        if ("FAX" in m1_norm) or ("ＦＡＸ" in m1_raw):
+            out.at[i, "連絡方法_FAX1"] = "1"
+        if ("MAIL" in m1_norm) or ("ﾒｰﾙ" in m1_raw) or ("メール" in m1_raw):
+            out.at[i, "連絡方法_メール1"] = "1"
+
+        # --- 連絡方法2 ---
+        m2_raw = str(method2.iloc[i]) if i < len(method2) else ""
+        m2_norm = unicodedata.normalize("NFKC", m2_raw).upper()
+        if ("TEL" in m2_norm) or ("電話" in m2_raw):
+            out.at[i, "連絡方法_電話2"] = "2"
+        if ("FAX" in m2_norm) or ("ＦＡＸ" in m2_raw):
+            out.at[i, "連絡方法_FAX2"] = "2"
+        if ("MAIL" in m2_norm) or ("ﾒｰﾙ" in m2_raw) or ("メール" in m2_raw):
+            out.at[i, "連絡方法_メール2"] = "2"
+
+        # --- 電話番号 ---
+        tel1 = str(tel1_series.iloc[i]) if i < len(tel1_series) else ""
+        tel_fb = str(tel_fallback.iloc[i]) if i < len(tel_fallback) else ""
+        tel2 = str(tel2_series.iloc[i]) if i < len(tel2_series) else ""
+        out.at[i, "電話番号1"] = tel1 or tel_fb
+        out.at[i, "電話番号2"] = tel2
+
+        # --- FAX番号 ---
+        fax1 = str(fax1_series.iloc[i]) if i < len(fax1_series) else ""
+        fax_fb = str(fax_fallback.iloc[i]) if i < len(fax_fallback) else ""
+        fax2 = str(fax2_series.iloc[i]) if i < len(fax2_series) else ""
+        out.at[i, "FAX番号1"] = fax1 or fax_fb
+        out.at[i, "FAX番号2"] = fax2
+
+        # --- メールアドレス ---
+        mail1 = str(mail1_series.iloc[i]) if i < len(mail1_series) else ""
+        mail2 = str(mail2_series.iloc[i]) if i < len(mail2_series) else ""
+        out.at[i, "メールアドレス1"] = mail1
+        out.at[i, "メールアドレス2"] = mail2
+
+        # --- 連絡宛名 ---
+        win = str(window_name.iloc[i]) if i < len(window_name) else ""
+        con = str(contract_name.iloc[i]) if i < len(contract_name) else ""
+        out.at[i, "連絡宛名1"] = win or con
+
+        cn2 = str(contact2_name.iloc[i]) if i < len(contact2_name) else ""
+        out.at[i, "連絡宛名2"] = cn2
+
+        # --- 貼り紙テンプレ種別 ---
+        stype = str(sticker_type.iloc[i]) if i < len(sticker_type) else ""
+        out.at[i, "貼り紙テンプレ種別"] = stype
+
+        # --- 備考 ---
+        note_parts = []
+        if notes_from_deadline[i]:
+            note_parts.append(f"通知期限: {notes_from_deadline[i]}")
+        sc = str(sticker_count.iloc[i]) if i < len(sticker_count) else ""
+        if sc:
+            note_parts.append(f"貼紙枚数: {sc}")
+        notes_combined.append(" / ".join([p for p in note_parts if p]))
+
+    if "備考" in out.columns:
+        out["備考"] = notes_combined
+
+    return _normalize_df(out, MASTER_COLUMNS)
 
 
 # ==========================
@@ -422,7 +603,7 @@ def render_tab6_property_master(
     物件マスタ管理タブ
     - 物件基本情報 / 物件マスタ を同一スプレッドシートの別シートとして管理
     - Excel/CSV から基本情報を取り込み、差分プレビュー → シート反映
-    - 物件マスタは Data Editor で編集 → シート保存
+    - 物件マスタは「インポート時に新規管理番号だけ自動初期化」
     - 物件マスタ用スプレッドシートIDはユーザーごとに Firestore に保存
     """
     st.subheader("物件マスタ管理")
@@ -468,7 +649,7 @@ def render_tab6_property_master(
                         st.session_state["pm_spreadsheet_id"] = new_id
                         st.success(f"新しいスプレッドシートを作成しました。\nID: {new_id}")
 
-                        # ★ Firestore に保存（ユーザーごと）
+                        # Firestore に保存（ユーザーごと）
                         if db and current_user_email:
                             try:
                                 db.collection("user_settings").document(current_user_email).set(
@@ -508,7 +689,7 @@ def render_tab6_property_master(
 
         load_btn = st.button("物件マスタ ＋ 基本情報を読み込む", type="primary")
 
-        # ★ 手入力でIDを変更した場合も Firestore に保存
+        # 手入力でIDを変更した場合も Firestore に保存
         if db and current_user_email and spreadsheet_id:
             try:
                 if stored_sheet_id != spreadsheet_id:
@@ -547,6 +728,7 @@ def render_tab6_property_master(
                 st.error("Excel/CSV ファイルをアップロードしてください。")
             else:
                 try:
+                    # シートとヘッダーを事前に準備
                     ensure_sheet_and_headers(
                         sheets_service,
                         spreadsheet_id,
@@ -559,10 +741,14 @@ def render_tab6_property_master(
                         basic_title,
                         BASIC_COLUMNS,
                     )
-                    new_df = load_basic_info_from_uploaded(uploaded_basic)
+
+                    # アップロードファイル → 生のDF → 基本情報DFにマッピング
+                    raw_df = load_raw_from_uploaded(uploaded_basic)
+                    new_df = _map_basic_from_raw_df(raw_df)
 
                     new_rows, updated_rows, deleted_rows = diff_basic_info(current_df, new_df)
 
+                    st.session_state["pm_basic_uploaded_raw_df"] = raw_df
                     st.session_state["pm_basic_uploaded_df"] = new_df
                     st.session_state["pm_basic_new_rows"] = new_rows
                     st.session_state["pm_basic_updated_rows"] = updated_rows
@@ -592,17 +778,20 @@ def render_tab6_property_master(
             if len(deleted_rows) > 0:
                 st.dataframe(deleted_rows, use_container_width=True, height=200)
 
-        # 差分反映（実際には「新しいファイルの内容でシート全体を置き換え」）
+        # 差分反映（基本情報＋物件マスタ自動初期登録）
         if apply_diff_btn:
             new_df = st.session_state.get("pm_basic_uploaded_df")
+            raw_df = st.session_state.get("pm_basic_uploaded_raw_df")
+
             if not spreadsheet_id:
                 st.error("スプレッドシートIDを先に設定してください。")
             elif not sheets_service:
                 st.error("Sheets API のサービスが初期化されていません。")
-            elif new_df is None:
+            elif new_df is None or raw_df is None:
                 st.error("差分が計算されていません。先に『差分をプレビュー』を実行してください。")
             else:
                 try:
+                    # --- 物件基本情報シートを新しい内容で全置換 ---
                     ensure_sheet_and_headers(
                         sheets_service,
                         spreadsheet_id,
@@ -619,12 +808,63 @@ def render_tab6_property_master(
                     st.success("物件基本情報シートを更新しました。（新しいファイルの内容で全行を置き換えています）")
 
                     # セッション上の基本情報も更新
-                    st.session_state["pm_basic_df"] = _normalize_df(new_df, BASIC_COLUMNS)
+                    basic_df_norm = _normalize_df(new_df, BASIC_COLUMNS)
+                    st.session_state["pm_basic_df"] = basic_df_norm
+
+                    # --- 物件マスタ：新規管理番号だけ自動初期登録 ---
+                    ensure_sheet_and_headers(
+                        sheets_service,
+                        spreadsheet_id,
+                        master_title,
+                        MASTER_COLUMNS,
+                    )
+                    current_master_df = load_sheet_as_df(
+                        sheets_service,
+                        spreadsheet_id,
+                        master_title,
+                        MASTER_COLUMNS,
+                    )
+
+                    candidate_master_df = _map_master_from_raw_df(raw_df)
+
+                    if not candidate_master_df.empty:
+                        existing_ids = set(current_master_df["管理番号"].astype(str).str.strip())
+                        cand_ids = candidate_master_df["管理番号"].astype(str).str.strip()
+                        mask_new = ~cand_ids.isin(existing_ids)
+                        new_master_rows = candidate_master_df[mask_new].copy()
+
+                        if not new_master_rows.empty:
+                            updated_master_df = pd.concat(
+                                [current_master_df, new_master_rows],
+                                ignore_index=True,
+                            )
+                            save_df_to_sheet(
+                                sheets_service,
+                                spreadsheet_id,
+                                master_title,
+                                updated_master_df,
+                                MASTER_COLUMNS,
+                            )
+                            st.session_state["pm_master_df"] = updated_master_df
+                            st.success(f"物件マスタシートに新規 {len(new_master_rows)} 件を自動登録しました。")
+                        else:
+                            updated_master_df = current_master_df
+                            st.session_state["pm_master_df"] = updated_master_df
+                            st.info("物件マスタシートに新規登録する管理番号はありませんでした。")
+                    else:
+                        updated_master_df = current_master_df
+                        st.session_state["pm_master_df"] = updated_master_df
+                        st.info("物件マスタ用にマッピングできるデータがありませんでした。")
+
+                    # --- マージ結果も更新しておく ---
+                    merged_df_latest = merge_master_and_basic(updated_master_df, basic_df_norm)
+                    st.session_state["pm_merged_df"] = merged_df_latest
+
                 except Exception as e:
-                    st.error(f"物件基本情報シートの更新中にエラーが発生しました: {e}")
+                    st.error(f"物件基本情報 / 物件マスタ更新中にエラーが発生しました: {e}")
 
     # ------------------------------
-    # 物件マスタ＋基本情報 読み込み
+    # 物件マスタ＋基本情報 読み込み（手動）
     # ------------------------------
     if load_btn:
         if not spreadsheet_id:
@@ -671,7 +911,7 @@ def render_tab6_property_master(
     merged_df: Optional[pd.DataFrame] = st.session_state.get("pm_merged_df")
 
     if merged_df is None or merged_df.empty:
-        st.info("上部の『物件マスタ ＋ 基本情報を読み込む』ボタンからデータを読み込んでください。")
+        st.info("上部の『物件マスタ ＋ 基本情報を読み込む』ボタン、またはインポート反映を実行してください。")
         return
 
     # ------------------------------
