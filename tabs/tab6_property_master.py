@@ -9,9 +9,8 @@ import streamlit as st
 from googleapiclient.discovery import Resource
 from firebase_admin import firestore
 
-
 # ==========================
-# 定数（列定義）
+# 列定義
 # ==========================
 
 MASTER_COLUMNS = [
@@ -60,7 +59,7 @@ BASIC_COLUMNS = [
 
 
 # ==========================
-# ヘルパー（基本情報：アップロードファイル → DataFrame）
+# 基本情報：アップロードファイル → DataFrame
 # ==========================
 
 def load_basic_info_from_uploaded(uploaded_file) -> pd.DataFrame:
@@ -75,7 +74,7 @@ def load_basic_info_from_uploaded(uploaded_file) -> pd.DataFrame:
     if name.endswith(".xlsx") or name.endswith(".xls"):
         df = pd.read_excel(uploaded_file, dtype=str)
     else:
-        # CSV想定。必要に応じて encoding 変更（例: encoding="cp932"）
+        # CSV想定。必要に応じて encoding を調整（例: encoding="cp932"）
         df = pd.read_csv(uploaded_file, dtype=str)
 
     df = df.astype(str).apply(lambda col: col.str.strip())
@@ -89,7 +88,7 @@ def load_basic_info_from_uploaded(uploaded_file) -> pd.DataFrame:
 
 
 # ==========================
-# ヘルパー（基本情報：Firestore 連携）
+# 基本情報：Firestore 連携
 # ==========================
 
 def load_basic_info_from_firestore(user_id: str) -> pd.DataFrame:
@@ -238,7 +237,7 @@ def diff_basic_info(current_df: pd.DataFrame, new_df: pd.DataFrame):
 
 
 # ==========================
-# ヘルパー（物件マスタ：Sheets 連携）
+# 物件マスタ：Sheets 連携
 # ==========================
 
 def load_master_from_sheets(
@@ -357,13 +356,13 @@ def render_tab6_property_master(
     """
     物件マスタ管理タブの描画。
 
-    - 物件マスタ（Google Sheets）はそのまま
+    - 物件マスタ（Google Sheets）はこのタブから編集・保存
     - 物件基本情報は Firestore に保存し、普段は Firestore から読み取り
     - Excel/CSV アップロードで差分を計算し、Firestore を更新可能
     """
     st.subheader("物件マスタ管理")
 
-    # ---- 基本設定エリア ----
+    # ---- 物件マスタ（Sheets）設定 ----
     with st.expander("物件マスタ（スプレッドシート）設定", expanded=True):
         col1, col2 = st.columns([2, 1])
         with col1:
@@ -382,7 +381,7 @@ def render_tab6_property_master(
 
         load_btn = st.button("物件マスタ＋基本情報を読み込む", type="primary")
 
-    # ---- 基本情報DBの更新（Excel/CSV → Firestore 差分更新） ----
+    # ---- 物件基本情報DBの更新（Excel/CSV → Firestore 差分更新） ----
     with st.expander("物件基本情報DBの更新（Excel/CSV → Firestore）", expanded=False):
         st.caption("※ 初回はここから Excel/CSV をアップロードして Firestore に登録します。以降は更新があるときだけでOKです。")
 
@@ -462,7 +461,7 @@ def render_tab6_property_master(
                         )
                     st.success("Firestore に差分を反映しました。")
 
-                    # 反映後は Firestore から再読み込みしてセッションを更新しておく
+                    # 反映後は Firestore から再読み込みしてセッションを更新
                     refreshed_basic = load_basic_info_from_firestore(current_user_id)
                     st.session_state["pm_basic_df"] = refreshed_basic
 
@@ -500,7 +499,7 @@ def render_tab6_property_master(
         st.info("上部の『物件マスタ＋基本情報を読み込む』ボタンからデータを読み込んでください。")
         return
 
-    # ---- フィルターエリア ----
+    # ---- フィルター ----
     with st.expander("フィルター", expanded=False):
         col1, col2 = st.columns(2)
         with col1:
@@ -540,7 +539,7 @@ def render_tab6_property_master(
                 has_any |= df_view[col].astype(str).str.strip() != ""
         df_view = df_view[has_any]
 
-    # 選択列を追加（削除用）
+    # 削除用の「選択」列
     if "選択" not in df_view.columns:
         df_view.insert(0, "選択", False)
 
