@@ -362,13 +362,8 @@ def render_tab6_property_master(
     # ------------------------------
     with st.expander("スプレッドシート設定", expanded=True):
         col1, col2 = st.columns([3, 2])
-        with col1:
-            spreadsheet_id = st.text_input(
-                "物件マスタ用スプレッドシートID",
-                value=st.session_state.get("pm_spreadsheet_id", default_spreadsheet_id),
-                key="pm_spreadsheet_id",
-                help="物件基本情報 / 物件マスタ を保存する Google スプレッドシートの ID を入力してください。",
-            )
+
+        # 1) 先に「新規作成ボタン」を処理し、必要なら session_state に ID をセット
         with col2:
             st.write("　")
             if st.button("🆕 新規スプレッドシート作成", use_container_width=True):
@@ -380,12 +375,22 @@ def render_tab6_property_master(
                             sheets_service,
                             user_email=current_user_email,
                         )
+                        # ★ ここで session_state を更新するが、この後に text_input を作るのでOK
                         st.session_state["pm_spreadsheet_id"] = new_id
-                        spreadsheet_id = new_id
                         st.success(f"新しいスプレッドシートを作成しました。\nID: {new_id}")
                         st.info("必要であれば、このIDを secrets.toml の PROPERTY_MASTER_SHEET_ID に保存してください。")
                     except Exception as e:
                         st.error(f"スプレッドシートの新規作成に失敗しました: {e}")
+
+        # 2) session_state に入っている値 or default から text_input を表示
+        default_id = st.session_state.get("pm_spreadsheet_id", default_spreadsheet_id)
+        with col1:
+            spreadsheet_id = st.text_input(
+                "物件マスタ用スプレッドシートID",
+                value=default_id,
+                key="pm_spreadsheet_id",
+                help="物件基本情報 / 物件マスタ を保存する Google スプレッドシートの ID を入力してください。",
+            )
 
         col3, col4 = st.columns(2)
         with col3:
@@ -549,7 +554,6 @@ def render_tab6_property_master(
                 st.session_state["pm_basic_df"] = basic_df
                 st.session_state["pm_master_df"] = master_df
                 st.session_state["pm_merged_df"] = merged_df
-
                 st.success("物件マスタ ＋ 基本情報を読み込みました。")
             except Exception as e:
                 st.error(f"シート読み込み中にエラーが発生しました: {e}")
