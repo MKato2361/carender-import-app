@@ -15,7 +15,8 @@ from datetime import datetime, timedelta, timezone
 # Google API スコープ
 SCOPES = [
     "https://www.googleapis.com/auth/calendar",
-    "https://www.googleapis.com/auth/tasks"
+    "https://www.googleapis.com/auth/tasks",
+    "https://www.googleapis.com/auth/spreadsheets"
 ]
 
 # ==============================
