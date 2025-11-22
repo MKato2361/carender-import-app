@@ -26,11 +26,14 @@ def convert_bytes_to_uploadedfile(file_bytes: bytes, filename: str, mime_type: s
         type=mime_type or "application/octet-stream",
         data=file_bytes,
     )
+
 import streamlit as st
 import pandas as pd
 from io import BytesIO
+
 # ←このあたりの import 群の直下に追加してください。
 from tabs.tab1_upload import render_tab1_upload
+
 class GitHubUploadedFile:
     def __init__(self, file_bytes: bytes, name: str, type: str = None):
         self._file_bytes = file_bytes
@@ -57,12 +60,9 @@ from tabs.tab4_duplicates import render_tab4_duplicates
 from calendar_utils import fetch_all_events
 from tabs.tab5_export import render_tab5_export
 from tabs.tab_admin import render_tab_admin
+from tabs.tab6_property_master import render_tab6_property_master  # ★ 物件マスタ管理タブを追加
 
 from utils.user_roles import get_or_create_user, get_user_role, ROLE_ADMIN
-
-
-
-
 
 # ---- アプリ固有モジュール ----
 from excel_parser import (
@@ -305,6 +305,13 @@ service, editable_calendar_options = ensure_services(creds)
 tasks_service = st.session_state.get("tasks_service")
 default_task_list_id = st.session_state.get("default_task_list_id")
 
+# ★ 追加: Google Sheets サービス
+try:
+    sheets_service = build("sheets", "v4", credentials=creds)
+except Exception as e:
+    st.warning(f"Googleスプレッドシートサービスの初期化に失敗しました: {e}")
+    sheets_service = None
+
 # ==================================================
 # 4) UI（Tabs）
 # ==================================================
@@ -316,9 +323,10 @@ tab_labels = [
     "3. イベントの削除",
     "4. 重複イベントの検出・削除",
     "5. イベントのExcel出力",
+    "6. 物件マスタ管理",
 ]
 if is_admin:
-    tab_labels.append("6. 管理者メニュー")
+    tab_labels.append("7. 管理者メニュー")
 
 tabs = st.tabs(tab_labels)
 st.markdown("</div>", unsafe_allow_html=True)
@@ -340,7 +348,6 @@ with tabs[0]:
 with tabs[1]:
     render_tab2_register(user_id, editable_calendar_options, service, tasks_service, default_task_list_id)
 
-
 # ==================================================
 # 7) タブ3: イベントの削除（仕様変更なし）
 # ==================================================
@@ -353,28 +360,36 @@ with tabs[2]:
 with tabs[3]:
     render_tab4_duplicates(service, editable_calendar_options, fetch_all_events)
 
-
-
 # ==================================================
 # 9) タブ5: カレンダーイベントをExcel/CSVへ出力（安全ファイル名版）
 # ==================================================
 with tabs[4]:
     render_tab5_export(editable_calendar_options, service, fetch_all_events)
 
+# ==================================================
+# 10) タブ6: 物件マスタ管理
+# ==================================================
+with tabs[5]:
+    render_tab6_property_master(
+        sheets_service=sheets_service,
+        default_spreadsheet_id=st.secrets.get("PROPERTY_MASTER_SHEET_ID", ""),
+        basic_sheet_title="物件基本情報",
+        master_sheet_title="物件マスタ",
+        current_user_email=current_user_email,
+    )
 
 # ==================================================
-# 10) タブ6: 管理者メニュー（ユーザー管理 / ファイル管理）
+# 11) 管理者メニュー（ユーザー管理 / ファイル管理）
 # ==================================================
 if is_admin:
-    with tabs[5]:
+    with tabs[6]:
         render_tab_admin(
             current_user_email=current_user_email,
             current_user_name=current_user_name,
         )
 
-
 # ==================================================
-# 11) サイドバー
+# 12) サイドバー
 # ==================================================
 with st.sidebar:
     with st.expander("⚙ デフォルト設定の管理", expanded=False):
