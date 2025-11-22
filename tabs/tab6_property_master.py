@@ -248,11 +248,46 @@ def save_df_to_sheet(
 # 物件基本情報：Excel/CSV 読み込み & 差分
 # ==========================
 
+def _map_basic_from_raw_df(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    元の DataFrame（どんなヘッダー名でもOK）から BASIC_COLUMNS を構成する。
+    例:
+      - 管理番号  ← 物件の管理番号 / 物件管理番号 / 管理番号
+      - 住所     ← 物件情報-住所1 / 住所 / 所在地
+      - 契約種別 ← 契約種類 / 契約種別
+      - 窓口会社 ← 窓口会社 / 契約先名 / 窓口名
+    """
+    df = df.copy()
+    if not df.empty:
+        df = df.astype(str).apply(lambda col: col.str.strip())
+    n = len(df)
+
+    def pick(*names: str) -> pd.Series:
+        for name in names:
+            if name in df.columns:
+                return df[name]
+        return pd.Series([""] * n)
+
+    mapped = pd.DataFrame()
+    mapped["管理番号"] = pick("管理番号", "物件の管理番号", "物件管理番号", "物件番号")
+    mapped["物件名"] = pick("物件名", "施設名")
+    mapped["住所"] = pick("住所", "物件情報-住所1", "住所1", "所在地")
+    mapped["窓口会社"] = pick("窓口会社", "契約先名", "窓口名")
+    mapped["担当部署"] = pick("担当部署", "部署名")
+    mapped["担当者名"] = pick("担当者名", "担当者")
+    mapped["契約種別"] = pick("契約種別", "契約種類")
+
+    # 管理番号が空の行は除外
+    mapped = mapped[mapped["管理番号"].astype(str).str.strip() != ""].reset_index(drop=True)
+
+    return _normalize_df(mapped, BASIC_COLUMNS)
+
+
 def load_basic_info_from_uploaded(uploaded_file) -> pd.DataFrame:
     """
     アップロードされた Excel/CSV から物件基本情報 DataFrame を作成。
-    - Excel: そのまま read_excel
-    - CSV : まず UTF-8 / UTF-8-SIG を試し、ダメなら CP932(Shift_JIS) で再トライ
+    - Excel: そのまま read_excel → ヘッダーマッピング
+    - CSV : まず UTF-8 / UTF-8-SIG を試し、ダメなら CP932(Shift_JIS) で再トライ → ヘッダーマッピング
     """
     if uploaded_file is None:
         return pd.DataFrame(columns=BASIC_COLUMNS)
@@ -262,22 +297,19 @@ def load_basic_info_from_uploaded(uploaded_file) -> pd.DataFrame:
     # --- Excel の場合 ---
     if name.endswith(".xlsx") or name.endswith(".xls"):
         df = pd.read_excel(uploaded_file, dtype=str)
-        df = df.astype(str).apply(lambda col: col.str.strip())
-        return _normalize_df(df, BASIC_COLUMNS)
+        return _map_basic_from_raw_df(df)
 
     # --- CSV の場合 ---
     # 一度バイト列として読み込み、複数エンコーディングでトライする
     raw_bytes = uploaded_file.read()
 
-    # 以降、この関数の中だけで raw_bytes を使い切る前提
     encodings_to_try = ["utf-8", "utf-8-sig", "cp932"]
-
     last_err: Optional[Exception] = None
+
     for enc in encodings_to_try:
         try:
             df = pd.read_csv(BytesIO(raw_bytes), dtype=str, encoding=enc)
-            df = df.astype(str).apply(lambda col: col.str.strip())
-            return _normalize_df(df, BASIC_COLUMNS)
+            return _map_basic_from_raw_df(df)
         except UnicodeDecodeError as e:
             last_err = e
             continue
