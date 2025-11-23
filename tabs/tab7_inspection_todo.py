@@ -1,4 +1,3 @@
-# tabs/tab7_inspection_todo.py
 from __future__ import annotations
 
 from datetime import datetime, date, time, timedelta, timezone
@@ -32,6 +31,10 @@ JST = timezone(timedelta(hours=9))
 ASSETNUM_PATTERN = re.compile(
     r"[［\[]?\s*管理番号[：:]\s*([0-9A-Za-z\-]+)\s*[］\]]?"
 )
+
+# ToDo紐付け用（Google Tasks の notes 内に埋め込む）
+EVENT_ID_TAG_TEMPLATE = "[EVENT_ID:{event_id}]"
+EVENT_ID_TAG_PATTERN = re.compile(r"\[EVENT_ID:([^\]]+)\]")
 
 
 def extract_assetnum(text: str) -> str:
@@ -139,6 +142,78 @@ def fetch_events_in_range(
             break
 
     return events
+
+
+# ==========================
+# ToDo紐付けヘルパー
+# ==========================
+
+def build_event_id_tag(event_id: str) -> str:
+    """notes に埋め込む EVENT_ID タグ文字列を生成"""
+    return EVENT_ID_TAG_TEMPLATE.format(event_id=event_id)
+
+
+def attach_event_id_to_notes(notes: str, event_id: str) -> str:
+    """notes 内に EVENT_ID タグを付与（既にあれば何もしない）"""
+    if not event_id:
+        return notes or ""
+    base = notes or ""
+    tag = build_event_id_tag(event_id)
+    if tag in base:
+        return base
+    if base.endswith("\n"):
+        return base + tag
+    if base:
+        return base + "\n\n" + tag
+    return tag
+
+
+def extract_event_id_from_notes(notes: str) -> str:
+    """notes 内の EVENT_ID タグから event_id を逆引き"""
+    if not notes:
+        return ""
+    m = EVENT_ID_TAG_PATTERN.search(notes)
+    if not m:
+        return ""
+    return m.group(1).strip()
+
+
+def find_task_by_event_id(
+    tasks_service: Any,
+    tasklist_id: str,
+    event_id: str,
+) -> Optional[Dict[str, Any]]:
+    """
+    Tasks API を使って、指定 event_id に紐づく既存タスクを検索。
+    notes に [EVENT_ID:xxx] が含まれているタスクを探す。
+    """
+    if not tasks_service or not tasklist_id or not event_id:
+        return None
+
+    tag = build_event_id_tag(event_id)
+    page_token: Optional[str] = None
+
+    while True:
+        resp = (
+            tasks_service.tasks()
+            .list(
+                tasklist=tasklist_id,
+                maxResults=100,
+                showCompleted=True,
+                showDeleted=False,
+                showHidden=False,
+                pageToken=page_token,
+            )
+            .execute()
+        )
+        for item in resp.get("items", []):
+            notes = item.get("notes") or ""
+            if tag in notes:
+                return item
+        page_token = resp.get("nextPageToken")
+        if not page_token:
+            break
+    return None
 
 
 # ==========================
@@ -415,12 +490,15 @@ def build_task_candidates(
         mail = build_contacts_str(pm_row, "メール")
 
         title = build_task_title(pm_row, ev)
-        notes = build_task_notes(pm_row, ev, start_date, start_time_str, due_days_str)
+        notes_base = build_task_notes(pm_row, ev, start_date, start_time_str, due_days_str)
+        # EVENT_ID タグ付きの notes
+        event_id = ev.get("id") or ""
+        notes = attach_event_id_to_notes(notes_base, event_id)
         due_iso = build_due_iso(due_date)
 
         row = {
             "作成": True,
-            "event_id": ev.get("id"),
+            "event_id": event_id,
             "管理番号": mgmt_norm,
             "物件名": display_value(pm_row.get("物件名", "")),
             "予定日": start_date.strftime("%Y-%m-%d") if start_date else "",
@@ -466,6 +544,8 @@ def render_tab7_inspection_todo(
 ):
     """
     点検イベント → 物件マスタ突合 → Google ToDo 自動生成タブ
+      - ToDo の重複作成防止（EVENT_ID タグで既存タスクを判定し、更新に切り替え）
+      - イベント日程変更時の ToDo 更新
     """
     st.subheader("点検連絡用 ToDo 自動作成")
 
@@ -571,7 +651,7 @@ def render_tab7_inspection_todo(
     # セッションからコピー
     updated_candidates = candidates_df.copy()
 
-    # ★ 安全策：足りない列はここで補完（古いバージョンのデータにも対応）
+    # 足りない列はここで補完（古いバージョンのデータにも対応）
     for col in display_cols:
         if col not in updated_candidates.columns:
             if col == "作成":
@@ -605,7 +685,7 @@ def render_tab7_inspection_todo(
     st.session_state["ins_todo_candidates_df"] = updated_candidates
 
     # ToDo作成ボタン
-    create_btn = st.button("選択された行の ToDo を Google ToDo に一括作成する", type="primary")
+    create_btn = st.button("選択された行の ToDo を Google ToDo に一括作成 / 更新する", type="primary")
 
     if create_btn:
         df = st.session_state.get("ins_todo_candidates_df")
@@ -619,13 +699,15 @@ def render_tab7_inspection_todo(
             return
 
         created = 0
+        updated = 0
         errors: List[str] = []
 
-        with st.spinner("Google ToDo に登録中..."):
+        with st.spinner("Google ToDo に登録 / 更新中..."):
             for _, row in target_df.iterrows():
                 title = row.get("_todo_title")
                 notes = row.get("_todo_notes")
                 due_iso = row.get("_todo_due_iso")
+                event_id = row.get("event_id")
 
                 if not title:
                     continue
@@ -639,16 +721,34 @@ def render_tab7_inspection_todo(
                     body["due"] = due_iso
 
                 try:
-                    tasks_service.tasks().insert(
-                        tasklist=default_task_list_id,
-                        body=body,
-                    ).execute()
-                    created += 1
+                    # 既存タスクを EVENT_ID で検索
+                    existing = find_task_by_event_id(
+                        tasks_service,
+                        default_task_list_id,
+                        event_id,
+                    )
+                    if existing:
+                        # 更新（重複作成を防止）
+                        task_id = existing.get("id")
+                        tasks_service.tasks().patch(
+                            tasklist=default_task_list_id,
+                            task=task_id,
+                            body=body,
+                        ).execute()
+                        updated += 1
+                    else:
+                        # 新規作成
+                        tasks_service.tasks().insert(
+                            tasklist=default_task_list_id,
+                            body=body,
+                        ).execute()
+                        created += 1
                 except Exception as e:
                     errors.append(str(e))
 
         if created > 0:
-            st.success(f"{created} 件の ToDo を作成しました。")
+            st.success(f"{created} 件の ToDo を新規作成しました。")
+        if updated > 0:
+            st.success(f"{updated} 件の ToDo を更新しました。")
         if errors:
-            st.warning(f"一部のToDo作成でエラーが発生しました（{len(errors)} 件）。詳細の一件目: {errors[0]}")
-
+            st.warning(f"一部のToDo作成/更新でエラーが発生しました（{len(errors)} 件）。詳細の一件目: {errors[0]}")
