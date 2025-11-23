@@ -557,10 +557,22 @@ def render_tab7_inspection_todo(
         st.warning("Google ToDo（Tasks）サービスが利用できません。サイドバーの認証状態を確認してください。")
         return
 
+    # ★ 物件マスタを扱うための Sheets サービスがない場合
+    if not sheets_service:
+        st.info(
+            "点検連絡用ToDo機能を利用するには、まずタブ『物件マスタ管理』で\n"
+            "物件マスタ用スプレッドシートを作成してください。"
+        )
+        return
+
     # 物件マスタ用スプレッドシートIDを取得
     spreadsheet_id = get_property_master_spreadsheet_id(current_user_email)
     if not spreadsheet_id:
-        st.error("物件マスタ用スプレッドシートIDが設定されていません。タブ『物件マスタ管理』側で一度設定＆保存してください。")
+        st.info(
+            "物件マスタがまだ設定されていません。\n\n"
+            "タブ『物件マスタ管理』で物件マスタを作成し、保存すると\n"
+            "この点検連絡用ToDo自動作成機能を利用できるようになります。"
+        )
         return
 
     st.markdown(
@@ -599,7 +611,11 @@ def render_tab7_inspection_todo(
         master_sheet_title="物件マスタ",
     )
     if pm_view_df is None or pm_view_df.empty:
-        st.error("物件マスタ（＋基本情報）が空です。先にタブ『物件マスタ管理』で登録してください。")
+        st.warning(
+            "物件マスタ（＋基本情報）が空です。\n\n"
+            "タブ『物件マスタ管理』で物件情報を登録すると、\n"
+            "点検連絡用ToDo自動作成機能を利用できるようになります。"
+        )
         return
 
     st.caption(f"物件マスタ登録件数: {len(pm_view_df)} 件（管理番号単位）")
