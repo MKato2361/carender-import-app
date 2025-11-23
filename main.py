@@ -62,6 +62,7 @@ from tabs.tab5_export import render_tab5_export
 from tabs.tab_admin import render_tab_admin
 from tabs.tab6_property_master import render_tab6_property_master  # 物件マスタ管理タブ
 from tabs.tab7_inspection_todo import render_tab7_inspection_todo  # 点検連絡ToDo自動作成タブ
+from tabs.tab8_notice_fax import render_tab8_notice_fax            # ★ 貼り紙・FAX自動生成タブ
 
 from utils.user_roles import get_or_create_user, get_user_role, ROLE_ADMIN
 
@@ -342,11 +343,11 @@ with tabs[0]:
     render_tab1_upload()
 
 # ==================================================
-# 6) タブ2: イベント登録・削除（サブタブ：登録／削除／点検ToDo）
+# 6) タブ2: イベント登録・削除（サブタブ：登録／削除／点検ToDo／貼り紙・FAX）
 # ==================================================
 with tabs[1]:
-    sub_tab_reg, sub_tab_del, sub_tab_todo = st.tabs(
-        ["📥 イベント登録", "🗑 イベント削除", "✅ 点検連絡ToDo自動作成"]
+    sub_tab_reg, sub_tab_del, sub_tab_todo, sub_tab_notice_fax = st.tabs(
+        ["📥 イベント登録", "🗑 イベント削除", "✅ 点検連絡ToDo自動作成", "📄 貼り紙・FAX自動生成"]
     )
 
     # --- サブタブ1: イベント登録 ---
@@ -364,6 +365,15 @@ with tabs[1]:
             editable_calendar_options=editable_calendar_options,
             tasks_service=tasks_service,
             default_task_list_id=default_task_list_id,
+            sheets_service=sheets_service,
+            current_user_email=current_user_email,
+        )
+
+    # --- サブタブ4: 貼り紙・FAX自動生成 ---
+    with sub_tab_notice_fax:
+        render_tab8_notice_fax(
+            service=service,
+            editable_calendar_options=editable_calendar_options,
             sheets_service=sheets_service,
             current_user_email=current_user_email,
         )
