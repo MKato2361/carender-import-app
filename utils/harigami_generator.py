@@ -22,8 +22,8 @@ PLACEHOLDERS: Dict[str, str] = {
 # 既定テンプレート対応表（/templates 配下）
 # work_type → ファイル名
 DEFAULT_TEMPLATE_MAP: Dict[str, str] = {
-    "default": "default.docx",
-    "点検": "inspection.docx",
+    "default": "harigami.docx",
+    "点検": "harigami.docx",
     "検査": "kensa.docx",
     "有償工事": "paid.docx",
     "無償工事": "free.docx",
