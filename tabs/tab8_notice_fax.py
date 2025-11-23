@@ -242,8 +242,10 @@ def render_tab8_notice_fax(
     貼り紙自動生成タブ
 
     - 指定期間のカレンダーイベントを取得
-    - 物件マスタと管理番号で突合
-    - 「貼り紙テンプレ種別」が「自社」のものだけを対象
+    - 物件マスタと管理番号で突合（任意）
+    - 「貼り紙テンプレ種別=自社」のみ対象とするモード
+      または
+      物件マスタを使わず管理番号付きイベントを一覧表示して手動選択するモード
     - 作業タイプ → DEFAULT_TEMPLATE_MAP でテンプレファイルを選択
     - Word 貼り紙を一括生成し、ZIP でダウンロード
     """
@@ -266,37 +268,67 @@ def render_tab8_notice_fax(
 
     # 物件マスタ Spreadsheet ID
     spreadsheet_id = get_property_master_spreadsheet_id(current_user_email)
-    if not spreadsheet_id:
-        st.error(
-            "物件マスタ用スプレッドシートIDが設定されていません。\n\n"
-            "タブ『物件マスタ管理』で物件マスタを作成・保存すると、この機能を利用できます。"
+
+    pm_view_df: pd.DataFrame = pd.DataFrame()
+    has_master = False
+
+    if sheets_service is not None and spreadsheet_id:
+        # 物件マスタが設定されている場合は読み込んでおく（任意利用）
+        st.markdown(
+            f"物件マスタスプレッドシート: "
+            f"[こちらを開く](https://docs.google.com/spreadsheets/d/{spreadsheet_id})"
         )
-        return
 
-    st.markdown(
-        f"物件マスタスプレッドシート: "
-        f"[こちらを開く](https://docs.google.com/spreadsheets/d/{spreadsheet_id})"
-    )
+        pm_view_df = load_property_master_view(
+            sheets_service,
+            spreadsheet_id,
+            basic_sheet_title="物件基本情報",
+            master_sheet_title="物件マスタ",
+        )
 
-    # 物件マスタビュー
-    pm_view_df = load_property_master_view(
-        sheets_service,
-        spreadsheet_id,
-        basic_sheet_title="物件基本情報",
-        master_sheet_title="物件マスタ",
-    )
-    if pm_view_df is None or pm_view_df.empty:
-        st.error("物件マスタ（＋基本情報）が空です。先にタブ『物件マスタ管理』で登録してください。")
-        return
-
-    # 「自社」フラグ件数の表示（単なる参考）
-    col_flag = "貼り紙テンプレ種別"
-    if col_flag in pm_view_df.columns:
-        flag_series = pm_view_df[col_flag].fillna("").astype(str).str.strip()
-        cnt_jisha = (flag_series == "自社").sum()
-        st.caption(f"物件マスタ登録件数: {len(pm_view_df)} 件 / 貼り紙対象（自社）: {cnt_jisha} 件")
+        if pm_view_df is not None and not pm_view_df.empty:
+            has_master = True
+            col_flag = "貼り紙テンプレ種別"
+            if col_flag in pm_view_df.columns:
+                flag_series = pm_view_df[col_flag].fillna("").astype(str).str.strip()
+                cnt_jisha = (flag_series == "自社").sum()
+                st.caption(
+                    f"物件マスタ登録件数: {len(pm_view_df)} 件 / "
+                    f"貼り紙対象（テンプレ種別=自社）: {cnt_jisha} 件"
+                )
+            else:
+                st.caption(f"物件マスタ登録件数: {len(pm_view_df)} 件")
+        else:
+            st.warning(
+                "物件マスタ（または物件基本情報）が空、もしくは読み込めませんでした。\n"
+                "必要に応じてタブ『物件マスタ管理』で登録してください。"
+            )
     else:
-        st.caption(f"物件マスタ登録件数: {len(pm_view_df)} 件")
+        # 物件マスタが無くても、管理番号付きイベントから直接作成できるモードを案内
+        st.info(
+            "物件マスタ用スプレッドシートIDが未設定、またはスプレッドシートサービスが利用できません。\n"
+            "この状態でも、管理番号付きイベントの一覧から選択して貼り紙を作成できます。"
+        )
+
+    # 貼り紙対象の決め方（モード）
+    if has_master:
+        mode_options = [
+            "物件マスタの『貼り紙テンプレ種別=自社』のみ対象にする",
+            "物件マスタを使わず、管理番号付きイベントをすべて一覧表示して手動選択する",
+        ]
+        mode = st.radio(
+            "貼り紙対象の選び方",
+            mode_options,
+            index=0,
+            key="notice_fax_mode",
+        )
+        use_master_filter = (mode == mode_options[0])
+    else:
+        st.info(
+            "現在、物件マスタが利用できないため、"
+            "『管理番号付きイベントをすべて一覧表示して手動選択する』モードで動作します。"
+        )
+        use_master_filter = False
 
     # カレンダー選択
     cal_names = list(editable_calendar_options.keys())
@@ -330,8 +362,10 @@ def render_tab8_notice_fax(
 
         st.write(f"取得したイベント件数: {len(events)} 件")
 
-        # 物件マスタを管理番号で引けるように
-        pm_idx = pm_view_df.set_index("管理番号")
+        # 物件マスタを管理番号で引けるように（存在する場合のみ）
+        pm_idx = None
+        if isinstance(pm_view_df, pd.DataFrame) and not pm_view_df.empty and "管理番号" in pm_view_df.columns:
+            pm_idx = pm_view_df.set_index("管理番号")
 
         candidates: List[Dict[str, Any]] = []
         events_by_id: Dict[str, Dict[str, Any]] = {}
@@ -340,20 +374,31 @@ def render_tab8_notice_fax(
             desc = safe_get(ev, "description") or ""
             summary = safe_get(ev, "summary") or ""
 
+            # 管理番号抽出（説明 or タイトル）
             mgmt = extract_assetnum(desc) or extract_assetnum(summary)
             if not mgmt:
+                # 管理番号が取れないイベントは貼り紙対象外
                 continue
             mgmt_norm = mgmt.strip()
 
-            if mgmt_norm not in pm_idx.index:
-                continue
+            pm_row = None
+            flag_val = ""
+            pm_name = ""
+            pm_remark = ""
 
-            pm_row = pm_idx.loc[mgmt_norm]
+            if pm_idx is not None and mgmt_norm in pm_idx.index:
+                pm_row = pm_idx.loc[mgmt_norm]
+                flag_val = str(pm_row.get("貼り紙テンプレ種別", "")).strip()
+                pm_name = _display_value(pm_row.get("物件名", ""))
+                pm_remark = _display_value(pm_row.get("備考", ""))
 
-            # 物件マスタ側のフラグが「自社」のものだけを対象とする
-            flag_val = str(pm_row.get("貼り紙テンプレ種別", "")).strip()
-            if flag_val != "自社":
-                continue
+            # 物件マスタの「貼り紙テンプレ種別=自社」で絞り込むモード
+            if use_master_filter:
+                # 物件マスタに存在しない or フラグが自社以外 → 対象外
+                if pm_row is None:
+                    continue
+                if flag_val != "自社":
+                    continue
 
             start_dt = get_event_start_datetime(ev)
             start_date_val = start_dt.date() if start_dt else None
@@ -365,19 +410,24 @@ def render_tab8_notice_fax(
                 work_type = "default"
             template_file = DEFAULT_TEMPLATE_MAP.get(work_type, DEFAULT_TEMPLATE_MAP.get("default"))
 
+            # 一覧に表示する物件名は
+            # 物件マスタ > イベントタイトル > 管理番号 の優先順位で決定
+            name_for_list = _display_value(pm_name or summary or mgmt_norm or "")
+            remark_for_list = _display_value(pm_remark or "")
+
             candidates.append(
                 {
                     "作成": True,
                     "event_id": ev.get("id") or "",
                     "管理番号": mgmt_norm,
-                    "物件名": _display_value(pm_row.get("物件名", "")),
+                    "物件名": name_for_list,
                     "予定日": date_str,
                     "予定時間": time_str,
                     "作業タイプ": work_type,
                     "テンプレファイル": template_file,
                     "貼り紙フラグ": flag_val,
                     "イベントタイトル": _display_value(summary),
-                    "備考": _display_value(pm_row.get("備考", "")),
+                    "備考": remark_for_list,
                 }
             )
 
@@ -386,9 +436,16 @@ def render_tab8_notice_fax(
                 events_by_id[ev_id] = ev
 
         if not candidates:
-            st.info("貼り紙対象（物件マスタの『貼り紙テンプレ種別』が『自社』）となるイベントは見つかりませんでした。")
+            if use_master_filter:
+                st.info(
+                    "物件マスタの『貼り紙テンプレ種別=自社』に該当するイベントは見つかりませんでした。\n"
+                    "必要に応じて、モードを変更して管理番号付きイベントを一覧表示してください。"
+                )
+            else:
+                st.info("管理番号付きイベントは見つかりませんでした。")
             st.session_state.pop("notice_fax_candidates_df", None)
             st.session_state.pop("notice_fax_events_by_id", None)
+            st.session_state.pop("notice_fax_pm_view_df", None)
         else:
             cand_df = pd.DataFrame(candidates).fillna("")
             cand_df["作成"] = cand_df["作成"].astype(bool)
@@ -397,7 +454,10 @@ def render_tab8_notice_fax(
             st.session_state["notice_fax_events_by_id"] = events_by_id
             st.session_state["notice_fax_pm_view_df"] = pm_view_df
 
-            st.success(f"貼り紙候補 {len(candidates)} 件を作成しました。この下で内容を確認し、作成対象を選択できます。")
+            st.success(
+                f"貼り紙候補 {len(candidates)} 件を作成しました。\n"
+                "この下で内容を確認し、作成対象にチェックを入れてください。"
+            )
 
     # ここからは既に候補がある場合の表示
     cand_df: Optional[pd.DataFrame] = st.session_state.get("notice_fax_candidates_df")
@@ -474,7 +534,10 @@ def render_tab8_notice_fax(
         st.error("内部イベント情報が見つかりません。再度『貼り紙候補を作成』ボタンからやり直してください。")
         return
 
-    pm_idx = pm_view_df.set_index("管理番号")
+    # 物件マスタ（あれば）を管理番号で参照
+    pm_idx = None
+    if isinstance(pm_view_df, pd.DataFrame) and not pm_view_df.empty and "管理番号" in pm_view_df.columns:
+        pm_idx = pm_view_df.set_index("管理番号")
 
     outputs: List[tuple[str, bytes]] = []
     errors: List[str] = []
@@ -490,9 +553,9 @@ def render_tab8_notice_fax(
             if ev is None:
                 continue
 
-            if mgmt not in pm_idx.index:
-                continue
-            pm_row = pm_idx.loc[mgmt]
+            pm_row = None
+            if pm_idx is not None and mgmt in pm_idx.index:
+                pm_row = pm_idx.loc[mgmt]
 
             desc = safe_get(ev, "description") or ""
             summary = safe_get(ev, "summary") or ""
@@ -514,10 +577,13 @@ def render_tab8_notice_fax(
                 d = start_dt.date()
                 when_str = d.strftime("%Y-%m-%d")
 
-            # NAME は物件マスタの物件名を優先
-            name_for_doc = str(pm_row.get("物件名") or summary or mgmt or "").strip()
-            replacements = build_replacements_from_event(ev, name_for_doc, tags)
+            # NAME は物件マスタの物件名を優先し、なければイベントタイトル／管理番号を使う
+            if pm_row is not None:
+                name_for_doc = str(pm_row.get("物件名") or summary or mgmt or "").strip()
+            else:
+                name_for_doc = str(summary or mgmt or "").strip()
 
+            replacements = build_replacements_from_event(ev, name_for_doc, tags)
             safe_title = _build_safe_title(when_str, mgmt, name_for_doc)
 
             try:
