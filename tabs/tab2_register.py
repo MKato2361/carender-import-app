@@ -27,11 +27,16 @@ JST = ZoneInfo("Asia/Tokyo")
 
 def is_event_changed(existing_event: dict, new_event_data: dict) -> bool:
     nz = lambda v: (v or "")
-    if nz(existing_event.get("summary")) != nz(new_event_data.get("summary")): return True
-    if nz(existing_event.get("description")) != nz(new_event_data.get("description")): return True
-    if nz(existing_event.get("transparency")) != nz(new_event_data.get("transparency")): return True
-    if (existing_event.get("start") or {}) != (new_event_data.get("start") or {}): return True
-    if (existing_event.get("end") or {}) != (new_event_data.get("end") or {}): return True
+    if nz(existing_event.get("summary")) != nz(new_event_data.get("summary")):
+        return True
+    if nz(existing_event.get("description")) != nz(new_event_data.get("description")):
+        return True
+    if nz(existing_event.get("transparency")) != nz(new_event_data.get("transparency")):
+        return True
+    if (existing_event.get("start") or {}) != (new_event_data.get("start") or {}):
+        return True
+    if (existing_event.get("end") or {}) != (new_event_data.get("end") or {}):
+        return True
     return False
 
 
@@ -46,18 +51,22 @@ def default_fetch_window_years(years: int = 2):
 def extract_worksheet_id_from_description(desc: str) -> str | None:
     import re, unicodedata
     RE_WORKSHEET_ID = re.compile(r"\[作業指示書[：:]\s*([0-9０-９]+)\]")
-    if not desc: return None
+    if not desc:
+        return None
     m = RE_WORKSHEET_ID.search(desc)
-    if not m: return None
+    if not m:
+        return None
     return unicodedata.normalize("NFKC", m.group(1)).strip()
 
 
 # ---- timezone-safe datetime converter ----
 import re
 def _to_dt(val: str) -> Optional[datetime]:
-    if val is None: return None
+    if val is None:
+        return None
     s = str(val).strip()
-    if not s: return None
+    if not s:
+        return None
 
     s = s.replace("T", " ").replace("　", " ")
     s = s.replace("/", "-").replace(".", " ")
@@ -100,7 +109,8 @@ def _split_dt_cell(val: str) -> tuple[str, str]:
         dt = val.astimezone(JST) if val.tzinfo else val.replace(tzinfo=JST)
     else:
         dt = _to_dt(val)
-    if not dt: return "", ""
+    if not dt:
+        return "", ""
     return dt.strftime("%Y/%m/%d"), dt.strftime("%H:%M")
 
 
@@ -109,14 +119,16 @@ def _normalize_minute_str(dt_like: datetime | str) -> str:
         d = _to_dt(dt_like)
     else:
         d = dt_like
-    if not d: return ""
+    if not d:
+        return ""
     d = d.astimezone(JST)
     return d.strftime("%Y-%m-%dT%H:%M")
 
 
 def _normalize_event_times_to_key(start_dict: dict, end_dict: dict) -> tuple[str, str]:
     def norm_one(d: dict) -> str:
-        if not d: return ""
+        if not d:
+            return ""
         if "dateTime" in d and d["dateTime"]:
             return _normalize_minute_str(d["dateTime"])
         if "date" in d and d["date"]:
@@ -172,6 +184,8 @@ def _read_outside_file_to_df(file_obj) -> pd.DataFrame:
             df[col] = df[col].fillna("")
 
     return df
+
+
 def _build_calendar_df_from_outside(df_raw: pd.DataFrame, private_event: bool, all_day_override: bool) -> pd.DataFrame:
     if "備考" not in df_raw.columns:
         raise ValueError("作業外予定ファイルに『備考』列が見つかりません。")
@@ -256,7 +270,11 @@ def _build_calendar_df_from_outside(df_raw: pd.DataFrame, private_event: bool, a
     return pd.DataFrame(rows)
 
 
-def render_tab2_register(user_id: str, editable_calendar_options: dict, service, tasks_service=None, default_task_list_id=None):
+def render_tab2_register(user_id: str, editable_calendar_options: dict, service):
+    """
+    タブ2: イベント登録・更新
+    ※ ToDo連携機能は tab7 に集約したため、このタブではカレンダーイベントのみ扱う
+    """
     st.subheader("イベントを登録・更新")
 
     work_files = st.session_state.get("uploaded_files") or []
@@ -297,9 +315,18 @@ def render_tab2_register(user_id: str, editable_calendar_options: dict, service,
     else:
         set_user_setting(user_id, "selected_calendar_name", selected_calendar_name)
 
+    # イベント共通設定
     with st.expander("📝 イベント設定", expanded=not outside_mode):
-        all_day_event_override = st.checkbox("終日イベントとして登録", value=False, key=f"all_day_override_{'outside' if outside_mode else 'work'}")
-        private_event = st.checkbox("非公開イベントとして登録", value=True, key=f"private_event_{'outside' if outside_mode else 'work'}")
+        all_day_event_override = st.checkbox(
+            "終日イベントとして登録",
+            value=False,
+            key=f"all_day_override_{'outside' if outside_mode else 'work'}",
+        )
+        private_event = st.checkbox(
+            "非公開イベントとして登録",
+            value=True,
+            key=f"private_event_{'outside' if outside_mode else 'work'}",
+        )
         if outside_mode:
             description_columns = []
         else:
@@ -314,6 +341,7 @@ def render_tab2_register(user_id: str, editable_calendar_options: dict, service,
             )
             set_user_setting(user_id, "description_columns_selected", description_columns)
 
+    # 作業指示書イベント名設定
     if outside_mode:
         st.info("イベント名は『備考 + [作業外予定]』で登録します。")
         add_task_type_to_event_name = False
@@ -351,20 +379,13 @@ def render_tab2_register(user_id: str, editable_calendar_options: dict, service,
                 st.info("「管理番号」と「物件名」のデータが両方存在するため、それらがイベント名として使用されます。")
             set_user_setting(user_id, "add_task_type_to_event_name", add_task_type_to_event_name)
 
-    if not outside_mode:
-        st.subheader("✅ ToDoリスト連携設定 (オプション)")
-        with st.expander("ToDoリスト作成オプション", expanded=False):
-            create_todo = st.checkbox(
-                "このイベントに対応するToDoリストを作成する",
-                value=bool(get_user_setting(user_id, "create_todo_checkbox_state")),
-                key="create_todo_checkbox",
-            )
-            set_user_setting(user_id, "create_todo_checkbox_state", create_todo)
+    # ToDo連携設定は tab7 に集約したため、ここから削除済み
 
     st.subheader("➡️ イベント登録・更新実行")
     if not st.button("Googleカレンダーに登録・更新する"):
         return
 
+    # --- Excel / 作業外ファイルの処理 ---
     try:
         if outside_mode:
             raw_df = _read_outside_file_to_df(outside_file)
@@ -419,8 +440,10 @@ def render_tab2_register(user_id: str, editable_calendar_options: dict, service,
                 continue
             key = f"{core}|{s_key}|{e_key}"
             outside_key_to_event[key] = ev
+
     total = len(df)
 
+    # --- カレンダーイベント登録/更新 ---
     for i, row in df.iterrows():
         desc_text = safe_get(row, "Description", "")
         subject = safe_get(row, "Subject", "")
