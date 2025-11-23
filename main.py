@@ -61,7 +61,7 @@ from calendar_utils import fetch_all_events
 from tabs.tab5_export import render_tab5_export
 from tabs.tab_admin import render_tab_admin
 from tabs.tab6_property_master import render_tab6_property_master  # 物件マスタ管理タブ
-from tabs.tab7_inspection_todo import render_tab7_inspection_todo  # ★ 点検連絡ToDo自動作成タブを追加
+from tabs.tab7_inspection_todo import render_tab7_inspection_todo  # 点検連絡ToDo自動作成タブ
 
 from utils.user_roles import get_or_create_user, get_user_role, ROLE_ADMIN
 
@@ -322,13 +322,12 @@ tab_labels = [
     "1. ファイルのアップロード",
     "2. イベントの登録",
     "3. イベントの削除",
-    "4. 重複イベントの検出・削除",
+    "4. 点検連絡ToDo自動作成",   # ← 元Tab7をここへ昇格
     "5. イベントのExcel出力",
     "6. 物件マスタ管理",
-    "7. 点検連絡ToDo自動作成",
 ]
 if is_admin:
-    tab_labels.append("8. 管理者メニュー")
+    tab_labels.append("7. 管理者メニュー")
 
 tabs = st.tabs(tab_labels)
 st.markdown("</div>", unsafe_allow_html=True)
@@ -351,16 +350,23 @@ with tabs[1]:
     render_tab2_register(user_id, editable_calendar_options, service)
 
 # ==================================================
-# 7) タブ3: イベントの削除（仕様変更なし）
+# 7) タブ3: イベントの削除
 # ==================================================
 with tabs[2]:
     render_tab3_delete(editable_calendar_options, service, tasks_service, default_task_list_id)
 
 # ==================================================
-# 8) タブ4: 重複イベントの検出・削除（現行踏襲）
+# 8) タブ4: 点検連絡ToDo自動作成（元タブ7）
 # ==================================================
 with tabs[3]:
-    render_tab4_duplicates(service, editable_calendar_options, fetch_all_events)
+    render_tab7_inspection_todo(
+        service=service,
+        editable_calendar_options=editable_calendar_options,
+        tasks_service=tasks_service,
+        default_task_list_id=default_task_list_id,
+        sheets_service=sheets_service,
+        current_user_email=current_user_email,
+    )
 
 # ==================================================
 # 9) タブ5: カレンダーイベントをExcel/CSVへ出力（安全ファイル名版）
@@ -381,30 +387,28 @@ with tabs[5]:
     )
 
 # ==================================================
-# 11) タブ7: 点検連絡ToDo自動作成
-# ==================================================
-with tabs[6]:
-    render_tab7_inspection_todo(
-        service=service,
-        editable_calendar_options=editable_calendar_options,
-        tasks_service=tasks_service,
-        default_task_list_id=default_task_list_id,
-        sheets_service=sheets_service,
-        current_user_email=current_user_email,
-    )
-
-# ==================================================
-# 12) 管理者メニュー（ユーザー管理 / ファイル管理）
+# 11) 管理者メニュー（ユーザー管理 / ファイル管理 / 重複チェック）
 # ==================================================
 if is_admin:
-    with tabs[7]:
+    with tabs[6]:
+        # 管理者メイン機能
         render_tab_admin(
             current_user_email=current_user_email,
             current_user_name=current_user_name,
         )
 
+        st.markdown("---")
+        st.subheader("🔁 重複イベントの検出・削除（管理者専用）")
+
+        # 旧タブ4の機能をここに移動
+        render_tab4_duplicates(
+            service,
+            editable_calendar_options,
+            fetch_all_events,
+        )
+
 # ==================================================
-# 13) サイドバー
+# 12) サイドバー
 # ==================================================
 with st.sidebar:
     with st.expander("⚙ デフォルト設定の管理", expanded=False):
