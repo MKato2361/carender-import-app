@@ -60,7 +60,8 @@ from tabs.tab4_duplicates import render_tab4_duplicates
 from calendar_utils import fetch_all_events
 from tabs.tab5_export import render_tab5_export
 from tabs.tab_admin import render_tab_admin
-from tabs.tab6_property_master import render_tab6_property_master  # ★ 物件マスタ管理タブを追加
+from tabs.tab6_property_master import render_tab6_property_master  # 物件マスタ管理タブ
+from tabs.tab7_inspection_todo import render_tab7_inspection_todo  # ★ 点検連絡ToDo自動作成タブを追加
 
 from utils.user_roles import get_or_create_user, get_user_role, ROLE_ADMIN
 
@@ -324,9 +325,10 @@ tab_labels = [
     "4. 重複イベントの検出・削除",
     "5. イベントのExcel出力",
     "6. 物件マスタ管理",
+    "7. 点検連絡ToDo自動作成",
 ]
 if is_admin:
-    tab_labels.append("7. 管理者メニュー")
+    tab_labels.append("8. 管理者メニュー")
 
 tabs = st.tabs(tab_labels)
 st.markdown("</div>", unsafe_allow_html=True)
@@ -379,17 +381,30 @@ with tabs[5]:
     )
 
 # ==================================================
-# 11) 管理者メニュー（ユーザー管理 / ファイル管理）
+# 11) タブ7: 点検連絡ToDo自動作成
+# ==================================================
+with tabs[6]:
+    render_tab7_inspection_todo(
+        service=service,
+        editable_calendar_options=editable_calendar_options,
+        tasks_service=tasks_service,
+        default_task_list_id=default_task_list_id,
+        sheets_service=sheets_service,
+        current_user_email=current_user_email,
+    )
+
+# ==================================================
+# 12) 管理者メニュー（ユーザー管理 / ファイル管理）
 # ==================================================
 if is_admin:
-    with tabs[6]:
+    with tabs[7]:
         render_tab_admin(
             current_user_email=current_user_email,
             current_user_name=current_user_name,
         )
 
 # ==================================================
-# 12) サイドバー
+# 13) サイドバー
 # ==================================================
 with st.sidebar:
     with st.expander("⚙ デフォルト設定の管理", expanded=False):
