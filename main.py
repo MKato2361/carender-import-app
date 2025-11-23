@@ -348,7 +348,7 @@ with tabs[0]:
 # 6) タブ2: イベントの登録・更新（差分更新＋集計）
 # ==================================================
 with tabs[1]:
-    render_tab2_register(user_id, editable_calendar_options, service, tasks_service, default_task_list_id)
+    render_tab2_register(user_id, editable_calendar_options, service)
 
 # ==================================================
 # 7) タブ3: イベントの削除（仕様変更なし）
