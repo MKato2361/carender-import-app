@@ -397,15 +397,7 @@ if is_admin:
             current_user_name=current_user_name,
         )
 
-        st.markdown("---")
-        st.subheader("🔁 重複イベントの検出・削除（管理者専用）")
 
-        # 旧タブ4の機能をここに移動
-        render_tab4_duplicates(
-            service,
-            editable_calendar_options,
-            fetch_all_events,
-        )
 
 # ==================================================
 # 12) サイドバー
