@@ -10,14 +10,14 @@ import pandas as pd
 import streamlit as st
 from firebase_admin import firestore
 
-# 物件マスタの列定義などを流用するために import
+# 物件マスタの列定義などを流用
 from tabs.tab6_property_master import (
     MASTER_COLUMNS,
     BASIC_COLUMNS,
     load_sheet_as_df,
     _normalize_df,
 )
-from utils.helpers import safe_get  # あれば便利なので
+from utils.helpers import safe_get  # 既存ヘルパー
 
 
 # JST（日時計算用）
@@ -46,6 +46,22 @@ def extract_assetnum(text: str) -> str:
 
 
 # ==========================
+# 表示用ヘルパー（nan → "-" 変換）
+# ==========================
+
+def display_value(val: Any) -> str:
+    """ToDo詳細などに表示する値を整形（nan / 空文字 → "-"）"""
+    if val is None:
+        return "-"
+    s = str(val).strip()
+    if not s:
+        return "-"
+    if s.lower() in ("nan", "none"):
+        return "-"
+    return s
+
+
+# ==========================
 # イベント関連ヘルパー
 # ==========================
 
@@ -56,23 +72,35 @@ def to_utc_range_from_dates(d1: date, d2: date) -> tuple[str, str]:
     return start_dt_utc.isoformat(), end_dt_utc.isoformat()
 
 
-def get_event_start_date(event: Dict[str, Any]) -> Optional[date]:
-    """Googleカレンダーイベントから date 型の開始日を取得"""
+def get_event_start_datetime(event: Dict[str, Any]) -> Optional[datetime]:
+    """Googleカレンダーイベントから開始日時（JST）を取得"""
     start = event.get("start", {})
-    # 終日予定
-    if "date" in start:
-        try:
-            return date.fromisoformat(start["date"])
-        except Exception:
-            return None
     # 時間付き予定
     if "dateTime" in start:
         try:
             dt = pd.to_datetime(start["dateTime"])
-            return dt.date()
+            if dt.tzinfo is None:
+                dt = dt.tz_localize(timezone.utc)
+            dt = dt.astimezone(JST)
+            return dt.to_pydatetime()
+        except Exception:
+            return None
+    # 終日予定
+    if "date" in start:
+        try:
+            d = date.fromisoformat(start["date"])
+            return datetime.combine(d, time.min, tzinfo=JST)
         except Exception:
             return None
     return None
+
+
+def get_event_start_date(event: Dict[str, Any]) -> Optional[date]:
+    """互換用：開始日だけが欲しいとき"""
+    dt = get_event_start_datetime(event)
+    if not dt:
+        return None
+    return dt.date()
 
 
 def fetch_events_in_range(
@@ -207,40 +235,41 @@ def build_methods_str(row: pd.Series) -> str:
 def build_contacts_str(row: pd.Series, kind: str) -> str:
     """
     kind: "電話", "FAX", "メール"
+    nan / 空文字は "-" として扱い、"-" のものはスキップする
     """
     parts = []
 
     if kind == "電話":
-        tel1 = str(row.get("電話番号1", "")).strip()
-        tel2 = str(row.get("電話番号2", "")).strip()
-        if tel1:
+        tel1 = display_value(row.get("電話番号1", ""))
+        tel2 = display_value(row.get("電話番号2", ""))
+        if tel1 != "-":
             parts.append(f"① {tel1}")
-        if tel2:
+        if tel2 != "-":
             parts.append(f"② {tel2}")
     elif kind == "FAX":
-        fax1 = str(row.get("FAX番号1", "")).strip()
-        fax2 = str(row.get("FAX番号2", "")).strip()
-        if fax1:
+        fax1 = display_value(row.get("FAX番号1", ""))
+        fax2 = display_value(row.get("FAX番号2", ""))
+        if fax1 != "-":
             parts.append(f"① {fax1}")
-        if fax2:
+        if fax2 != "-":
             parts.append(f"② {fax2}")
     elif kind == "メール":
-        m1 = str(row.get("メールアドレス1", "")).strip()
-        m2 = str(row.get("メールアドレス2", "")).strip()
-        if m1:
+        m1 = display_value(row.get("メールアドレス1", ""))
+        m2 = display_value(row.get("メールアドレス2", ""))
+        if m1 != "-":
             parts.append(f"① {m1}")
-        if m2:
+        if m2 != "-":
             parts.append(f"② {m2}")
     return " / ".join(parts)
 
 
 def build_task_title(row: pd.Series, event: Dict[str, Any]) -> str:
-    mgmt = str(row.get("管理番号", "")).strip()
-    name = str(row.get("物件名", "")).strip()
-    if not name:
-        name = safe_get(event, "summary") or ""
-    base = f"点検連絡: {name}" if name else "点検連絡"
-    if mgmt:
+    mgmt = display_value(row.get("管理番号", ""))
+    name = display_value(row.get("物件名", ""))
+    if not name or name == "-":
+        name = display_value(safe_get(event, "summary") or "")
+    base = f"点検連絡: {name}" if name and name != "-" else "点検連絡"
+    if mgmt and mgmt != "-":
         return f"{base}（{mgmt}）"
     return base
 
@@ -249,38 +278,60 @@ def build_task_notes(
     row: pd.Series,
     event: Dict[str, Any],
     start_date: Optional[date],
+    start_time_str: str,
     due_days_str: str,
 ) -> str:
-    mgmt = str(row.get("管理番号", "")).strip()
-    name = str(row.get("物件名", "")).strip()
-    addr = str(row.get("住所", "")).strip()
-    window = str(row.get("窓口会社", "")).strip()
-    note_deadline = str(row.get("備考", "")).strip()
+    """
+    ToDo詳細（notes）を生成
+      - 点検予定「日＋時間」を含める
+      - nan / 空文字は "-" で表示
+    """
+    mgmt = display_value(row.get("管理番号", ""))
+    name = display_value(row.get("物件名", ""))
+    addr = display_value(row.get("住所", ""))
+    window = display_value(row.get("窓口会社", ""))
+    note_deadline = display_value(row.get("備考", ""))
 
     methods = build_methods_str(row)
     tel = build_contacts_str(row, "電話")
     fax = build_contacts_str(row, "FAX")
     mail = build_contacts_str(row, "メール")
 
-    event_title = safe_get(event, "summary") or ""
-    event_desc = safe_get(event, "description") or ""
+    event_title = display_value(safe_get(event, "summary") or "")
+    event_desc_raw = safe_get(event, "description") or ""
+    event_desc = event_desc_raw.strip() if isinstance(event_desc_raw, str) else ""
+
+    # 点検予定日・時間
+    if start_date:
+        date_str = start_date.strftime("%Y-%m-%d")
+    else:
+        date_str = "-"
+
+    time_str = display_value(start_time_str)
+    # 終日予定の場合は time_str が "-" になるので、その場合は "(終日)" 表記も付ける
+    if start_date:
+        if time_str == "-":
+            when_line = f"{date_str} (終日)"
+        else:
+            when_line = f"{date_str} {time_str}"
+    else:
+        when_line = "-"
 
     lines = []
     lines.append(f"イベントタイトル: {event_title}")
-    if start_date:
-        lines.append(f"点検予定日: {start_date.strftime('%Y-%m-%d')}")
-    if due_days_str:
-        lines.append(f"連絡期限_日前: {due_days_str}")
-    if note_deadline:
+    lines.append(f"点検予定: {when_line}")  # ★ 日時をまとめて表示
+
+    lines.append(f"連絡期限_日前: {display_value(due_days_str)}")
+    if note_deadline != "-":
         lines.append(f"備考: {note_deadline}")
 
-    if mgmt:
+    if mgmt != "-":
         lines.append(f"管理番号: {mgmt}")
-    if name:
+    if name != "-":
         lines.append(f"物件名: {name}")
-    if addr:
+    if addr != "-":
         lines.append(f"住所: {addr}")
-    if window:
+    if window != "-":
         lines.append(f"窓口: {window}")
 
     if methods:
@@ -315,6 +366,8 @@ def build_task_candidates(
     """
     カレンダーイベントと物件マスタビューを突合して、
     ToDo作成候補の DataFrame を作成。
+      - 通知期限_日前が空 or nan の場合は 7 に補完
+      - ToDo詳細には点検予定時間も含める
     """
     if pm_view_df is None or pm_view_df.empty:
         return pd.DataFrame()
@@ -339,40 +392,48 @@ def build_task_candidates(
 
         pm_row = pm_view_idx.loc[mgmt_norm]
 
-        start_date = get_event_start_date(ev)
-        due_days_str = str(pm_row.get("連絡期限_日前", "")).strip()
+        # 開始日時（JST）
+        start_dt = get_event_start_datetime(ev)
+        start_date = start_dt.date() if start_dt else None
+        start_time_str = start_dt.strftime("%H:%M") if start_dt and "dateTime" in ev.get("start", {}) else ""
+
+        # 通知期限_日前
+        raw_due = pm_row.get("連絡期限_日前", "")
+        due_days_str = str(raw_due).strip()
+        # ★ ここで未設定（空 or nan）の場合は 7 に自動補完
+        if not due_days_str or due_days_str.lower() == "nan":
+            due_days_str = "7"
+
         due_date: Optional[date] = None
         if due_days_str.isdigit() and start_date:
             due_date = start_date - timedelta(days=int(due_days_str))
 
         methods = build_methods_str(pm_row)
-        if not methods:
-            # 連絡方法が1つも指定されていない場合は一旦スキップしてもよいが、
-            # 今回は候補としては出しておく（ユーザー側で調整可能）
-            pass
+        # 連絡方法が一つもなくても、とりあえず候補としては表示する（ユーザーが編集可能）
 
         tel = build_contacts_str(pm_row, "電話")
         fax = build_contacts_str(pm_row, "FAX")
         mail = build_contacts_str(pm_row, "メール")
 
         title = build_task_title(pm_row, ev)
-        notes = build_task_notes(pm_row, ev, start_date, due_days_str)
+        notes = build_task_notes(pm_row, ev, start_date, start_time_str, due_days_str)
         due_iso = build_due_iso(due_date)
 
         row = {
             "作成": True,
             "event_id": ev.get("id"),
             "管理番号": mgmt_norm,
-            "物件名": str(pm_row.get("物件名", "")).strip(),
+            "物件名": display_value(pm_row.get("物件名", "")),
             "予定日": start_date.strftime("%Y-%m-%d") if start_date else "",
+            "予定時間": start_time_str,
             "連絡期限_日前": due_days_str,
             "ToDo期限日": due_date.strftime("%Y-%m-%d") if due_date else "",
             "連絡方法": methods,
             "電話": tel,
             "FAX": fax,
             "メール": mail,
-            "貼り紙テンプレ種別": str(pm_row.get("貼り紙テンプレ種別", "")).strip(),
-            "備考": str(pm_row.get("備考", "")).strip(),
+            "貼り紙テンプレ種別": display_value(pm_row.get("貼り紙テンプレ種別", "")),
+            "備考": display_value(pm_row.get("備考", "")),
             # 実際に Tasks API に投げる情報
             "_todo_title": title,
             "_todo_notes": notes,
@@ -384,8 +445,11 @@ def build_task_candidates(
         return pd.DataFrame()
 
     df = pd.DataFrame(rows)
-    # 作成フラグは bool に
-    df["作成"] = df["作成"].astype(bool)
+    # nan は基本的に空文字にしておく
+    df = df.fillna("")
+    # 作成フラグだけは bool を維持
+    if "作成" in df.columns:
+        df["作成"] = df["作成"].astype(bool)
     return df
 
 
@@ -494,6 +558,7 @@ def render_tab7_inspection_todo(
         "管理番号",
         "物件名",
         "予定日",
+        "予定時間",       # ★ 時間も表示
         "連絡期限_日前",
         "ToDo期限日",
         "連絡方法",
@@ -505,16 +570,29 @@ def render_tab7_inspection_todo(
     ]
     hidden_cols = [c for c in candidates_df.columns if c not in display_cols]
 
+    updated_candidates = candidates_df.copy()
+
+    # nan → "-" 変換（作成フラグ以外）
+    display_df = updated_candidates[display_cols].copy()
+    for col in display_df.columns:
+        if col == "作成":
+            display_df[col] = display_df[col].astype(bool)
+        else:
+            display_df[col] = display_df[col].fillna("")
+            display_df[col] = display_df[col].astype(str)
+            display_df[col] = display_df[col].replace(
+                {"nan": "-", "NaN": "-", "None": "-"}
+            )
+
     edit_df = st.data_editor(
-        candidates_df[display_cols],
+        display_df,
         num_rows="fixed",
         use_container_width=True,
         hide_index=True,
         key="ins_todo_editor",
     )
 
-    # edit_df には内部用カラムがないので、元DFの該当カラムを更新して戻す
-    updated_candidates = candidates_df.copy()
+    # edit_df の内容を updated_candidates に反映
     for col in display_cols:
         updated_candidates[col] = edit_df[col].values
     st.session_state["ins_todo_candidates_df"] = updated_candidates
@@ -565,4 +643,4 @@ def render_tab7_inspection_todo(
         if created > 0:
             st.success(f"{created} 件の ToDo を作成しました。")
         if errors:
-            st.warning(f"一部のToDo作成でエラーが発生しました（{len(errors)} 件）。詳細: {errors[0]}")
+            st.warning(f"一部のToDo作成でエラーが発生しました（{len(errors)} 件）。詳細の一件目: {errors[0]}")
