@@ -11,4 +11,4 @@ streamlit-firebase-auth
 backoff
 xlsxwriter
 chardet
-
+python-docx==0.8.11
