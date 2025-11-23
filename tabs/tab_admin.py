@@ -23,6 +23,10 @@ from github_loader import (
     _headers,
 )
 
+# ★ 追加: 重複イベントタブを管理者タブ内から呼び出す
+from calendar_utils import fetch_all_events
+from tabs.tab4_duplicates import render_tab4_duplicates
+
 
 # ==============================
 # GitHub ヘルパー
@@ -125,7 +129,10 @@ def render_tab_admin(
 
     st.title("🔧 管理者メニュー")
 
-    tab_users, tab_files = st.tabs(["👥 ユーザー管理", "📂 GitHubファイル管理"])
+    # ★ ここを 2タブ → 3タブに変更
+    tab_users, tab_files, tab_dup = st.tabs(
+        ["👥 ユーザー管理", "📂 GitHubファイル管理", "🔁 重複イベントの検出・削除"]
+    )
 
     # --------------------------
     # 👥 ユーザー管理
@@ -297,9 +304,6 @@ def render_tab_admin(
 
         st.caption("※ 行のチェックボックスで選択して削除することもできます。")
 
-        # 行ごとのチェック状態を記録（デバッグ用途）
-        # selected_keys: List[str] = []
-
         st.markdown("#### ファイル一覧（チェックして削除）")
         for item in file_items:
             path = item.get("path")
@@ -381,3 +385,24 @@ def render_tab_admin(
                 st.session_state["admin_github_delete_all"] = False
 
                 st.rerun()
+
+    # --------------------------
+    # 🔁 重複イベントの検出・削除（元タブ4）
+    # --------------------------
+    with tab_dup:
+        st.subheader("🔁 重複イベントの検出・削除（管理者専用）")
+
+        # main.py の ensure_services でセットされたサービスを利用
+        service = st.session_state.get("calendar_service")
+        editable_calendar_options = st.session_state.get("editable_calendar_options")
+
+        if not service or not editable_calendar_options:
+            st.warning("カレンダーサービスが初期化されていません。トップ画面でGoogle認証を完了してください。")
+            return
+
+        # もともとのタブ4と同じUIをここで呼び出し
+        render_tab4_duplicates(
+            service,
+            editable_calendar_options,
+            fetch_all_events,
+        )
