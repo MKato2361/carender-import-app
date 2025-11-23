@@ -56,7 +56,7 @@ def convert_bytes_to_uploadedfile(file_bytes: bytes, filename: str, mime_type: s
 
 from tabs.tab2_register import render_tab2_register
 from tabs.tab3_delete import render_tab3_delete
-from tabs.tab4_duplicates import render_tab4_duplicates
+from tabs.tab4_duplicates import render_tab4_duplicates  # ← 現在は tab_admin 内で使用
 from calendar_utils import fetch_all_events
 from tabs.tab5_export import render_tab5_export
 from tabs.tab_admin import render_tab_admin
@@ -306,7 +306,7 @@ service, editable_calendar_options = ensure_services(creds)
 tasks_service = st.session_state.get("tasks_service")
 default_task_list_id = st.session_state.get("default_task_list_id")
 
-# ★ 追加: Google Sheets サービス
+# ★ Google Sheets サービス
 try:
     sheets_service = build("sheets", "v4", credentials=creds)
 except Exception as e:
@@ -320,14 +320,12 @@ st.markdown('<div class="fixed-tabs">', unsafe_allow_html=True)
 
 tab_labels = [
     "1. ファイルのアップロード",
-    "2. イベントの登録",
-    "3. イベントの削除",
-    "4. 点検連絡ToDo自動作成",   # ← 元Tab7をここへ昇格
-    "5. イベントのExcel出力",
-    "6. 物件マスタ管理",
+    "2. イベント登録・削除",
+    "3. イベントのExcel出力",
+    "4. 物件マスタ管理",
 ]
 if is_admin:
-    tab_labels.append("7. 管理者メニュー")
+    tab_labels.append("5. 管理者メニュー")
 
 tabs = st.tabs(tab_labels)
 st.markdown("</div>", unsafe_allow_html=True)
@@ -338,46 +336,48 @@ if "uploaded_files" not in st.session_state:
     st.session_state["merged_df_for_selector"] = pd.DataFrame()
 
 # ==================================================
-# 5) タブ1: ファイルのアップロード（修正版）
+# 5) タブ1: ファイルのアップロード
 # ==================================================
 with tabs[0]:
     render_tab1_upload()
 
 # ==================================================
-# 6) タブ2: イベントの登録・更新（差分更新＋集計）
+# 6) タブ2: イベント登録・削除（サブタブ：登録／削除／点検ToDo）
 # ==================================================
 with tabs[1]:
-    render_tab2_register(user_id, editable_calendar_options, service)
-
-# ==================================================
-# 7) タブ3: イベントの削除
-# ==================================================
-with tabs[2]:
-    render_tab3_delete(editable_calendar_options, service, tasks_service, default_task_list_id)
-
-# ==================================================
-# 8) タブ4: 点検連絡ToDo自動作成（元タブ7）
-# ==================================================
-with tabs[3]:
-    render_tab7_inspection_todo(
-        service=service,
-        editable_calendar_options=editable_calendar_options,
-        tasks_service=tasks_service,
-        default_task_list_id=default_task_list_id,
-        sheets_service=sheets_service,
-        current_user_email=current_user_email,
+    sub_tab_reg, sub_tab_del, sub_tab_todo = st.tabs(
+        ["📥 イベント登録", "🗑 イベント削除", "✅ 点検連絡ToDo自動作成"]
     )
 
+    # --- サブタブ1: イベント登録 ---
+    with sub_tab_reg:
+        render_tab2_register(user_id, editable_calendar_options, service)
+
+    # --- サブタブ2: イベント削除 ---
+    with sub_tab_del:
+        render_tab3_delete(editable_calendar_options, service, tasks_service, default_task_list_id)
+
+    # --- サブタブ3: 点検連絡ToDo自動作成 ---
+    with sub_tab_todo:
+        render_tab7_inspection_todo(
+            service=service,
+            editable_calendar_options=editable_calendar_options,
+            tasks_service=tasks_service,
+            default_task_list_id=default_task_list_id,
+            sheets_service=sheets_service,
+            current_user_email=current_user_email,
+        )
+
 # ==================================================
-# 9) タブ5: カレンダーイベントをExcel/CSVへ出力（安全ファイル名版）
+# 7) タブ3: カレンダーイベントをExcel/CSVへ出力
 # ==================================================
-with tabs[4]:
+with tabs[2]:
     render_tab5_export(editable_calendar_options, service, fetch_all_events)
 
 # ==================================================
-# 10) タブ6: 物件マスタ管理
+# 8) タブ4: 物件マスタ管理
 # ==================================================
-with tabs[5]:
+with tabs[3]:
     render_tab6_property_master(
         sheets_service=sheets_service,
         default_spreadsheet_id=st.secrets.get("PROPERTY_MASTER_SHEET_ID", ""),
@@ -387,20 +387,17 @@ with tabs[5]:
     )
 
 # ==================================================
-# 11) 管理者メニュー（ユーザー管理 / ファイル管理 / 重複チェック）
+# 9) 管理者メニュー（ユーザー管理 / ファイル管理 / 重複チェック）
 # ==================================================
 if is_admin:
-    with tabs[6]:
-        # 管理者メイン機能
+    with tabs[4]:
         render_tab_admin(
             current_user_email=current_user_email,
             current_user_name=current_user_name,
         )
 
-
-
 # ==================================================
-# 12) サイドバー
+# 10) サイドバー
 # ==================================================
 with st.sidebar:
     with st.expander("⚙ デフォルト設定の管理", expanded=False):
