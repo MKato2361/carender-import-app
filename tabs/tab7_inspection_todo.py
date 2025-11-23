@@ -366,7 +366,7 @@ def build_task_candidates(
     """
     カレンダーイベントと物件マスタビューを突合して、
     ToDo作成候補の DataFrame を作成。
-      - 通知期限_日前が空 or nan の場合は 7 に補完
+      - 連絡期限_日前が空 or nan の場合は 7 に補完
       - ToDo詳細には点検予定時間も含める
     """
     if pm_view_df is None or pm_view_df.empty:
@@ -397,7 +397,7 @@ def build_task_candidates(
         start_date = start_dt.date() if start_dt else None
         start_time_str = start_dt.strftime("%H:%M") if start_dt and "dateTime" in ev.get("start", {}) else ""
 
-        # 通知期限_日前
+        # 連絡期限_日前
         raw_due = pm_row.get("連絡期限_日前", "")
         due_days_str = str(raw_due).strip()
         # ★ ここで未設定（空 or nan）の場合は 7 に自動補完
@@ -409,7 +409,6 @@ def build_task_candidates(
             due_date = start_date - timedelta(days=int(due_days_str))
 
         methods = build_methods_str(pm_row)
-        # 連絡方法が一つもなくても、とりあえず候補としては表示する（ユーザーが編集可能）
 
         tel = build_contacts_str(pm_row, "電話")
         fax = build_contacts_str(pm_row, "FAX")
@@ -552,7 +551,7 @@ def render_tab7_inspection_todo(
     st.markdown("### ToDo 作成候補一覧")
     st.caption("※『作成』チェックが ON の行だけが Google ToDo に登録されます。必要に応じてOFFにしてください。")
 
-    # 表示用にコピー（内部用カラムは隠す）
+    # 表示用の列
     display_cols = [
         "作成",
         "管理番号",
@@ -568,9 +567,17 @@ def render_tab7_inspection_todo(
         "貼り紙テンプレ種別",
         "備考",
     ]
-    hidden_cols = [c for c in candidates_df.columns if c not in display_cols]
 
+    # セッションからコピー
     updated_candidates = candidates_df.copy()
+
+    # ★ 安全策：足りない列はここで補完（古いバージョンのデータにも対応）
+    for col in display_cols:
+        if col not in updated_candidates.columns:
+            if col == "作成":
+                updated_candidates[col] = True
+            else:
+                updated_candidates[col] = ""
 
     # nan → "-" 変換（作成フラグ以外）
     display_df = updated_candidates[display_cols].copy()
@@ -644,3 +651,4 @@ def render_tab7_inspection_todo(
             st.success(f"{created} 件の ToDo を作成しました。")
         if errors:
             st.warning(f"一部のToDo作成でエラーが発生しました（{len(errors)} 件）。詳細の一件目: {errors[0]}")
+
