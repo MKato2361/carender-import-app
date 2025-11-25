@@ -138,6 +138,7 @@ def render_sidebar(
                             "property_master",
                             "admin",
                             "del_calendar_select",
+                            "export_calendar_select",
                         ]
                         for suffix in tab_keys_for_share:
                             st.session_state[
