@@ -1,7 +1,4 @@
 from __future__ import annotations
-from utils.helpers import safe_get, to_utc_range, default_fetch_window_years
-from utils.parsers import extract_worksheet_id_from_text
-
 import re
 import unicodedata
 from datetime import datetime, date, timedelta, timezone
@@ -14,74 +11,31 @@ import streamlit as st
 from firebase_admin import firestore
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
-from github_loader import walk_repo_tree, load_file_bytes_from_github, is_supported_file
-from github_loader import _headers, GITHUB_OWNER, GITHUB_REPO
-from io import BytesIO
 from streamlit.runtime.uploaded_file_manager import UploadedFile
 
-def convert_bytes_to_uploadedfile(file_bytes: bytes, filename: str, mime_type: str = None):
-    """GitHub等から取得したバイトデータをStreamlitのUploadedFile互換に変換"""
-    return UploadedFile(
-        name=filename,
-        type=mime_type or "application/octet-stream",
-        data=file_bytes,
-    )
+# ---- Utils & Helpers ----
+from utils.helpers import safe_get, to_utc_range, default_fetch_window_years
+from utils.parsers import extract_worksheet_id_from_text
+from utils.user_roles import get_or_create_user, get_user_role, ROLE_ADMIN
+from github_loader import walk_repo_tree, load_file_bytes_from_github, is_supported_file
+from github_loader import _headers, GITHUB_OWNER, GITHUB_REPO
 
-import streamlit as st
-import pandas as pd
-from io import BytesIO
-
-# ←このあたりの import 群の直下に追加してください。
+# ---- Tab Modules ----
 from tabs.tab1_upload import render_tab1_upload
-
-class GitHubUploadedFile:
-    def __init__(self, file_bytes: bytes, name: str, type: str = None):
-        self._file_bytes = file_bytes
-        self.name = name
-        self.type = type or "application/octet-stream"
-
-    def read(self):
-        return self._file_bytes
-
-    def getvalue(self):
-        return self._file_bytes
-
-
-def convert_bytes_to_uploadedfile(file_bytes: bytes, filename: str, mime_type: str = None):
-    return GitHubUploadedFile(
-        file_bytes=file_bytes,
-        name=filename,
-        type=mime_type or "application/octet-stream",
-    )
-
 from tabs.tab2_register import render_tab2_register
 from tabs.tab3_delete import render_tab3_delete
-from tabs.tab4_duplicates import render_tab4_duplicates  # ← 現在は tab_admin 内で使用
-from calendar_utils import fetch_all_events
+from tabs.tab4_duplicates import render_tab4_duplicates
 from tabs.tab5_export import render_tab5_export
 from tabs.tab_admin import render_tab_admin
-from tabs.tab6_property_master import render_tab6_property_master  # 物件マスタ管理タブ
-from tabs.tab7_inspection_todo import render_tab7_inspection_todo  # 点検連絡ToDo自動作成タブ
-from tabs.tab8_notice_fax import render_tab8_notice_fax            # ★ 貼り紙・FAX自動生成タブ
+from tabs.tab6_property_master import render_tab6_property_master
+from tabs.tab7_inspection_todo import render_tab7_inspection_todo
+from tabs.tab8_notice_fax import render_tab8_notice_fax
 
-from utils.user_roles import get_or_create_user, get_user_role, ROLE_ADMIN
-
-# ---- アプリ固有モジュール ----
-from excel_parser import (
-    process_excel_data_for_calendar,
-    _load_and_merge_dataframes,
-    get_available_columns_for_event_name,
-    check_event_name_columns,
-    format_worksheet_value,
-)
+# ---- Auth & Logic ----
 from calendar_utils import (
     authenticate_google,
-    add_event_to_calendar,
     fetch_all_events,
-    update_event_if_needed,   # ← calendar_utils.py を差分版に差し替え済み
     build_tasks_service,
-    add_task_to_todo_list,
-    find_and_delete_tasks_by_event_id,
 )
 from firebase_auth import initialize_firebase, firebase_auth_form, get_firebase_user_id
 from session_utils import (
@@ -93,7 +47,7 @@ from session_utils import (
 )
 
 # ==================================================
-# 0) スタイル
+# 0) ページ設定 & スタイル (カラーは変更せず維持)
 # ==================================================
 st.set_page_config(page_title="Googleカレンダー一括イベント登録・削除", layout="wide")
 
@@ -106,6 +60,7 @@ def load_custom_css() -> None:
 
 load_custom_css()
 
+# 元のCSSを維持（ダークモード/ライトモード対応）
 st.markdown(
     """
 <style>
@@ -133,71 +88,29 @@ html, body, #root { height: auto !重要; min-height: 100% !重要; margin: 0 !�
 )
 
 # ==================================================
-# 1) 共通ユーティリティ
+# 1) 共通ユーティリティ & クラス定義
 # ==================================================
 JST = timezone(timedelta(hours=9))
 
-# 正規表現（事前コンパイル）
-RE_WORKSHEET_ID = re.compile(r"\[作業指示書[：:]\s*([0-9０-９]+)\]")
-RE_WONUM      = re.compile(r"\[作業指示書[：:]\s*(.*?)\]")
-RE_ASSETNUM   = re.compile(r"\[管理番号[：:]\s*(.*?)\]")
-RE_WORKTYPE   = re.compile(r"\[作業タイプ[：:]\s*(.*?)\]")
-RE_TITLE      = re.compile(r"\[タイトル[：:]\s*(.*?)\]")
+class GitHubUploadedFile:
+    def __init__(self, file_bytes: bytes, name: str, type: str = None):
+        self._file_bytes = file_bytes
+        self.name = name
+        self.type = type or "application/octet-stream"
 
-# --- 差分更新ユーティリティ ---
-def normalize_worksheet_id(s: Optional[str]) -> Optional[str]:
-    if not s:
-        return s
-    return unicodedata.normalize("NFKC", s).strip()
+    def read(self):
+        return self._file_bytes
 
-def extract_worksheet_id_from_description(desc: str) -> str | None:
-    """Description内の [作業指示書: 123456] からIDを抽出（全角→半角）"""
-    if not desc:
-        return None
-    m = RE_WORKSHEET_ID.search(desc)
-    if not m:
-        return None
-    return normalize_worksheet_id(m.group(1))
+    def getvalue(self):
+        return self._file_bytes
 
-def is_event_changed(existing_event: dict, new_event_data: dict) -> bool:
-    """
-    1) summary（タイトル）
-    2) start（終日/時間/TimeZone含む）
-    3) end   （終日/時間/TimeZone含む）
-    4) description（説明）
-    5) transparency（非公開/公開）
-    ※ Location は比較しない
-    """
-    nz = lambda v: (v or "")
-    # 1) summary
-    if nz(existing_event.get("summary")) != nz(new_event_data.get("summary")):
-        return True
-    # 4) description
-    if nz(existing_event.get("description")) != nz(new_event_data.get("description")):
-        return True
-    # 5) transparency
-    if nz(existing_event.get("transparency")) != nz(new_event_data.get("transparency")):
-        return True
-    # 2) start
-    if (existing_event.get("start") or {}) != (new_event_data.get("start") or {}):
-        return True
-    # 3) end
-    if (existing_event.get("end") or {}) != (new_event_data.get("end") or {}):
-        return True
-    return False
-
-def to_utc_range(d1: date, d2: date) -> Tuple[str, str]:
-    start_dt_utc = datetime.combine(d1, datetime.min.time(), tzinfo=JST).astimezone(timezone.utc)
-    end_dt_utc   = datetime.combine(d2, datetime.max.time(), tzinfo=JST).astimezone(timezone.utc)
-    return (
-        start_dt_utc.isoformat(timespec="microseconds").replace("+00:00", "Z"),
-        end_dt_utc.isoformat(timespec="microseconds").replace("+00:00", "Z"),
+def convert_bytes_to_uploadedfile(file_bytes: bytes, filename: str, mime_type: str = None):
+    """GitHub等から取得したバイトデータをStreamlitのUploadedFile互換に変換"""
+    return GitHubUploadedFile(
+        file_bytes=file_bytes,
+        name=filename,
+        type=mime_type or "application/octet-stream",
     )
-
-def default_fetch_window_years(years: int = 2) -> Tuple[str, str]:
-    now_utc = datetime.now(timezone.utc)
-    return (now_utc - timedelta(days=365 * years)).isoformat(), (now_utc + timedelta(days=365 * years)).isoformat()
-
 
 def build_calendar_service(creds):
     try:
@@ -257,7 +170,11 @@ if not initialize_firebase():
 db = firestore.client()
 user_id = get_firebase_user_id()
 if not user_id:
-    firebase_auth_form()
+    # ログイン画面を少し中央寄せで見やすく
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        st.info("利用を開始するにはログインしてください")
+        firebase_auth_form()
     st.stop()
 
 def load_user_settings_from_firestore(user_id: str) -> None:
@@ -285,7 +202,6 @@ load_user_settings_from_firestore(user_id)
 current_user_email = user_id
 current_user_name: Optional[str] = None
 
-# Firestore 上にユーザードキュメントを作成＆ロール取得
 user_doc = get_or_create_user(current_user_email, current_user_name)
 current_role = user_doc.get("role") or get_user_role(current_user_email)
 is_admin = current_role == ROLE_ADMIN
@@ -295,10 +211,9 @@ is_admin = current_role == ROLE_ADMIN
 # ==================================================
 google_auth_placeholder = st.empty()
 with google_auth_placeholder.container():
-    st.subheader("🔐 Googleカレンダー認証")
     creds = authenticate_google()
     if not creds:
-        st.warning("Googleカレンダー認証を完了してください。")
+        st.warning("🔐 Googleカレンダー認証を完了してください。")
         st.stop()
     else:
         google_auth_placeholder.empty()
@@ -307,7 +222,6 @@ service, editable_calendar_options = ensure_services(creds)
 tasks_service = st.session_state.get("tasks_service")
 default_task_list_id = st.session_state.get("default_task_list_id")
 
-# ★ Google Sheets サービス
 try:
     sheets_service = build("sheets", "v4", credentials=creds)
 except Exception as e:
@@ -315,18 +229,19 @@ except Exception as e:
     sheets_service = None
 
 # ==================================================
-# 4) UI（Tabs）
+# 4) メインコンテンツ (UI改善版)
 # ==================================================
+# タブのコンテナ
 st.markdown('<div class="fixed-tabs">', unsafe_allow_html=True)
 
 tab_labels = [
-    "1. ファイルのアップロード",
-    "2. イベント登録・削除",
-    "3. イベントのExcel出力",
-    "4. 物件マスタ管理",
+    "1. ファイル取込",
+    "2. 登録・削除",
+    "3. 出力",
+    "4. 物件マスタ",
 ]
 if is_admin:
-    tab_labels.append("5. 管理者メニュー")
+    tab_labels.append("5. 管理者")
 
 tabs = st.tabs(tab_labels)
 st.markdown("</div>", unsafe_allow_html=True)
@@ -336,82 +251,80 @@ if "uploaded_files" not in st.session_state:
     st.session_state["description_columns_pool"] = []
     st.session_state["merged_df_for_selector"] = pd.DataFrame()
 
-# ==================================================
-# 5) タブ1: ファイルのアップロード
-# ==================================================
+# --- Tab 1: Upload ---
 with tabs[0]:
-    render_tab1_upload()
+    # コンテナで囲んで視認性を向上（色は変えず枠線と余白のみ）
+    with st.container(border=True):
+        st.caption("ExcelまたはCSVファイルをアップロードしてください")
+        render_tab1_upload()
 
-# ==================================================
-# 6) タブ2: イベント登録・削除（サブタブ：登録／削除／点検ToDo／貼り紙・FAX）
-# ==================================================
+# --- Tab 2: Operations ---
 with tabs[1]:
     sub_tab_reg, sub_tab_del, sub_tab_todo, sub_tab_notice_fax = st.tabs(
-        ["📥 イベント登録", "🗑 イベント削除", "✅ 点検連絡ToDo自動作成", "📄 貼り紙・FAX自動生成"]
+        ["📥 イベント登録", "🗑 イベント削除", "✅ 点検連絡ToDo", "📄 貼り紙・FAX"]
     )
 
-    # --- サブタブ1: イベント登録 ---
     with sub_tab_reg:
-        render_tab2_register(user_id, editable_calendar_options, service)
+        with st.container(border=True):
+            render_tab2_register(user_id, editable_calendar_options, service)
 
-    # --- サブタブ2: イベント削除 ---
     with sub_tab_del:
-        render_tab3_delete(editable_calendar_options, service, tasks_service, default_task_list_id)
+        with st.container(border=True):
+            render_tab3_delete(editable_calendar_options, service, tasks_service, default_task_list_id)
 
-    # --- サブタブ3: 点検連絡ToDo自動作成 ---
     with sub_tab_todo:
-        render_tab7_inspection_todo(
-            service=service,
-            editable_calendar_options=editable_calendar_options,
-            tasks_service=tasks_service,
-            default_task_list_id=default_task_list_id,
-            sheets_service=sheets_service,
-            current_user_email=current_user_email,
-        )
+        with st.container(border=True):
+            render_tab7_inspection_todo(
+                service=service,
+                editable_calendar_options=editable_calendar_options,
+                tasks_service=tasks_service,
+                default_task_list_id=default_task_list_id,
+                sheets_service=sheets_service,
+                current_user_email=current_user_email,
+            )
 
-    # --- サブタブ4: 貼り紙・FAX自動生成 ---
     with sub_tab_notice_fax:
-        render_tab8_notice_fax(
-            service=service,
-            editable_calendar_options=editable_calendar_options,
+        with st.container(border=True):
+            render_tab8_notice_fax(
+                service=service,
+                editable_calendar_options=editable_calendar_options,
+                sheets_service=sheets_service,
+                current_user_email=current_user_email,
+            )
+
+# --- Tab 3: Export ---
+with tabs[2]:
+    with st.container(border=True):
+        render_tab5_export(editable_calendar_options, service, fetch_all_events)
+
+# --- Tab 4: Property Master ---
+with tabs[3]:
+    with st.container(border=True):
+        render_tab6_property_master(
             sheets_service=sheets_service,
+            default_spreadsheet_id=st.secrets.get("PROPERTY_MASTER_SHEET_ID", ""),
+            basic_sheet_title="物件基本情報",
+            master_sheet_title="物件マスタ",
             current_user_email=current_user_email,
         )
 
-# ==================================================
-# 7) タブ3: カレンダーイベントをExcel/CSVへ出力
-# ==================================================
-with tabs[2]:
-    render_tab5_export(editable_calendar_options, service, fetch_all_events)
-
-# ==================================================
-# 8) タブ4: 物件マスタ管理
-# ==================================================
-with tabs[3]:
-    render_tab6_property_master(
-        sheets_service=sheets_service,
-        default_spreadsheet_id=st.secrets.get("PROPERTY_MASTER_SHEET_ID", ""),
-        basic_sheet_title="物件基本情報",
-        master_sheet_title="物件マスタ",
-        current_user_email=current_user_email,
-    )
-
-# ==================================================
-# 9) 管理者メニュー（ユーザー管理 / ファイル管理 / 重複チェック）
-# ==================================================
+# --- Tab 5: Admin ---
 if is_admin:
     with tabs[4]:
-        render_tab_admin(
-            current_user_email=current_user_email,
-            current_user_name=current_user_name,
-        )
+        with st.container(border=True):
+            render_tab_admin(
+                current_user_email=current_user_email,
+                current_user_name=current_user_name,
+            )
 
 # ==================================================
-# 10) サイドバー
+# 5) サイドバー（整理・改善）
 # ==================================================
 with st.sidebar:
-    with st.expander("⚙ デフォルト設定の管理", expanded=False):
-        st.subheader("📅 カレンダー設定")
+    st.subheader("⚙️ 設定・管理")
+    
+    # アコーディオンで設定を格納
+    with st.expander("📅 カレンダー設定", expanded=True):
         if editable_calendar_options:
             calendar_options = list(editable_calendar_options.keys())
             saved_calendar = get_user_setting(user_id, "selected_calendar_name")
@@ -424,93 +337,81 @@ with st.sidebar:
 
             prev_share = st.session_state.get("share_calendar_selection_across_tabs", True)
             share_calendar = st.checkbox(
-                "カレンダー選択をタブ間で共有する",
+                "タブ間で選択を共有",
                 value=prev_share,
-                help="ON: 登録タブで選んだカレンダーが他タブに自動反映 / OFF: タブごとに独立",
+                help="ONにすると、登録タブで選んだカレンダーが他のタブにも自動で反映されます。",
             )
+            
+            # 設定変更時の即時反映ロジック
             if share_calendar != prev_share:
                 st.session_state["share_calendar_selection_across_tabs"] = share_calendar
                 set_user_setting(user_id, "share_calendar_selection_across_tabs", share_calendar)
                 save_user_setting_to_firestore(user_id, "share_calendar_selection_across_tabs", share_calendar)
-                st.success("🔄 共有設定を保存しました（更新します）")
                 st.rerun()
 
+            st.divider()
+            
             saved_private = get_user_setting(user_id, "default_private_event")
-            default_private = st.checkbox("デフォルトで非公開イベント", value=(saved_private if saved_private is not None else True), key="sidebar_default_private")
+            default_private = st.checkbox("標準で「非公開」", value=(saved_private if saved_private is not None else True), key="sidebar_default_private")
 
             saved_allday = get_user_setting(user_id, "default_allday_event")
-            default_allday = st.checkbox("デフォルトで終日イベント", value=(saved_allday if saved_allday is not None else False), key="sidebar_default_allday")
-
-        st.subheader("✅ ToDo設定")
+            default_allday = st.checkbox("標準で「終日」", value=(saved_allday if saved_allday is not None else False), key="sidebar_default_allday")
+    
+    with st.expander("✅ ToDo設定", expanded=False):
         saved_todo = get_user_setting(user_id, "default_create_todo")
-        default_todo = st.checkbox("デフォルトでToDo作成", value=(saved_todo if saved_todo is not None else False), key="sidebar_default_todo")
+        default_todo = st.checkbox("標準で「ToDo作成」", value=(saved_todo if saved_todo is not None else False), key="sidebar_default_todo")
 
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("💾 保存", use_container_width=True):
-                if editable_calendar_options:
-                    set_user_setting(user_id, "selected_calendar_name", default_calendar)
-                    save_user_setting_to_firestore(user_id, "selected_calendar_name", default_calendar)
-                    st.session_state["selected_calendar_name"] = default_calendar
-                    if st.session_state.get("share_calendar_selection_across_tabs", True):
-                        for k in ["register", "delete", "dup", "export"]:
-                            st.session_state[f"selected_calendar_name_{k}"] = default_calendar
+    # 保存・リセットボタン
+    col_save, col_reset = st.columns(2)
+    with col_save:
+        if st.button("💾 設定保存", use_container_width=True):
+            if editable_calendar_options:
+                set_user_setting(user_id, "selected_calendar_name", default_calendar)
+                save_user_setting_to_firestore(user_id, "selected_calendar_name", default_calendar)
+                st.session_state["selected_calendar_name"] = default_calendar
+                if st.session_state.get("share_calendar_selection_across_tabs", True):
+                    for k in ["register", "delete", "dup", "export"]:
+                        st.session_state[f"selected_calendar_name_{k}"] = default_calendar
 
-                set_user_setting(user_id, "default_private_event", default_private)
-                save_user_setting_to_firestore(user_id, "default_private_event", default_private)
+            set_user_setting(user_id, "default_private_event", default_private)
+            save_user_setting_to_firestore(user_id, "default_private_event", default_private)
 
-                set_user_setting(user_id, "default_allday_event", default_allday)
-                save_user_setting_to_firestore(user_id, "default_allday_event", default_allday)
+            set_user_setting(user_id, "default_allday_event", default_allday)
+            save_user_setting_to_firestore(user_id, "default_allday_event", default_allday)
 
-                set_user_setting(user_id, "default_create_todo", default_todo)
-                save_user_setting_to_firestore(user_id, "default_create_todo", default_todo)
+            set_user_setting(user_id, "default_create_todo", default_todo)
+            save_user_setting_to_firestore(user_id, "default_create_todo", default_todo)
 
-                st.success("✅ 設定を保存しました")
-                st.rerun()
+            st.toast("設定を保存しました", icon="✅")
 
-        with col2:
-            if st.button("🔄 リセット", use_container_width=True):
-                for key in ["default_private_event", "default_allday_event", "default_create_todo"]:
-                    set_user_setting(user_id, key, None)
-                    save_user_setting_to_firestore(user_id, key, None)
-                st.info("🧹 設定をリセットしました")
-                st.rerun()
-
-        st.divider()
-        st.caption("📋 保存済み設定")
-        all_settings = get_all_user_settings(user_id)
-        if all_settings:
-            labels = {
-                "selected_calendar_name": "デフォルトカレンダー（共有ON時）",
-                "default_private_event": "非公開設定",
-                "default_allday_event": "終日設定",
-                "default_create_todo": "デフォルトToDo",
-                "share_calendar_selection_across_tabs": "タブ間共有",
-            }
-            for k, label in labels.items():
-                if k in all_settings and all_settings[k] is not None:
-                    v = all_settings[k]
-                    if isinstance(v, bool):
-                        v = "✅" if v else "❌"
-                    st.text(f"• {label}: {v}")
+    with col_reset:
+        if st.button("🔄 リセット", use_container_width=True):
+            for key in ["default_private_event", "default_allday_event", "default_create_todo"]:
+                set_user_setting(user_id, key, None)
+                save_user_setting_to_firestore(user_id, key, None)
+            st.toast("設定をリセットしました", icon="🧹")
+            st.rerun()
 
     st.divider()
-    with st.expander("🔐 認証状態", expanded=False):
-        st.caption("Firebase: ✅ 認証済み")
-        st.caption("カレンダー: ✅ 接続中" if st.session_state.get("calendar_service") else "カレンダー: ⚠️ 未接続")
-        st.caption("ToDo: ✅ 利用可能" if st.session_state.get("tasks_service") else "ToDo: ⚠️ 利用不可")
+    
+    # ステータス表示の改善
+    with st.container(border=True):
+        st.caption("📡 接続ステータス")
+        st.markdown(
+            f"""
+            - **Firebase**: ✅ 認証済
+            - **Google Calendar**: {'✅ 接続中' if st.session_state.get('calendar_service') else '⚠️ 未接続'}
+            - **Google Tasks**: {'✅ 利用可' if st.session_state.get('tasks_service') else '⛔ 利用不可'}
+            """
+        )
 
     st.divider()
-    if st.button("🚪 ログアウト", type="secondary", use_container_width=True):
+    
+    # ログアウトボタン
+    if st.button("🚪 ログアウト", type="primary", use_container_width=True):
         if user_id:
             clear_user_settings(user_id)
         for key in list(st.session_state.keys()):
             if not key.startswith("google_auth") and not key.startswith("firebase_"):
                 del st.session_state[key]
-        st.success("ログアウトしました")
         st.rerun()
-
-    st.divider()
-    st.header("📊 統計情報")
-    uploaded_count = len(st.session_state.get("uploaded_files", []))
-    st.metric("アップロード済みファイル", uploaded_count)
