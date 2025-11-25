@@ -1,10 +1,10 @@
-# sidebar.py
 from __future__ import annotations
 from typing import Dict, Optional, Callable
 
 import streamlit as st
 
 from session_utils import get_user_setting, set_user_setting, clear_user_settings
+from github_loader import _headers  # GitHub 接続状態確認用
 
 
 def render_sidebar(
@@ -111,6 +111,7 @@ def render_sidebar(
                         "sidebar_default_calendar", calendar_options[0]
                     )
 
+                    # 共通のデフォルトカレンダー設定
                     set_user_setting(
                         user_id, "selected_calendar_name", default_calendar
                     )
@@ -119,14 +120,30 @@ def render_sidebar(
                     )
                     st.session_state["selected_calendar_name"] = default_calendar
 
+                    # ★ 全タブへの連携用キーをまとめて更新
                     if st.session_state.get(
                         "share_calendar_selection_across_tabs", True
                     ):
-                        for k in ["register", "delete", "dup", "export"]:
+                        tab_keys_for_share = [
+                            # 既存
+                            "register",
+                            "delete",
+                            "dup",
+                            "export",
+                            # サブタブ系（点検ToDo / 貼り紙・FAX）
+                            "todo",
+                            "inspection_todo",
+                            "notice_fax",
+                            # その他タブ
+                            "property_master",
+                            "admin",
+                        ]
+                        for suffix in tab_keys_for_share:
                             st.session_state[
-                                f"selected_calendar_name_{k}"
+                                f"selected_calendar_name_{suffix}"
                             ] = default_calendar
 
+                # その他設定
                 set_user_setting(user_id, "default_private_event", default_private)
                 save_user_setting_to_firestore(
                     user_id, "default_private_event", default_private
@@ -158,14 +175,31 @@ def render_sidebar(
 
         st.divider()
 
-        # 📡 ステータス表示
+        # 📡 ステータス表示（全ての認証項目）
         with st.container(border=True):
             st.caption("📡 接続ステータス")
+
+            # Firebase 認証（ユーザーIDが取れていれば OK）
+            firebase_ok = bool(user_id)
+
+            # Google API 系は session_state による接続確認
+            calendar_ok = bool(st.session_state.get("calendar_service"))
+            tasks_ok = bool(st.session_state.get("tasks_service"))
+            sheets_ok = bool(st.session_state.get("sheets_service"))
+
+            # GitHub（PAT が設定されていれば OK とみなす）
+            try:
+                github_ok = bool(_headers.get("Authorization"))
+            except Exception:
+                github_ok = False
+
             st.markdown(
                 f"""
-- **Firebase**: ✅ 認証済
-- **Google Calendar**: {'✅ 接続中' if st.session_state.get('calendar_service') else '⚠️ 未接続'}
-- **Google Tasks**: {'✅ 利用可' if st.session_state.get('tasks_service') else '⛔ 利用不可'}
+- **Firebase 認証**: {'✅ ログイン中' if firebase_ok else '⚠️ 未ログイン'}
+- **Google Calendar API**: {'✅ 接続中' if calendar_ok else '⚠️ 未接続'}
+- **Google Tasks API**: {'✅ 利用可' if tasks_ok else '⛔ 利用不可'}
+- **Google Sheets API**: {'✅ 利用可' if sheets_ok else '⛔ 利用不可'}
+- **GitHub API**: {'✅ 設定済' if github_ok else '⚠️ 未設定またはエラー'}
 """
             )
 
