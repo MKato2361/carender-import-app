@@ -4,7 +4,8 @@ from typing import Dict, Optional, Callable
 import streamlit as st
 
 from session_utils import get_user_setting, set_user_setting, clear_user_settings
-from github_loader import _headers  # GitHub 接続状態確認用
+from github_loader import _headers, GITHUB_OWNER, GITHUB_REPO
+
 
 
 def render_sidebar(
