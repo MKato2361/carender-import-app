@@ -31,6 +31,7 @@ from tabs.tab6_property_master import render_tab6_property_master
 from tabs.tab7_inspection_todo import render_tab7_inspection_todo
 from tabs.tab8_notice_fax import render_tab8_notice_fax
 
+from sidebar import render_sidebar  # ★ 追加
 # ---- Auth & Logic ----
 from calendar_utils import (
     authenticate_google,
