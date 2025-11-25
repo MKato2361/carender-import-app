@@ -229,6 +229,8 @@ except Exception as e:
     st.warning(f"Googleスプレッドシートサービスの初期化に失敗しました: {e}")
     sheets_service = None
 
+st.session_state["sheets_service"] = sheets_service
+
 # ==================================================
 # 4) メインコンテンツ (UI改善版)
 # ==================================================
