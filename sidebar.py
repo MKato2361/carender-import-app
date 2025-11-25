@@ -181,19 +181,29 @@ def render_sidebar(
         with st.container(border=True):
             st.caption("📡 接続ステータス")
 
-            # Firebase 認証（ユーザーIDが取れていれば OK）
+            # Firebase 認証（user_id が取れていれば OK）
             firebase_ok = bool(user_id)
 
-            # Google API 系は session_state による接続確認
+            # Google API 系は session_state で確認
             calendar_ok = bool(st.session_state.get("calendar_service"))
             tasks_ok = bool(st.session_state.get("tasks_service"))
             sheets_ok = bool(st.session_state.get("sheets_service"))
 
-            # GitHub（PAT が設定されていれば OK とみなす）
+            # GitHub：トークンの有無＋OWNER/REPO が設定されているかで判定
+            token_in_secrets = False
             try:
-                github_ok = bool(_headers.get("Authorization"))
+                token_in_secrets = bool(st.secrets.get("GITHUB_TOKEN", ""))
             except Exception:
-                github_ok = False
+                token_in_secrets = False
+
+            token_in_headers = False
+            try:
+                token_in_headers = bool(_headers.get("Authorization"))
+            except Exception:
+                token_in_headers = False
+
+            owner_repo_ok = bool(GITHUB_OWNER and GITHUB_REPO)
+            github_ok = owner_repo_ok and (token_in_secrets or token_in_headers)
 
             st.markdown(
                 f"""
@@ -204,6 +214,7 @@ def render_sidebar(
 - **GitHub API**: {'✅ 設定済' if github_ok else '⚠️ 未設定またはエラー'}
 """
             )
+
 
         st.divider()
 
