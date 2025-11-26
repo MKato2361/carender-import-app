@@ -330,15 +330,49 @@ def render_tab8_notice_fax(
         )
         use_master_filter = False
 
-    # カレンダー選択
+    # ----------------------------------------------------
+    # カレンダー選択（サイドバー設定と連動）
+    # ----------------------------------------------------
     cal_names = list(editable_calendar_options.keys())
-    default_cal = cal_names[0] if cal_names else None
+    if not cal_names:
+        st.error("利用可能なカレンダーがありません。")
+        return
+
+    # サイドバーの「タブ間で選択を共有」と連動
+    share_on = st.session_state.get("share_calendar_selection_across_tabs", True)
+
+    # 共通キー（全タブ共通）
+    saved_global_name = st.session_state.get("selected_calendar_name")
+    # 貼り紙タブ専用キー
+    saved_tab_name = st.session_state.get("selected_calendar_name_notice_fax")
+
+    # 初期表示に使うカレンダー名を決定
+    if share_on and saved_global_name in cal_names:
+        # 共有ON -> 共通設定を優先
+        initial_name = saved_global_name
+    elif saved_tab_name in cal_names:
+        # 共有OFF or 共通が未設定 -> タブ専用設定を使用
+        initial_name = saved_tab_name
+    else:
+        # どちらもなければ先頭
+        initial_name = cal_names[0]
+
+    default_index = cal_names.index(initial_name)
+
     calendar_name = st.selectbox(
         "対象カレンダー",
         cal_names,
-        index=(cal_names.index(default_cal) if default_cal in cal_names else 0),
+        index=default_index,
         key="notice_fax_calendar",
     )
+
+    # タブ専用の選択状態を保存
+    st.session_state["selected_calendar_name_notice_fax"] = calendar_name
+
+    # 共有ONのときは共通キーも更新 → 他タブの初期値にも反映
+    if share_on:
+        st.session_state["selected_calendar_name"] = calendar_name
+
     calendar_id = editable_calendar_options.get(calendar_name)
 
     # 期間指定
