@@ -12,13 +12,31 @@ def render_tab3_delete(editable_calendar_options, service, tasks_service, defaul
         return
 
     # -------------------------------
-    # カレンダー選択
+    # カレンダー選択（サイドバー設定と連動）
     # -------------------------------
     calendar_names = list(editable_calendar_options.keys())
-    default_index = 0
-    saved_name = st.session_state.get("selected_calendar_name")
-    if saved_name and saved_name in calendar_names:
-        default_index = calendar_names.index(saved_name)
+
+    # サイドバーの「タブ間で選択を共有」と連動
+    share_on = st.session_state.get("share_calendar_selection_across_tabs", True)
+
+    # 共通キー（全タブ共通）
+    saved_global_name = st.session_state.get("selected_calendar_name")
+    # 削除タブ専用キー
+    saved_delete_name = st.session_state.get("selected_calendar_name_delete")
+
+    # 初期表示に使うカレンダー名を決定
+    initial_name = None
+    if share_on and saved_global_name in calendar_names:
+        # 共有ON -> 共通設定を優先
+        initial_name = saved_global_name
+    elif saved_delete_name in calendar_names:
+        # 共有OFF or 共通が未設定 -> 削除タブ専用設定を使用
+        initial_name = saved_delete_name
+    else:
+        # どちらもなければ先頭
+        initial_name = calendar_names[0]
+
+    default_index = calendar_names.index(initial_name)
 
     selected_calendar_name_del = st.selectbox(
         "削除対象カレンダーを選択",
@@ -26,7 +44,14 @@ def render_tab3_delete(editable_calendar_options, service, tasks_service, defaul
         index=default_index,
         key="del_calendar_select",
     )
-    st.session_state["selected_calendar_name"] = selected_calendar_name_del
+
+    # 削除タブ専用の選択状態を保存
+    st.session_state["selected_calendar_name_delete"] = selected_calendar_name_del
+
+    # 共有ONのときは共通キーも更新 → 他タブの初期値にも反映
+    if share_on:
+        st.session_state["selected_calendar_name"] = selected_calendar_name_del
+
     calendar_id_del = editable_calendar_options[selected_calendar_name_del]
 
     # -------------------------------
