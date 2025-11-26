@@ -7,7 +7,6 @@ from session_utils import get_user_setting, set_user_setting, clear_user_setting
 from github_loader import _headers, GITHUB_OWNER, GITHUB_REPO
 
 
-
 def render_sidebar(
     user_id: str,
     editable_calendar_options: Optional[Dict[str, str]],
@@ -22,16 +21,23 @@ def render_sidebar(
         with st.expander("📅 カレンダー設定", expanded=True):
             if editable_calendar_options:
                 calendar_options = list(editable_calendar_options.keys())
-                saved_calendar = get_user_setting(user_id, "selected_calendar_name")
+
+                # ✅ まずはセッションの値を優先して取得
+                saved_calendar = st.session_state.get("selected_calendar_name")
+                if not saved_calendar:
+                    # セッションになければ Firestore 上の設定を読む
+                    saved_calendar = get_user_setting(user_id, "selected_calendar_name")
+
                 try:
                     default_cal_index = (
                         calendar_options.index(saved_calendar)
-                        if saved_calendar
+                        if saved_calendar in calendar_options
                         else 0
                     )
                 except ValueError:
                     default_cal_index = 0
 
+                # ★ ここでの選択値が「今の基準カレンダー」
                 default_calendar = st.selectbox(
                     "デフォルトカレンダー",
                     calendar_options,
@@ -39,9 +45,16 @@ def render_sidebar(
                     key="sidebar_default_calendar",
                 )
 
+                # ✅ 毎回、現在の選択をグローバルキーに反映しておく
+                #    → 各タブ側は st.session_state["selected_calendar_name"] を見て初期値を決定
+                st.session_state["selected_calendar_name"] = default_calendar
+
                 prev_share = st.session_state.get(
-                    "share_calendar_selection_across_tabs", True
+                    "share_calendar_selection_across_tabs"
                 )
+                if prev_share is None:
+                    prev_share = True
+
                 share_calendar = st.checkbox(
                     "タブ間で選択を共有",
                     value=prev_share,
@@ -112,7 +125,7 @@ def render_sidebar(
                         "sidebar_default_calendar", calendar_options[0]
                     )
 
-                    # 共通のデフォルトカレンダー設定
+                    # 共通のデフォルトカレンダー設定（Firestore に保存）
                     set_user_setting(
                         user_id, "selected_calendar_name", default_calendar
                     )
@@ -125,21 +138,15 @@ def render_sidebar(
                     if st.session_state.get(
                         "share_calendar_selection_across_tabs", True
                     ):
+                        # 各タブ専用キー名（tab3 / tab5 / tab7 / tab8 等で使っている suffix）
                         tab_keys_for_share = [
-                            # 既存
                             "register",
                             "delete",
-                            "dup",
                             "export",
-                            # サブタブ系（点検ToDo / 貼り紙・FAX）
-                            "todo",
                             "inspection_todo",
                             "notice_fax",
-                            # その他タブ
                             "property_master",
                             "admin",
-                            "del_calendar_select",
-                            "export_calendar_select",
                         ]
                         for suffix in tab_keys_for_share:
                             st.session_state[
@@ -215,7 +222,6 @@ def render_sidebar(
 - **GitHub API**: {'✅ 設定済' if github_ok else '⚠️ 未設定またはエラー'}
 """
             )
-
 
         st.divider()
 
