@@ -104,13 +104,52 @@ def render_tab5_export(editable_calendar_options, service, fetch_all_events):
         st.error("利用可能なカレンダーが見つかりません。")
         return
 
+    # -------------------------------
+    # カレンダー選択（サイドバー設定と連動）
+    # -------------------------------
+    calendar_names = list(editable_calendar_options.keys())
+
+    # サイドバーの「タブ間で選択を共有」と連動
+    share_on = st.session_state.get("share_calendar_selection_across_tabs", True)
+
+    # 共通キー（全タブ共通）
+    saved_global_name = st.session_state.get("selected_calendar_name")
+    # Exportタブ専用キー
+    saved_export_name = st.session_state.get("selected_calendar_name_export")
+
+    # 初期表示に使うカレンダー名を決定
+    initial_name = None
+    if share_on and saved_global_name in calendar_names:
+        # 共有ON -> 共通設定を優先
+        initial_name = saved_global_name
+    elif saved_export_name in calendar_names:
+        # 共有OFF or 共通が未設定 -> Exportタブ専用設定を使用
+        initial_name = saved_export_name
+    else:
+        # どちらもなければ先頭
+        initial_name = calendar_names[0]
+
+    default_index = calendar_names.index(initial_name)
+
     selected_calendar_name_export = st.selectbox(
         "出力対象カレンダーを選択",
-        list(editable_calendar_options.keys()),
+        calendar_names,
+        index=default_index,
         key="export_calendar_select",
     )
+
+    # Exportタブ専用の選択状態を保存
+    st.session_state["selected_calendar_name_export"] = selected_calendar_name_export
+
+    # 共有ONのときは共通キーも更新 → 他タブの初期値にも反映
+    if share_on:
+        st.session_state["selected_calendar_name"] = selected_calendar_name_export
+
     calendar_id_export = editable_calendar_options[selected_calendar_name_export]
 
+    # -------------------------------
+    # 出力期間などの設定
+    # -------------------------------
     st.subheader("🗓️ 出力期間の選択")
     today_date_export = date.today()
     export_start_date = st.date_input("出力開始日", value=today_date_export - timedelta(days=30))
@@ -165,7 +204,7 @@ def render_tab5_export(editable_calendar_options, service, fetch_all_events):
                                 return dt.isoformat(timespec="seconds")
                         except Exception:
                             pass
-                        return s
+                    return s
 
                     schedstart = to_jst_iso(start_time)
                     schedfinish = to_jst_iso(end_time)
