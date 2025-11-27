@@ -19,6 +19,7 @@ def _logical_github_name(filename: str) -> str:
     例: '北海道現場一覧20251127.xlsx' → '北海道現場一覧'
     """
     base, _ext = os.path.splitext(filename)
+    # ベース名の末尾に並んでいる数字だけを削除
     base = re.sub(r"\d+$", "", base)
     return base
 
@@ -34,12 +35,19 @@ def render_tab1_upload():
         st.session_state["merged_df_for_selector"] = None
     if "description_columns_pool" not in st.session_state:
         st.session_state["description_columns_pool"] = []
+    if "gh_checked" not in st.session_state:
+        # 論理名（末尾の日付除去）ごとの選択状態を保持する（今後の拡張用）
+        st.session_state["gh_checked"] = {}
     if "upload_version" not in st.session_state:
         st.session_state["upload_version"] = 0
     if "gh_version" not in st.session_state:
         st.session_state["gh_version"] = 0
+    # 「この一連のアップロードで既にデフォルトGitHubを適用したか？」フラグ
+    if "gh_defaults_applied" not in st.session_state:
+        st.session_state["gh_defaults_applied"] = False
 
     # --- GitHub デフォルト論理名（サイドバー設定） ---
+    # サイドバーの「📦 GitHubファイル設定」で保存した値を利用
     default_gh_logicals = set()
     default_gh_text = st.session_state.get("default_github_logical_names", "")
     if isinstance(default_gh_text, str):
@@ -81,9 +89,17 @@ def render_tab1_upload():
         key=f"outside_uploader_{st.session_state['upload_version']}",
     )
 
+    # ★ この実行で「新しく作業指示書一覧をアップロードしたか？」を判定
+    auto_apply_gh_defaults_now = (
+        bool(uploaded_work_files)                # 今回のrunで何かしらアップロードされた
+        and not has_outside_work                 # 作業外予定ではなく作業指示書モード
+        and not st.session_state["gh_defaults_applied"]  # まだ自動適用していない
+        and len(default_gh_logicals) > 0         # サイドバー側に設定がある
+    )
+
     selected_github_files: List[BytesIO] = []
 
-    # GitHub から作業指示書ファイルを選択
+    # --- GitHub から作業指示書ファイルを選択 ---
     if not has_outside_work:
         try:
             gh_nodes = walk_repo_tree(base_path="", max_depth=3)
@@ -93,17 +109,24 @@ def render_tab1_upload():
                     logical_key = _logical_github_name(node["name"])
                     widget_key = f"gh::{st.session_state['gh_version']}::{node['path']}"
 
-                    # サイドバーの設定に基づく初期選択
-                    checked_default = logical_key in default_gh_logicals
+                    # ① 初期状態：まだ一度も表示していないチェックボックスは False で初期化
+                    if widget_key not in st.session_state:
+                        st.session_state[widget_key] = False
 
-                    # 常にサイドバーの設定を優先して state を同期
-                    st.session_state[widget_key] = checked_default
+                    # ② このrunが「作業指示書アップロード直後」かつ
+                    #    サイドバーで記憶している論理名に含まれる場合、自動的にONにする
+                    if auto_apply_gh_defaults_now and logical_key in default_gh_logicals:
+                        st.session_state[widget_key] = True
 
+                    # ✔ チェックボックスを描画（valueはstateに任せる）
                     checked = st.checkbox(
                         node["name"],
                         key=widget_key,
                         disabled=disable_work_upload,
                     )
+
+                    # 論理名ごとの状態も記録（将来的な利用のため）
+                    st.session_state["gh_checked"][logical_key] = checked
 
                     if checked and not disable_work_upload:
                         try:
@@ -112,15 +135,22 @@ def render_tab1_upload():
                             selected_github_files.append(bio)
                         except Exception as e:
                             st.warning(f"GitHub取得エラー: {e}")
+
+            # ★ このrunで一度でもデフォルト適用したらフラグON
+            if auto_apply_gh_defaults_now:
+                st.session_state["gh_defaults_applied"] = True
+
         except Exception as e:
             st.warning(f"GitHubツリー取得失敗: {e}")
 
+    # --- 作業外予定ファイル（ローカル1ファイル） ---
     if uploaded_outside_file and not has_work_files:
         st.session_state["uploaded_outside_work_file"] = uploaded_outside_file
         st.success(
             f"作業外予定一覧ファイルを読み込みました：{uploaded_outside_file.name}"
         )
 
+    # --- 新規に追加されたファイル（ローカル + GitHub）をまとめて処理 ---
     new_files = []
     if uploaded_work_files and not has_outside_work:
         new_files.extend(uploaded_work_files)
@@ -131,11 +161,12 @@ def render_tab1_upload():
         update_uploaded_files(new_files)
         merge_uploaded_files()
 
+    # --- 画面下部のステータス表示 ---
     if has_outside_work:
         f = st.session_state["uploaded_outside_work_file"]
         st.info(f"📄 作業外予定ファイル：{f.name}")
 
-    if has_work_files:
+    if len(st.session_state["uploaded_files"]) > 0:
         st.subheader("📄 現在の作業指示書ファイル一覧")
         for f in st.session_state["uploaded_files"]:
             st.write(f"- {getattr(f, 'name', '不明なファイル名')}")
@@ -143,6 +174,7 @@ def render_tab1_upload():
             df = st.session_state["merged_df_for_selector"]
             st.info(f"📊 データ列数: {len(df.columns)}、行数: {len(df)}")
 
+    # --- 全クリアボタン ---
     if st.button("🗑️ すべてのアップロードファイルをクリア"):
         clear_uploaded_files()
         st.session_state["uploaded_outside_work_file"] = None
@@ -154,6 +186,9 @@ def render_tab1_upload():
         ]
         for k in keys_to_delete:
             st.session_state.pop(k, None)
+
+        # デフォルト適用フラグもリセット（次のアップロード時に再度自動適用させる）
+        st.session_state["gh_defaults_applied"] = False
 
         st.session_state["upload_version"] += 1
         st.session_state["gh_version"] += 1
