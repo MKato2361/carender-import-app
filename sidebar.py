@@ -16,7 +16,7 @@ from github_loader import (
 
 
 def _logical_github_name(filename: str) -> str:
-    """サイドバー用：末尾の数字（日付）を除いた論理名に変換"""
+    """末尾の数字（日付）を除いた論理名に変換"""
     base, _ext = os.path.splitext(filename)
     base = re.sub(r"\d+$", "", base)
     return base
@@ -31,11 +31,85 @@ def render_sidebar(
 
     with st.sidebar:
         st.subheader("⚙️ 設定・管理")
-        st.caption("上から順に『カレンダー設定 → 保存／リセット → 接続確認 → ログアウト』の流れで使えます。")
+        st.caption("まずは下の『現在の設定状況』を確認し、必要に応じて各設定を開いて調整してください。")
 
-        # 📅 カレンダー設定
-        with st.expander("📅 カレンダー設定", expanded=True):
-            # --- カレンダー選択ブロック ---
+        # =========================
+        # 🧾 現在の設定状況（サマリー）
+        # =========================
+        with st.container(border=True):
+            st.markdown("**🧾 現在の設定状況**")
+
+            # --- 基準カレンダー ---
+            calendar_label = "未設定"
+            if editable_calendar_options:
+                calendar_options = list(editable_calendar_options.keys())
+
+                # session_state / Firestore から有効なカレンダー名を決定
+                cal_from_state = (
+                    st.session_state.get("sidebar_default_calendar")
+                    or st.session_state.get("selected_calendar_name")
+                )
+                cal_from_store = get_user_setting(user_id, "selected_calendar_name")
+
+                if cal_from_state in calendar_options:
+                    calendar_label = cal_from_state
+                elif cal_from_store in calendar_options:
+                    calendar_label = cal_from_store
+                else:
+                    calendar_label = "未設定（カレンダー一覧は取得済み）"
+            else:
+                calendar_label = "カレンダー未取得"
+
+            st.write(f"- **基準カレンダー**：{calendar_label}")
+
+            # --- 新規イベントのデフォルト ---
+            # 非公開
+            saved_private = get_user_setting(user_id, "default_private_event")
+            private_val = st.session_state.get("sidebar_default_private")
+            if private_val is None:
+                private_val = saved_private if saved_private is not None else True
+
+            # 終日
+            saved_allday = get_user_setting(user_id, "default_allday_event")
+            allday_val = st.session_state.get("sidebar_default_allday")
+            if allday_val is None:
+                allday_val = saved_allday if saved_allday is not None else False
+
+            st.write(
+                "- **新規イベント**："
+                f"{'非公開' if private_val else '公開'}, "
+                f"{'終日' if allday_val else '時間指定'}"
+            )
+
+            # --- ToDo設定 ---
+            saved_todo = get_user_setting(user_id, "default_create_todo")
+            todo_val = st.session_state.get("sidebar_default_todo")
+            if todo_val is None:
+                todo_val = bool(saved_todo) if saved_todo is not None else False
+
+            st.write(f"- **ToDo作成**：{'あり' if todo_val else 'なし'}")
+
+            # --- GitHubデフォルトファイル（論理名） ---
+            gh_text = st.session_state.get("default_github_logical_names")
+            if gh_text is None:
+                gh_text = get_user_setting(user_id, "default_github_logical_names") or ""
+            gh_list = [line.strip() for line in gh_text.splitlines() if line.strip()]
+
+            if not gh_list:
+                st.write("- **GitHubデフォルトファイル**：なし")
+            else:
+                st.write("- **GitHubデフォルトファイル**：")
+                for name in gh_list[:5]:
+                    st.write(f"  - {name}")
+                if len(gh_list) > 5:
+                    st.caption(f"　…ほか {len(gh_list) - 5} 件")
+
+        st.divider()
+
+        # ========================
+        # 📅 カレンダー設定（折りたたみ）
+        # ========================
+        with st.expander("📅 カレンダー設定", expanded=False):
             if editable_calendar_options:
                 calendar_options = list(editable_calendar_options.keys())
 
@@ -120,7 +194,9 @@ def render_sidebar(
                 key="sidebar_default_allday",
             )
 
-        # ✅ ToDo設定
+        # ========================
+        # ✅ ToDo設定（折りたたみ）
+        # ========================
         with st.expander("✅ ToDo設定", expanded=False):
             st.caption("新規イベント作成時に、同時にToDoを発行するかどうかを決めます。")
             saved_todo = get_user_setting(user_id, "default_create_todo")
@@ -130,7 +206,9 @@ def render_sidebar(
                 key="sidebar_default_todo",
             )
 
-        # 📦 GitHubファイル設定（末尾日付を無視した「論理名」にチェック）
+        # ===========================
+        # 📦 GitHubファイル設定（折りたたみ）
+        # ===========================
         with st.expander("📦 GitHubファイル設定", expanded=False):
             st.caption(
                 "GitHub上のファイルから、末尾の日付部分を除いた『論理名』単位でデフォルト選択を設定します。\n"
@@ -142,7 +220,6 @@ def render_sidebar(
             if saved_gh_text is None:
                 saved_gh_text = ""
             if "default_github_logical_names" not in st.session_state:
-                # 🔴 ここで必ず session_state に流し込む（tab1_upload が使う）
                 st.session_state["default_github_logical_names"] = saved_gh_text
 
             current_gh_text = st.session_state["default_github_logical_names"]
@@ -185,7 +262,9 @@ def render_sidebar(
             else:
                 st.info("GitHub上に対象のCSV/Excelファイルが見つかりませんでした。")
 
+        # ===========================
         # 💾 保存・リセットボタン
+        # ===========================
         with st.container(border=True):
             st.markdown("**💾 設定の保存／リセット**")
             st.caption("設定を変更したら『設定保存』を押すと次回以降も引き継がれます。")
@@ -290,9 +369,11 @@ def render_sidebar(
 
         st.divider()
 
-        # 📡 ステータス表示（全ての認証項目）
-        with st.container(border=True):
-            st.caption("📡 接続ステータス")
+        # ===========================
+        # 📡 接続ステータス（折りたたみ）
+        # ===========================
+        with st.expander("📡 接続ステータス", expanded=False):
+            st.caption("各種APIとの接続状態の確認用です。")
 
             firebase_ok = bool(user_id)
             calendar_ok = bool(st.session_state.get("calendar_service"))
