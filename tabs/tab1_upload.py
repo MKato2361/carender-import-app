@@ -43,6 +43,17 @@ def render_tab1_upload():
     if "gh_version" not in st.session_state:
         st.session_state["gh_version"] = 0
 
+    # --- GitHub デフォルト論理名（サイドバー設定） ---
+    # サイドバーの「📦 GitHubファイル設定」で保存した値を利用する想定
+    default_gh_logicals = set()
+    default_gh_text = st.session_state.get("default_github_logical_names", "")
+    if isinstance(default_gh_text, str):
+        default_gh_logicals = {
+            line.strip()
+            for line in default_gh_text.splitlines()
+            if line.strip()
+        }
+
     with st.expander("ℹ️作業手順と補足"):
         st.info(
             """
@@ -64,7 +75,7 @@ def render_tab1_upload():
         type=["xlsx", "xls", "csv"],
         accept_multiple_files=True,
         disabled=disable_work_upload,
-        key=f"work_uploader_{st.session_state['upload_version']}"
+        key=f"work_uploader_{st.session_state['upload_version']}",
     )
 
     uploaded_outside_file = st.file_uploader(
@@ -72,7 +83,7 @@ def render_tab1_upload():
         type=["xlsx", "xls", "csv"],
         accept_multiple_files=False,
         disabled=disable_outside_upload,
-        key=f"outside_uploader_{st.session_state['upload_version']}"
+        key=f"outside_uploader_{st.session_state['upload_version']}",
     )
 
     selected_github_files: List[BytesIO] = []
@@ -86,14 +97,22 @@ def render_tab1_upload():
                     # ファイル名から論理名を作成（末尾の日付部分を無視）
                     logical_key = _logical_github_name(node["name"])
                     key = f"gh::{st.session_state['gh_version']}::{node['path']}"
-                    # 過去に選択した論理名なら初期値 True にする
-                    initial_checked = st.session_state["gh_checked"].get(logical_key, False)
+
+                    # ① 過去のセッション内選択状態
+                    initial_checked = st.session_state["gh_checked"].get(
+                        logical_key, False
+                    )
+                    # ② サイドバーで「常に選択したい論理名」に含まれていれば初期ON
+                    if logical_key in default_gh_logicals:
+                        initial_checked = True
+
                     checked = st.checkbox(
                         node["name"],
                         key=key,
                         value=initial_checked,
                         disabled=disable_work_upload,
                     )
+
                     # 論理名ごとの選択状況を記録（末尾の日付が変わっても維持）
                     st.session_state["gh_checked"][logical_key] = checked
 
@@ -109,7 +128,9 @@ def render_tab1_upload():
 
     if uploaded_outside_file and not has_work_files:
         st.session_state["uploaded_outside_work_file"] = uploaded_outside_file
-        st.success(f"作業外予定一覧ファイルを読み込みました：{uploaded_outside_file.name}")
+        st.success(
+            f"作業外予定一覧ファイルを読み込みました：{uploaded_outside_file.name}"
+        )
 
     new_files = []
     if uploaded_work_files and not has_outside_work:
@@ -140,7 +161,9 @@ def render_tab1_upload():
 
         # GitHub選択状態も完全クリア
         st.session_state["gh_checked"] = {}
-        keys_to_delete = [k for k in list(st.session_state.keys()) if k.startswith("gh::")]
+        keys_to_delete = [
+            k for k in list(st.session_state.keys()) if k.startswith("gh::")
+        ]
         for k in keys_to_delete:
             st.session_state.pop(k, None)
 
