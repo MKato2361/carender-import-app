@@ -114,6 +114,37 @@ def render_sidebar(
                 key="sidebar_default_todo",
             )
 
+        # 📦 GitHubファイル設定（末尾日付を無視した「論理名」を保存）
+        with st.expander("📦 GitHubファイル設定", expanded=False):
+            st.caption(
+                "GitHub上のファイル名から末尾の日付部分を除いた『論理名』を記憶しておくエリアです。\n"
+                "ここで登録した論理名は、アップロードタブ側で自動選択の初期値として使えます。"
+            )
+
+            # Firestore に保存済みの値を読み込み（初回のみ session_state にも反映）
+            saved_gh_default = get_user_setting(user_id, "default_github_logical_names")
+            if (
+                saved_gh_default is not None
+                and "default_github_logical_names" not in st.session_state
+            ):
+                st.session_state["default_github_logical_names"] = saved_gh_default
+
+            gh_default_text = st.text_area(
+                "常に選択しておきたいGitHubファイル（1行1件・末尾の日付や拡張子は書かない）",
+                value=st.session_state.get(
+                    "default_github_logical_names", saved_gh_default or ""
+                ),
+                key="sidebar_default_github_logical_names",
+                height=120,
+                help=(
+                    "例: 北海道現場一覧\\n東京現場一覧 のように入力します。\n"
+                    "『北海道現場一覧20251127.xlsx』であれば『北海道現場一覧』だけを書いてください。"
+                ),
+            )
+
+            # テキストエリアの内容は都度 session_state に反映しておく
+            st.session_state["default_github_logical_names"] = gh_default_text
+
         # 💾 保存・リセットボタン（縦並びに変更）
         with st.container(border=True):
             st.markdown("**💾 設定の保存／リセット**")
@@ -156,7 +187,7 @@ def render_sidebar(
                                 f"selected_calendar_name_{suffix}"
                             ] = default_calendar
 
-                # その他設定
+                # その他カレンダー関連設定
                 set_user_setting(user_id, "default_private_event", default_private)
                 save_user_setting_to_firestore(
                     user_id, "default_private_event", default_private
@@ -172,6 +203,17 @@ def render_sidebar(
                     user_id, "default_create_todo", default_todo
                 )
 
+                # 💾 GitHub 論理名デフォルトも保存
+                default_gh_text = (
+                    st.session_state.get("default_github_logical_names", "").strip()
+                )
+                set_user_setting(
+                    user_id, "default_github_logical_names", default_gh_text
+                )
+                save_user_setting_to_firestore(
+                    user_id, "default_github_logical_names", default_gh_text
+                )
+
                 st.toast("設定を保存しました", icon="✅")
 
             if st.button("🔄 リセット", use_container_width=True):
@@ -179,9 +221,15 @@ def render_sidebar(
                     "default_private_event",
                     "default_allday_event",
                     "default_create_todo",
+                    "default_github_logical_names",
                 ]:
                     set_user_setting(user_id, key, None)
                     save_user_setting_to_firestore(user_id, key, None)
+
+                # セッション上の GitHub デフォルトもクリア
+                if "default_github_logical_names" in st.session_state:
+                    del st.session_state["default_github_logical_names"]
+
                 st.toast("設定をリセットしました", icon="🧹")
                 st.rerun()
 
