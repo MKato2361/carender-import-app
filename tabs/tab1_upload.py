@@ -19,7 +19,6 @@ def _logical_github_name(filename: str) -> str:
     例: '北海道現場一覧20251127.xlsx' → '北海道現場一覧'
     """
     base, _ext = os.path.splitext(filename)
-    # ベース名の末尾に並んでいる数字だけを削除
     base = re.sub(r"\d+$", "", base)
     return base
 
@@ -35,16 +34,12 @@ def render_tab1_upload():
         st.session_state["merged_df_for_selector"] = None
     if "description_columns_pool" not in st.session_state:
         st.session_state["description_columns_pool"] = []
-    if "gh_checked" not in st.session_state:
-        # 論理名（末尾の日付除去）ごとの選択状態を保持する
-        st.session_state["gh_checked"] = {}
     if "upload_version" not in st.session_state:
         st.session_state["upload_version"] = 0
     if "gh_version" not in st.session_state:
         st.session_state["gh_version"] = 0
 
     # --- GitHub デフォルト論理名（サイドバー設定） ---
-    # サイドバーの「📦 GitHubファイル設定」で保存した値を利用する想定
     default_gh_logicals = set()
     default_gh_text = st.session_state.get("default_github_logical_names", "")
     if isinstance(default_gh_text, str):
@@ -88,40 +83,27 @@ def render_tab1_upload():
 
     selected_github_files: List[BytesIO] = []
 
+    # GitHub から作業指示書ファイルを選択
     if not has_outside_work:
         try:
             gh_nodes = walk_repo_tree(base_path="", max_depth=3)
             st.markdown("📦 **GitHub上のCSV/Excel（作業指示書用）**")
             for node in gh_nodes:
                 if node["type"] == "file" and is_supported_file(node["name"]):
-                    # ファイル名から論理名を作成（末尾の日付部分を無視）
                     logical_key = _logical_github_name(node["name"])
                     widget_key = f"gh::{st.session_state['gh_version']}::{node['path']}"
 
-                    # ① gh_checked に記録されている選択状態をベースに
-                    prev_checked_for_logical = st.session_state["gh_checked"].get(
-                        logical_key
-                    )
+                    # サイドバーの設定に基づく初期選択
+                    checked_default = logical_key in default_gh_logicals
 
-                    initial_checked = bool(prev_checked_for_logical)
-                    # ② まだ一度も選択されたことがない論理名で、
-                    #    サイドバーのデフォルト一覧に含まれていれば初期ON
-                    if prev_checked_for_logical is None and logical_key in default_gh_logicals:
-                        initial_checked = True
+                    # 常にサイドバーの設定を優先して state を同期
+                    st.session_state[widget_key] = checked_default
 
-                    # ③ ウィジェットの state がまだ無ければ、ここで初期値を流し込む
-                    if widget_key not in st.session_state:
-                        st.session_state[widget_key] = initial_checked
-
-                    # ✔ チェックボックス（value は省略・state を使う）
                     checked = st.checkbox(
                         node["name"],
                         key=widget_key,
                         disabled=disable_work_upload,
                     )
-
-                    # 論理名ごとの選択状況を記録（末尾の日付が変わっても維持）
-                    st.session_state["gh_checked"][logical_key] = checked
 
                     if checked and not disable_work_upload:
                         try:
@@ -166,8 +148,7 @@ def render_tab1_upload():
         st.session_state["uploaded_outside_work_file"] = None
         st.session_state["merged_df_for_selector"] = None
 
-        # GitHub選択状態も完全クリア
-        st.session_state["gh_checked"] = {}
+        # GitHubチェックボックスの状態もクリア
         keys_to_delete = [
             k for k in list(st.session_state.keys()) if k.startswith("gh::")
         ]
