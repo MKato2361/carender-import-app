@@ -1,4 +1,6 @@
 import streamlit as st
+import os
+import re
 from typing import List
 from io import BytesIO
 
@@ -9,6 +11,17 @@ from utils.file_loader import (
     merge_uploaded_files,
     has_merged_data,
 )
+
+
+def _logical_github_name(filename: str) -> str:
+    """
+    GitHubファイル名から末尾の連続した数字（例: 日付のバージョン）を取り除いた論理名を返す。
+    例: '北海道現場一覧20251127.xlsx' → '北海道現場一覧'
+    """
+    base, _ext = os.path.splitext(filename)
+    # ベース名の末尾に並んでいる数字だけを削除
+    base = re.sub(r"\d+$", "", base)
+    return base
 
 
 def render_tab1_upload():
@@ -23,6 +36,7 @@ def render_tab1_upload():
     if "description_columns_pool" not in st.session_state:
         st.session_state["description_columns_pool"] = []
     if "gh_checked" not in st.session_state:
+        # 論理名（末尾の日付除去）ごとの選択状態を保持する
         st.session_state["gh_checked"] = {}
     if "upload_version" not in st.session_state:
         st.session_state["upload_version"] = 0
@@ -69,12 +83,20 @@ def render_tab1_upload():
             st.markdown("📦 **GitHub上のCSV/Excel（作業指示書用）**")
             for node in gh_nodes:
                 if node["type"] == "file" and is_supported_file(node["name"]):
+                    # ファイル名から論理名を作成（末尾の日付部分を無視）
+                    logical_key = _logical_github_name(node["name"])
                     key = f"gh::{st.session_state['gh_version']}::{node['path']}"
+                    # 過去に選択した論理名なら初期値 True にする
+                    initial_checked = st.session_state["gh_checked"].get(logical_key, False)
                     checked = st.checkbox(
                         node["name"],
                         key=key,
-                        disabled=disable_work_upload
+                        value=initial_checked,
+                        disabled=disable_work_upload,
                     )
+                    # 論理名ごとの選択状況を記録（末尾の日付が変わっても維持）
+                    st.session_state["gh_checked"][logical_key] = checked
+
                     if checked:
                         try:
                             bio = load_file_bytes_from_github(node["path"])
@@ -116,6 +138,7 @@ def render_tab1_upload():
         st.session_state["uploaded_outside_work_file"] = None
         st.session_state["merged_df_for_selector"] = None
 
+        # GitHub選択状態も完全クリア
         st.session_state["gh_checked"] = {}
         keys_to_delete = [k for k in list(st.session_state.keys()) if k.startswith("gh::")]
         for k in keys_to_delete:
