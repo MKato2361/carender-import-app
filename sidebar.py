@@ -41,7 +41,7 @@ def render_sidebar(
 
                 st.markdown("**基準カレンダー**")
 
-                # 🔽 セレクトボックスを全幅で表示（縦並び）
+                # 🔽 セレクトボックス：フル幅・縦並び
                 default_calendar = st.selectbox(
                     "デフォルトカレンダー",
                     calendar_options,
@@ -52,7 +52,7 @@ def render_sidebar(
                 # ✅ 毎回、現在の選択をグローバルキーに反映しておく
                 st.session_state["selected_calendar_name"] = default_calendar
 
-                # 🔽 その下に共有チェックボックスを縦方向に配置
+                # 🔽 共有設定：その下に縦に配置
                 prev_share = st.session_state.get(
                     "share_calendar_selection_across_tabs"
                 )
@@ -79,7 +79,6 @@ def render_sidebar(
                         share_calendar,
                     )
                     st.rerun()
-
             else:
                 # カレンダー未取得時でもエラーにならないように
                 st.info("編集可能なカレンダーが取得できていません。認証状態や権限を確認してください。")
@@ -92,19 +91,18 @@ def render_sidebar(
             saved_private = get_user_setting(user_id, "default_private_event")
             saved_allday = get_user_setting(user_id, "default_allday_event")
 
-            col_priv, col_allday = st.columns(2)
-            with col_priv:
-                default_private = st.checkbox(
-                    "標準で「非公開」",
-                    value=(saved_private if saved_private is not None else True),
-                    key="sidebar_default_private",
-                )
-            with col_allday:
-                default_allday = st.checkbox(
-                    "標準で「終日」",
-                    value=(saved_allday if saved_allday is not None else False),
-                    key="sidebar_default_allday",
-                )
+            # 🔽 チェックボックスもすべて縦並びに
+            default_private = st.checkbox(
+                "標準で「非公開」",
+                value=(saved_private if saved_private is not None else True),
+                key="sidebar_default_private",
+            )
+
+            default_allday = st.checkbox(
+                "標準で「終日」",
+                value=(saved_allday if saved_allday is not None else False),
+                key="sidebar_default_allday",
+            )
 
         # ✅ ToDo設定
         with st.expander("✅ ToDo設定", expanded=False):
@@ -116,78 +114,76 @@ def render_sidebar(
                 key="sidebar_default_todo",
             )
 
-        # 💾 保存・リセットボタン（まとまりとして枠で囲む）
+        # 💾 保存・リセットボタン（縦並びに変更）
         with st.container(border=True):
             st.markdown("**💾 設定の保存／リセット**")
             st.caption("設定を変更したら『設定保存』を押すと次回以降も引き継がれます。")
 
-            col_save, col_reset = st.columns(2)
-            with col_save:
-                if st.button("💾 設定保存", use_container_width=True):
-                    if editable_calendar_options:
-                        calendar_options = list(editable_calendar_options.keys())
-                        # selectbox の現在値をそのまま使う
-                        default_calendar = st.session_state.get(
-                            "sidebar_default_calendar", calendar_options[0]
-                        )
-
-                        # 共通のデフォルトカレンダー設定（Firestore に保存）
-                        set_user_setting(
-                            user_id, "selected_calendar_name", default_calendar
-                        )
-                        save_user_setting_to_firestore(
-                            user_id, "selected_calendar_name", default_calendar
-                        )
-                        st.session_state["selected_calendar_name"] = default_calendar
-
-                        # ★ 全タブへの連携用キーをまとめて更新
-                        if st.session_state.get(
-                            "share_calendar_selection_across_tabs", True
-                        ):
-                            # 各タブ専用キー名（tab3 / tab5 / tab7 / tab8 等で使っている suffix）
-                            tab_keys_for_share = [
-                                "register",
-                                "delete",
-                                "export",
-                                "inspection_todo",
-                                "notice_fax",
-                                "property_master",
-                                "admin",
-                            ]
-                            for suffix in tab_keys_for_share:
-                                st.session_state[
-                                    f"selected_calendar_name_{suffix}"
-                                ] = default_calendar
-
-                    # その他設定
-                    set_user_setting(user_id, "default_private_event", default_private)
-                    save_user_setting_to_firestore(
-                        user_id, "default_private_event", default_private
+            # 🔽 ボタンも1列で縦に配置
+            if st.button("💾 設定保存", use_container_width=True):
+                if editable_calendar_options:
+                    calendar_options = list(editable_calendar_options.keys())
+                    # selectbox の現在値をそのまま使う
+                    default_calendar = st.session_state.get(
+                        "sidebar_default_calendar", calendar_options[0]
                     )
 
-                    set_user_setting(user_id, "default_allday_event", default_allday)
-                    save_user_setting_to_firestore(
-                        user_id, "default_allday_event", default_allday
+                    # 共通のデフォルトカレンダー設定（Firestore に保存）
+                    set_user_setting(
+                        user_id, "selected_calendar_name", default_calendar
                     )
-
-                    set_user_setting(user_id, "default_create_todo", default_todo)
                     save_user_setting_to_firestore(
-                        user_id, "default_create_todo", default_todo
+                        user_id, "selected_calendar_name", default_calendar
                     )
+                    st.session_state["selected_calendar_name"] = default_calendar
 
-                    st.toast("設定を保存しました", icon="✅")
+                    # ★ 全タブへの連携用キーをまとめて更新
+                    if st.session_state.get(
+                        "share_calendar_selection_across_tabs", True
+                    ):
+                        # 各タブ専用キー名（tab3 / tab5 / tab7 / tab8 等で使っている suffix）
+                        tab_keys_for_share = [
+                            "register",
+                            "delete",
+                            "export",
+                            "inspection_todo",
+                            "notice_fax",
+                            "property_master",
+                            "admin",
+                        ]
+                        for suffix in tab_keys_for_share:
+                            st.session_state[
+                                f"selected_calendar_name_{suffix}"
+                            ] = default_calendar
 
-            with col_reset:
-                if st.button("🔄 リセット", use_container_width=True):
-                    for key in [
-                        "default_private_event",
-                        "default_allday_event",
-                        "default_create_todo",
-                    ]:
-                        set_user_setting(user_id, key, None)
-                        save_user_setting_to_firestore(user_id, key, None)
-                    st.toast("設定をリセットしました", icon="🧹")
-                    st.rerun()
+                # その他設定
+                set_user_setting(user_id, "default_private_event", default_private)
+                save_user_setting_to_firestore(
+                    user_id, "default_private_event", default_private
+                )
+
+                set_user_setting(user_id, "default_allday_event", default_allday)
+                save_user_setting_to_firestore(
+                    user_id, "default_allday_event", default_allday
+                )
+
+                set_user_setting(user_id, "default_create_todo", default_todo)
+                save_user_setting_to_firestore(
+                    user_id, "default_create_todo", default_todo
+                )
+
+                st.toast("設定を保存しました", icon="✅")
+
+            if st.button("🔄 リセット", use_container_width=True):
+                for key in [
+                    "default_private_event",
+                    "default_allday_event",
+                    "default_create_todo",
+                ]:
+                    set_user_setting(user_id, key, None)
+                    save_user_setting_to_firestore(user_id, key, None)
+                st.toast("設定をリセットしました", icon="🧹")
+                st.rerun()
 
         st.divider()
 
