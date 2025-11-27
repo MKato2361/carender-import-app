@@ -24,28 +24,29 @@ def render_sidebar(
             if editable_calendar_options:
                 calendar_options = list(editable_calendar_options.keys())
 
-                # ✅ まずはセッションの値を優先して取得
-                saved_calendar = st.session_state.get("selected_calendar_name")
-                if not saved_calendar:
-                    # セッションになければ Firestore 上の設定を読む
-                    saved_calendar = get_user_setting(user_id, "selected_calendar_name")
+                # 1) Firestore に保存されているカレンダー名を取得
+                stored_calendar = get_user_setting(user_id, "selected_calendar_name")
 
-                try:
-                    default_cal_index = (
-                        calendar_options.index(saved_calendar)
-                        if saved_calendar in calendar_options
-                        else 0
-                    )
-                except ValueError:
-                    default_cal_index = 0
+                # 2) セッションに直近の選択があればそちらを優先
+                session_calendar = st.session_state.get("selected_calendar_name")
+
+                # 3) 有効なカレンダー名を決定（一覧に無いものは無視して先頭にフォールバック）
+                effective_calendar = calendar_options[0]
+                if session_calendar in calendar_options:
+                    effective_calendar = session_calendar
+                elif stored_calendar in calendar_options:
+                    effective_calendar = stored_calendar
+
+                # 4) ウィジェット生成前に、selectbox用の state をセット
+                if "sidebar_default_calendar" not in st.session_state:
+                    st.session_state["sidebar_default_calendar"] = effective_calendar
 
                 st.markdown("**基準カレンダー**")
 
-                # 🔽 セレクトボックス：フル幅・縦並び
+                # 🔽 セレクトボックス：キーは sidebar_default_calendar
                 default_calendar = st.selectbox(
                     "デフォルトカレンダー",
                     calendar_options,
-                    index=default_cal_index,
                     key="sidebar_default_calendar",
                 )
 
@@ -53,11 +54,16 @@ def render_sidebar(
                 st.session_state["selected_calendar_name"] = default_calendar
 
                 # 🔽 共有設定：その下に縦に配置
-                prev_share = st.session_state.get(
-                    "share_calendar_selection_across_tabs"
-                )
+                prev_share = st.session_state.get("share_calendar_selection_across_tabs")
                 if prev_share is None:
-                    prev_share = True
+                    saved_share = get_user_setting(
+                        user_id, "share_calendar_selection_across_tabs"
+                    )
+                    # 保存がなければ True をデフォルトとする
+                    prev_share = True if saved_share is None else bool(saved_share)
+                    st.session_state["share_calendar_selection_across_tabs"] = (
+                        prev_share
+                    )
 
                 share_calendar = st.checkbox(
                     "タブ間で選択を共有",
@@ -145,12 +151,11 @@ def render_sidebar(
             # テキストエリアの内容は都度 session_state に反映しておく
             st.session_state["default_github_logical_names"] = gh_default_text
 
-        # 💾 保存・リセットボタン（縦並びに変更）
+        # 💾 保存・リセットボタン（縦並び）
         with st.container(border=True):
             st.markdown("**💾 設定の保存／リセット**")
             st.caption("設定を変更したら『設定保存』を押すと次回以降も引き継がれます。")
 
-            # 🔽 ボタンも1列で縦に配置
             if st.button("💾 設定保存", use_container_width=True):
                 if editable_calendar_options:
                     calendar_options = list(editable_calendar_options.keys())
@@ -222,13 +227,21 @@ def render_sidebar(
                     "default_allday_event",
                     "default_create_todo",
                     "default_github_logical_names",
+                    "selected_calendar_name",
+                    "share_calendar_selection_across_tabs",
                 ]:
                     set_user_setting(user_id, key, None)
                     save_user_setting_to_firestore(user_id, key, None)
 
-                # セッション上の GitHub デフォルトもクリア
-                if "default_github_logical_names" in st.session_state:
-                    del st.session_state["default_github_logical_names"]
+                # セッション上の GitHub デフォルト・カレンダーもクリア
+                for k in [
+                    "default_github_logical_names",
+                    "sidebar_default_calendar",
+                    "selected_calendar_name",
+                    "share_calendar_selection_across_tabs",
+                ]:
+                    if k in st.session_state:
+                        del st.session_state[k]
 
                 st.toast("設定をリセットしました", icon="🧹")
                 st.rerun()
