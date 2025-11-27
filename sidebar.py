@@ -137,15 +137,22 @@ def render_sidebar(
                 "ここでチェックした論理名は、アップロードタブ側の初期選択として自動でONになります。"
             )
 
-            # Firestore に保存済みの値を読み込み → セットに変換
+            # 1) Firestore から文字列を取得 → セッションと同期
             saved_gh_text = get_user_setting(user_id, "default_github_logical_names")
             if saved_gh_text is None:
                 saved_gh_text = ""
+            if "default_github_logical_names" not in st.session_state:
+                # 🔴 ここで必ず session_state に流し込む（tab1_upload が使う）
+                st.session_state["default_github_logical_names"] = saved_gh_text
+
+            current_gh_text = st.session_state["default_github_logical_names"]
             saved_gh_set = {
-                line.strip() for line in saved_gh_text.splitlines() if line.strip()
+                line.strip()
+                for line in current_gh_text.splitlines()
+                if line.strip()
             }
 
-            logical_to_files = {}
+            logical_to_files: Dict[str, list[str]] = {}
 
             # GitHub から対象ファイル一覧を読み込む
             try:
@@ -210,8 +217,6 @@ def render_sidebar(
                             "property_master",
                             "admin",
                         ]
-                           
-
                         for suffix in tab_keys_for_share:
                             st.session_state[
                                 f"selected_calendar_name_{suffix}"
