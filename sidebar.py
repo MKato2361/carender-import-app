@@ -41,33 +41,29 @@ def render_sidebar(
 
                 st.markdown("**基準カレンダー**")
 
-                col_cal, col_share = st.columns([3, 2])
-                with col_cal:
-                    # ★ ここでの選択値が「今の基準カレンダー」
-                    default_calendar = st.selectbox(
-                        "デフォルトカレンダー",
-                        calendar_options,
-                        index=default_cal_index,
-                        key="sidebar_default_calendar",
-                        label_visibility="collapsed",
-                    )
-
-                with col_share:
-                    prev_share = st.session_state.get(
-                        "share_calendar_selection_across_tabs"
-                    )
-                    if prev_share is None:
-                        prev_share = True
-
-                    share_calendar = st.checkbox(
-                        "タブ間で共有",
-                        value=prev_share,
-                        help="ONにすると、登録タブで選んだカレンダーが他のタブにも自動で反映されます。",
-                    )
+                # 🔽 セレクトボックスを全幅で表示（縦並び）
+                default_calendar = st.selectbox(
+                    "デフォルトカレンダー",
+                    calendar_options,
+                    index=default_cal_index,
+                    key="sidebar_default_calendar",
+                )
 
                 # ✅ 毎回、現在の選択をグローバルキーに反映しておく
-                #    → 各タブ側は st.session_state['selected_calendar_name'] を見て初期値を決定
                 st.session_state["selected_calendar_name"] = default_calendar
+
+                # 🔽 その下に共有チェックボックスを縦方向に配置
+                prev_share = st.session_state.get(
+                    "share_calendar_selection_across_tabs"
+                )
+                if prev_share is None:
+                    prev_share = True
+
+                share_calendar = st.checkbox(
+                    "タブ間で選択を共有",
+                    value=prev_share,
+                    help="ONにすると、登録タブで選んだカレンダーが他のタブにも自動で反映されます。",
+                )
 
                 # 設定変更時の即時反映ロジック（タブ間共有フラグ）
                 if share_calendar != prev_share:
