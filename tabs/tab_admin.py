@@ -234,9 +234,11 @@ def render_tab_admin(
 
         col_up1, col_up2 = st.columns([3, 1])
         with col_up1:
-            uploaded_file = st.file_uploader(
-                "アップロードするファイル",
+            # ★ 複数ファイルアップロード対応
+            uploaded_files = st.file_uploader(
+                "アップロードするファイル（複数可）",
                 key="admin_github_uploader",
+                accept_multiple_files=True,
             )
         with col_up2:
             commit_message = st.text_input(
@@ -246,28 +248,41 @@ def render_tab_admin(
             )
 
         if st.button("アップロード実行", type="primary", key="admin_github_do_upload"):
-            if not uploaded_file:
+            if not uploaded_files:
                 st.warning("ファイルを選択してください。")
             else:
                 clean_base = base_path.strip().strip("/")
-                if clean_base:
-                    target_path = f"{clean_base}/{uploaded_file.name}"
-                else:
-                    target_path = uploaded_file.name
+                success_count = 0
+                error_count = 0
 
-                try:
-                    res = upload_file_to_github(
-                        target_path=target_path,
-                        content=uploaded_file.getvalue(),
-                        message=commit_message,
-                    )
-                    st.success(f"アップロード完了: `{target_path}`")
-                    with st.expander("GitHub API レスポンス", expanded=False):
-                        st.json(res)
+                for f in uploaded_files:
+                    if clean_base:
+                        target_path = f"{clean_base}/{f.name}"
+                    else:
+                        target_path = f.name
+
+                    try:
+                        res = upload_file_to_github(
+                            target_path=target_path,
+                            content=f.getvalue(),
+                            message=commit_message,
+                        )
+                        success_count += 1
+                        st.success(f"アップロード完了: `{target_path}`")
+                        with st.expander(f"GitHub API レスポンス: {f.name}", expanded=False):
+                            st.json(res)
+                    except Exception as e:
+                        error_count += 1
+                        st.error(f"アップロード中にエラーが発生しました: {f.name} ({e})")
+
+                if success_count > 0:
                     # 再取得のためキャッシュ削除
                     st.session_state.pop("admin_github_last_list", None)
-                except Exception as e:
-                    st.error(f"アップロード中にエラーが発生しました: {e}")
+
+                if error_count == 0:
+                    st.info(f"{success_count} 件のファイルをアップロードしました。")
+                elif success_count > 0:
+                    st.warning(f"{success_count} 件成功、{error_count} 件でエラーが発生しました。")
 
         st.markdown("---")
         st.subheader("ディレクトリ内のファイル一覧 / 一括削除")
