@@ -96,27 +96,34 @@ def render_tab1_upload():
                 if node["type"] == "file" and is_supported_file(node["name"]):
                     # ファイル名から論理名を作成（末尾の日付部分を無視）
                     logical_key = _logical_github_name(node["name"])
-                    key = f"gh::{st.session_state['gh_version']}::{node['path']}"
+                    widget_key = f"gh::{st.session_state['gh_version']}::{node['path']}"
 
-                    # ① 過去のセッション内選択状態
-                    initial_checked = st.session_state["gh_checked"].get(
-                        logical_key, False
+                    # ① gh_checked に記録されている選択状態をベースに
+                    prev_checked_for_logical = st.session_state["gh_checked"].get(
+                        logical_key
                     )
-                    # ② サイドバーで「常に選択したい論理名」に含まれていれば初期ON
-                    if logical_key in default_gh_logicals:
+
+                    initial_checked = bool(prev_checked_for_logical)
+                    # ② まだ一度も選択されたことがない論理名で、
+                    #    サイドバーのデフォルト一覧に含まれていれば初期ON
+                    if prev_checked_for_logical is None and logical_key in default_gh_logicals:
                         initial_checked = True
 
+                    # ③ ウィジェットの state がまだ無ければ、ここで初期値を流し込む
+                    if widget_key not in st.session_state:
+                        st.session_state[widget_key] = initial_checked
+
+                    # ✔ チェックボックス（value は省略・state を使う）
                     checked = st.checkbox(
                         node["name"],
-                        key=key,
-                        value=initial_checked,
+                        key=widget_key,
                         disabled=disable_work_upload,
                     )
 
                     # 論理名ごとの選択状況を記録（末尾の日付が変わっても維持）
                     st.session_state["gh_checked"][logical_key] = checked
 
-                    if checked:
+                    if checked and not disable_work_upload:
                         try:
                             bio = load_file_bytes_from_github(node["path"])
                             bio.name = node["name"]
