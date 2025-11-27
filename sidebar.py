@@ -1,10 +1,25 @@
 from __future__ import annotations
 from typing import Dict, Optional, Callable
 
+import os
+import re
 import streamlit as st
 
 from session_utils import get_user_setting, set_user_setting, clear_user_settings
-from github_loader import _headers, GITHUB_OWNER, GITHUB_REPO
+from github_loader import (
+    _headers,
+    GITHUB_OWNER,
+    GITHUB_REPO,
+    walk_repo_tree,
+    is_supported_file,
+)
+
+
+def _logical_github_name(filename: str) -> str:
+    """サイドバー用：末尾の数字（日付）を除いた論理名に変換"""
+    base, _ext = os.path.splitext(filename)
+    base = re.sub(r"\d+$", "", base)
+    return base
 
 
 def render_sidebar(
@@ -24,33 +39,30 @@ def render_sidebar(
             if editable_calendar_options:
                 calendar_options = list(editable_calendar_options.keys())
 
-                # 1) Firestore に保存されているカレンダー名を取得
+                # Firestore に保存されているカレンダー名
                 stored_calendar = get_user_setting(user_id, "selected_calendar_name")
+                # 画面での直近の選択状態
+                session_calendar = st.session_state.get("sidebar_default_calendar")
 
-                # 2) セッションに直近の選択があればそちらを優先
-                session_calendar = st.session_state.get("selected_calendar_name")
-
-                # 3) 有効なカレンダー名を決定（一覧に無いものは無視して先頭にフォールバック）
+                # 有効なカレンダー名を決定（優先順位：画面 > Firestore > 先頭）
                 effective_calendar = calendar_options[0]
                 if session_calendar in calendar_options:
                     effective_calendar = session_calendar
                 elif stored_calendar in calendar_options:
                     effective_calendar = stored_calendar
 
-                # 4) ウィジェット生成前に、selectbox用の state をセット
-                if "sidebar_default_calendar" not in st.session_state:
-                    st.session_state["sidebar_default_calendar"] = effective_calendar
+                # selectbox の state を常に「有効なカレンダー名」に同期
+                st.session_state["sidebar_default_calendar"] = effective_calendar
 
                 st.markdown("**基準カレンダー**")
 
-                # 🔽 セレクトボックス：キーは sidebar_default_calendar
                 default_calendar = st.selectbox(
                     "デフォルトカレンダー",
                     calendar_options,
                     key="sidebar_default_calendar",
                 )
 
-                # ✅ 毎回、現在の選択をグローバルキーに反映しておく
+                # グローバルにも反映（他タブで使う想定）
                 st.session_state["selected_calendar_name"] = default_calendar
 
                 # 🔽 共有設定：その下に縦に配置
@@ -59,7 +71,6 @@ def render_sidebar(
                     saved_share = get_user_setting(
                         user_id, "share_calendar_selection_across_tabs"
                     )
-                    # 保存がなければ True をデフォルトとする
                     prev_share = True if saved_share is None else bool(saved_share)
                     st.session_state["share_calendar_selection_across_tabs"] = (
                         prev_share
@@ -71,7 +82,6 @@ def render_sidebar(
                     help="ONにすると、登録タブで選んだカレンダーが他のタブにも自動で反映されます。",
                 )
 
-                # 設定変更時の即時反映ロジック（タブ間共有フラグ）
                 if share_calendar != prev_share:
                     st.session_state["share_calendar_selection_across_tabs"] = (
                         share_calendar
@@ -86,8 +96,9 @@ def render_sidebar(
                     )
                     st.rerun()
             else:
-                # カレンダー未取得時でもエラーにならないように
-                st.info("編集可能なカレンダーが取得できていません。認証状態や権限を確認してください。")
+                st.info(
+                    "編集可能なカレンダーが取得できていません。認証状態や権限を確認してください。"
+                )
 
             st.markdown("---")
 
@@ -97,7 +108,6 @@ def render_sidebar(
             saved_private = get_user_setting(user_id, "default_private_event")
             saved_allday = get_user_setting(user_id, "default_allday_event")
 
-            # 🔽 チェックボックスもすべて縦並びに
             default_private = st.checkbox(
                 "標準で「非公開」",
                 value=(saved_private if saved_private is not None else True),
@@ -120,38 +130,55 @@ def render_sidebar(
                 key="sidebar_default_todo",
             )
 
-        # 📦 GitHubファイル設定（末尾日付を無視した「論理名」を保存）
+        # 📦 GitHubファイル設定（末尾日付を無視した「論理名」にチェック）
         with st.expander("📦 GitHubファイル設定", expanded=False):
             st.caption(
-                "GitHub上のファイル名から末尾の日付部分を除いた『論理名』を記憶しておくエリアです。\n"
-                "ここで登録した論理名は、アップロードタブ側で自動選択の初期値として使えます。"
+                "GitHub上のファイルから、末尾の日付部分を除いた『論理名』単位でデフォルト選択を設定します。\n"
+                "ここでチェックした論理名は、アップロードタブ側の初期選択として自動でONになります。"
             )
 
-            # Firestore に保存済みの値を読み込み（初回のみ session_state にも反映）
-            saved_gh_default = get_user_setting(user_id, "default_github_logical_names")
-            if (
-                saved_gh_default is not None
-                and "default_github_logical_names" not in st.session_state
-            ):
-                st.session_state["default_github_logical_names"] = saved_gh_default
+            # Firestore に保存済みの値を読み込み → セットに変換
+            saved_gh_text = get_user_setting(user_id, "default_github_logical_names")
+            if saved_gh_text is None:
+                saved_gh_text = ""
+            saved_gh_set = {
+                line.strip() for line in saved_gh_text.splitlines() if line.strip()
+            }
 
-            gh_default_text = st.text_area(
-                "常に選択しておきたいGitHubファイル（1行1件・末尾の日付や拡張子は書かない）",
-                value=st.session_state.get(
-                    "default_github_logical_names", saved_gh_default or ""
-                ),
-                key="sidebar_default_github_logical_names",
-                height=120,
-                help=(
-                    "例: 北海道現場一覧\\n東京現場一覧 のように入力します。\n"
-                    "『北海道現場一覧20251127.xlsx』であれば『北海道現場一覧』だけを書いてください。"
-                ),
-            )
+            logical_to_files = {}
 
-            # テキストエリアの内容は都度 session_state に反映しておく
-            st.session_state["default_github_logical_names"] = gh_default_text
+            # GitHub から対象ファイル一覧を読み込む
+            try:
+                gh_nodes = walk_repo_tree(base_path="", max_depth=3)
+                for node in gh_nodes:
+                    if node.get("type") == "file" and is_supported_file(node["name"]):
+                        logical = _logical_github_name(node["name"])
+                        logical_to_files.setdefault(logical, []).append(node["name"])
+            except Exception as e:
+                st.warning(f"GitHubファイル一覧の取得に失敗しました: {e}")
+                logical_to_files = {}
 
-        # 💾 保存・リセットボタン（縦並び）
+            if logical_to_files:
+                st.write("**デフォルトで選択しておきたい論理名にチェックしてください。**")
+                for logical in sorted(logical_to_files.keys()):
+                    key = f"sidebar_gh_default::{logical}"
+                    # 保存済み設定を初期値とする
+                    if key not in st.session_state:
+                        st.session_state[key] = logical in saved_gh_set
+
+                    examples = ", ".join(logical_to_files[logical][:3])
+                    if len(logical_to_files[logical]) > 3:
+                        examples += " など"
+
+                    st.checkbox(
+                        logical,
+                        key=key,
+                        help=f"例: {examples}",
+                    )
+            else:
+                st.info("GitHub上に対象のCSV/Excelファイルが見つかりませんでした。")
+
+        # 💾 保存・リセットボタン
         with st.container(border=True):
             st.markdown("**💾 設定の保存／リセット**")
             st.caption("設定を変更したら『設定保存』を押すと次回以降も引き継がれます。")
@@ -159,12 +186,10 @@ def render_sidebar(
             if st.button("💾 設定保存", use_container_width=True):
                 if editable_calendar_options:
                     calendar_options = list(editable_calendar_options.keys())
-                    # selectbox の現在値をそのまま使う
                     default_calendar = st.session_state.get(
                         "sidebar_default_calendar", calendar_options[0]
                     )
 
-                    # 共通のデフォルトカレンダー設定（Firestore に保存）
                     set_user_setting(
                         user_id, "selected_calendar_name", default_calendar
                     )
@@ -173,11 +198,9 @@ def render_sidebar(
                     )
                     st.session_state["selected_calendar_name"] = default_calendar
 
-                    # ★ 全タブへの連携用キーをまとめて更新
                     if st.session_state.get(
                         "share_calendar_selection_across_tabs", True
                     ):
-                        # 各タブ専用キー名（tab3 / tab5 / tab7 / tab8 等で使っている suffix）
                         tab_keys_for_share = [
                             "register",
                             "delete",
@@ -187,12 +210,14 @@ def render_sidebar(
                             "property_master",
                             "admin",
                         ]
+                           
+
                         for suffix in tab_keys_for_share:
                             st.session_state[
                                 f"selected_calendar_name_{suffix}"
                             ] = default_calendar
 
-                # その他カレンダー関連設定
+                # カレンダー系
                 set_user_setting(user_id, "default_private_event", default_private)
                 save_user_setting_to_firestore(
                     user_id, "default_private_event", default_private
@@ -208,16 +233,25 @@ def render_sidebar(
                     user_id, "default_create_todo", default_todo
                 )
 
-                # 💾 GitHub 論理名デフォルトも保存
-                default_gh_text = (
-                    st.session_state.get("default_github_logical_names", "").strip()
-                )
+                # GitHub 論理名デフォルト（チェックされたものだけ保存）
+                selected_logicals = []
+                for key, val in st.session_state.items():
+                    if key.startswith("sidebar_gh_default::") and val:
+                        logical = key.split("::", 1)[1]
+                        selected_logicals.append(logical)
+
+                selected_logicals = sorted(set(selected_logicals))
+                default_gh_text = "\n".join(selected_logicals)
+
                 set_user_setting(
                     user_id, "default_github_logical_names", default_gh_text
                 )
                 save_user_setting_to_firestore(
                     user_id, "default_github_logical_names", default_gh_text
                 )
+
+                # タブ側で使えるようにセッションにも反映
+                st.session_state["default_github_logical_names"] = default_gh_text
 
                 st.toast("設定を保存しました", icon="✅")
 
@@ -233,7 +267,10 @@ def render_sidebar(
                     set_user_setting(user_id, key, None)
                     save_user_setting_to_firestore(user_id, key, None)
 
-                # セッション上の GitHub デフォルト・カレンダーもクリア
+                # セッション上の GitHub / カレンダー関連キーをクリア
+                for k in list(st.session_state.keys()):
+                    if k.startswith("sidebar_gh_default::"):
+                        del st.session_state[k]
                 for k in [
                     "default_github_logical_names",
                     "sidebar_default_calendar",
@@ -252,15 +289,11 @@ def render_sidebar(
         with st.container(border=True):
             st.caption("📡 接続ステータス")
 
-            # Firebase 認証（user_id が取れていれば OK）
             firebase_ok = bool(user_id)
-
-            # Google API 系は session_state で確認
             calendar_ok = bool(st.session_state.get("calendar_service"))
             tasks_ok = bool(st.session_state.get("tasks_service"))
             sheets_ok = bool(st.session_state.get("sheets_service"))
 
-            # GitHub：トークンの有無＋OWNER/REPO が設定されているかで判定
             token_in_secrets = False
             try:
                 token_in_secrets = bool(st.secrets.get("GITHUB_TOKEN", ""))
