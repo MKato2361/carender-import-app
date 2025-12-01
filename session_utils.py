@@ -1,10 +1,11 @@
 import streamlit as st
+# firebase_admin のインポートが firebase_auth.py で確認できているため、そのまま使用します。
 from firebase_admin import firestore, _apps
 from typing import Optional, Any, Dict
 
 # --- Firestore Client Caching ---
 
-@st.cache_resource
+@st.cache_resource(ttl=None) # TTLを無期限にしてアプリ実行中はクライアントを維持
 def get_firestore_client():
     """
     Firestoreクライアントをキャッシュして返す。
@@ -12,26 +13,25 @@ def get_firestore_client():
     """
     # Firebase Admin SDKが初期化されているか確認
     if not _apps:
-        # アプリケーションのメインファイル（例: firebase_auth.pyのmain関数）で
-        # initialize_firebase()が実行されている必要があります。
-        # ここで直接initialize_firebase()を呼ぶことはできませんが、
-        # 初期化が前提となります。
+        # 初期化がされていない場合は警告を出し、Noneを返す
+        st.warning("⚠️ Firebase Admin SDKが初期化されていません。設定は永続化されません。")
         return None
     try:
         # firestore.client() をキャッシュし、再実行を防ぐ
         return firestore.client()
-    except Exception:
-        # 初期化が不十分な場合はNoneを返す
+    except Exception as e:
+        st.error(f"🚨 Firestoreクライアントの取得に失敗しました: {e}")
         return None
 
 # --- Default Settings ---
 
 DEFAULT_SETTINGS = {
-    # tab2_register.py で使用されるカレンダー選択の設定を追加
+    # カレンダー選択設定
     'selected_calendar_name': None,
     'selected_calendar_name_outside': None,
-    # 既存の設定
+    # 説明欄設定
     'description_columns_selected': ["内容", "詳細"],
+    # イベント名設定
     'event_name_col_selected': "選択しない",
     'event_name_col_selected_update': "選択しない",
     'add_task_type_to_event_name': False,
@@ -45,7 +45,7 @@ def initialize_cache(user_id: str):
     if 'user_settings_cache' not in st.session_state:
         st.session_state['user_settings_cache'] = {}
     if user_id not in st.session_state['user_settings_cache']:
-        # キャッシュには初期データとして空の辞書をセット (Firestoreから読み込むため)
+        # 新しいユーザーの場合、キャッシュを空の辞書で初期化
         st.session_state['user_settings_cache'][user_id] = {}
 
 
@@ -55,13 +55,13 @@ def get_user_setting(user_id: str, key: str) -> Any:
     """
     initialize_cache(user_id)
     
-    # 1. セッションキャッシュから取得を試みる
-    if key in st.session_state['user_settings_cache'][user_id]:
+    # 1. セッションキャッシュから取得を試みる (リロード時の高速化)
+    if key in st.session_state['user_settings_cache'].get(user_id, {}):
         return st.session_state['user_settings_cache'][user_id][key]
 
     db = get_firestore_client()
     if db:
-        # 2. Firestoreから取得を試みる
+        # 2. Firestoreから取得を試みる (ログアウト後の再ログイン時など)
         try:
             doc_ref = db.collection("user_settings").document(user_id)
             doc = doc_ref.get()
@@ -88,7 +88,7 @@ def set_user_setting(user_id: str, key: str, value: Any):
     # 1. セッションキャッシュを更新
     st.session_state['user_settings_cache'][user_id][key] = value
     
-    # 2. Firestoreに書き込む
+    # 2. Firestoreに書き込む (永続化)
     db = get_firestore_client()
     if db:
         try:
@@ -96,6 +96,7 @@ def set_user_setting(user_id: str, key: str, value: Any):
             # merge=True で、他の設定を上書きせずにこのキーだけを更新
             doc_ref.set({key: value}, merge=True)
         except Exception as e:
+            # エラーはトーストではなくコンソール等でログとして扱うのが望ましいが、今回はst.errorで通知
             st.error(f"🚨 設定の保存（Firestore）に失敗しました: {e}")
 
 
@@ -113,6 +114,7 @@ def get_all_user_settings(user_id: str) -> Dict[str, Any]:
         except Exception:
             pass
             
+    # Firestoreから取得できなかった場合はキャッシュとデフォルト値をマージして返す
     initialize_cache(user_id)
     current_settings = DEFAULT_SETTINGS.copy()
     current_settings.update(st.session_state['user_settings_cache'].get(user_id, {}))
