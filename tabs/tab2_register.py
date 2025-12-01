@@ -269,6 +269,40 @@ def _build_calendar_df_from_outside(df_raw: pd.DataFrame, private_event: bool, a
 
     return pd.DataFrame(rows)
 
+# ---- 内部関数: 設定保存用コールバック ----
+
+def _save_calendar_selection(user_id: str, outside_mode: bool):
+    """登録先カレンダーの選択を保存するコールバック"""
+    key = "reg_calendar_select_outside" if outside_mode else "reg_calendar_select"
+    setting_key = "selected_calendar_name_outside" if outside_mode else "selected_calendar_name"
+
+    if key in st.session_state:
+        set_user_setting(user_id, setting_key, st.session_state[key])
+        st.toast("✅ カレンダー選択を保存しました", icon="📅")
+
+
+def _save_description_settings(user_id: str):
+    """説明欄設定を保存するコールバック"""
+    key = f"description_selector_register_{user_id}"
+    if key in st.session_state:
+        val = st.session_state[key]
+        set_user_setting(user_id, "description_columns_selected", val)
+        st.toast("✅ 説明欄の設定を保存しました", icon="💾")
+
+
+def _save_event_name_settings(user_id: str):
+    """イベント名生成設定を保存するコールバック"""
+    chk_key = f"add_task_type_checkbox_{user_id}"
+    if chk_key in st.session_state:
+        set_user_setting(user_id, "add_task_type_to_event_name", st.session_state[chk_key])
+    
+    sel_key = f"event_name_selector_register_{user_id}"
+    if sel_key in st.session_state:
+        set_user_setting(user_id, "event_name_col_selected", st.session_state[sel_key])
+    
+    st.toast("✅ イベント名の生成設定を保存しました", icon="💾")
+# ----------------------------------------
+
 
 def render_tab2_register(user_id: str, editable_calendar_options: dict, service):
     """
@@ -302,39 +336,23 @@ def render_tab2_register(user_id: str, editable_calendar_options: dict, service)
     except Exception:
         default_index = 0
 
-    selected_calendar_name = st.selectbox(
+    # 登録先カレンダーの選択 (on_changeで保存)
+    select_key = "reg_calendar_select_outside" if outside_mode else "reg_calendar_select"
+    
+    st.selectbox(
         "登録先カレンダーを選択" + ("（作業外予定）" if outside_mode else "（作業指示書）"),
         calendar_options,
         index=default_index,
-        key="reg_calendar_select_outside" if outside_mode else "reg_calendar_select",
+        key=select_key,
+        # on_changeで保存処理を呼び出す
+        # lambdaを使って引数(user_id, outside_mode)を固定する
+        on_change=lambda u=user_id, o=outside_mode: _save_calendar_selection(u, o)
     )
+    
+    # st.session_stateから現在の選択値を取得し、後続処理で使用
+    selected_calendar_name = st.session_state.get(select_key, calendar_options[default_index])
     calendar_id = editable_calendar_options[selected_calendar_name]
 
-    if outside_mode:
-        set_user_setting(user_id, "selected_calendar_name_outside", selected_calendar_name)
-    else:
-        set_user_setting(user_id, "selected_calendar_name", selected_calendar_name)
-
-    # ---- 内部関数: 設定保存用コールバック ----
-    # ボタン押下時(on_click)に実行されるため、画面リロード前に確実に保存処理が走ります。
-    def _save_description_settings():
-        key = f"description_selector_register_{user_id}"
-        if key in st.session_state:
-            val = st.session_state[key]
-            set_user_setting(user_id, "description_columns_selected", val)
-            st.toast("✅ 説明欄の設定を保存しました", icon="💾")
-
-    def _save_event_name_settings():
-        chk_key = f"add_task_type_checkbox_{user_id}"
-        if chk_key in st.session_state:
-            set_user_setting(user_id, "add_task_type_to_event_name", st.session_state[chk_key])
-        
-        sel_key = f"event_name_selector_register_{user_id}"
-        if sel_key in st.session_state:
-            set_user_setting(user_id, "event_name_col_selected", st.session_state[sel_key])
-        
-        st.toast("✅ イベント名の生成設定を保存しました", icon="💾")
-    # ----------------------------------------
 
     # イベント共通設定
     with st.expander("📝 イベント設定", expanded=not outside_mode):
@@ -367,7 +385,7 @@ def render_tab2_register(user_id: str, editable_calendar_options: dict, service)
             st.button(
                 "説明欄の設定を保存",
                 key=f"btn_save_desc_{user_id}",
-                on_click=_save_description_settings  # ここでコールバックを指定
+                on_click=lambda u=user_id: _save_description_settings(u)
             )
 
     # 作業指示書イベント名設定
@@ -393,7 +411,8 @@ def render_tab2_register(user_id: str, editable_calendar_options: dict, service)
                 available_event_name_cols = get_available_columns_for_event_name(st.session_state["merged_df_for_selector"])
                 event_name_options = ["選択しない"] + available_event_name_cols
                 try:
-                    name_index = event_name_options.index(saved_event_name_col) if saved_event_name_col else 0
+                    # 保存されている列が選択肢にない場合は「選択しない」をデフォルトにする
+                    name_index = event_name_options.index(saved_event_name_col) if saved_event_name_col in event_name_options else 0
                 except Exception:
                     name_index = 0
                 
@@ -406,14 +425,32 @@ def render_tab2_register(user_id: str, editable_calendar_options: dict, service)
                 if selected_event_name_col != "選択しない":
                     fallback_event_name_column = selected_event_name_col
             else:
+                # 代替列が選択されていない場合、session_stateから読み取れないため、設定ファイルから取得した値をセット
+                selected_event_name_col = saved_event_name_col
                 st.info("「管理番号」と「物件名」のデータが両方存在するため、それらがイベント名として使用されます。")
             
             # コールバックを使った保存ボタン
             st.button(
                 "イベント名設定を保存",
                 key=f"btn_save_name_conf_{user_id}",
-                on_click=_save_event_name_settings  # ここでコールバックを指定
+                on_click=lambda u=user_id: _save_event_name_settings(u)
             )
+            
+            # 保存されている設定値をここで参照し直す（再描画時のため）
+            if not outside_mode:
+                if not (has_mng_data and has_name_data):
+                    # selectboxの値（st.session_state[key]）を優先する
+                    selectbox_key = f"event_name_selector_register_{user_id}"
+                    current_selection = st.session_state.get(selectbox_key)
+                    if current_selection and current_selection != "選択しない":
+                        fallback_event_name_column = current_selection
+                
+                checkbox_key = f"add_task_type_checkbox_{user_id}"
+                add_task_type_to_event_name = st.session_state.get(checkbox_key, bool(saved_task_type_flag))
+                
+                # description_columnsの最終的な値もここで取得し直す（再描画時のため）
+                desc_key = f"description_selector_register_{user_id}"
+                description_columns = st.session_state.get(desc_key, default_selection)
 
     st.subheader("➡️ イベント登録・更新実行")
     if not st.button("Googleカレンダーに登録・更新する"):
