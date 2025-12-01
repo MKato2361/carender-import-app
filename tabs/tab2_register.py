@@ -339,7 +339,10 @@ def render_tab2_register(user_id: str, editable_calendar_options: dict, service)
                 default=default_selection,
                 key=f"description_selector_register_{user_id}",
             )
-            set_user_setting(user_id, "description_columns_selected", description_columns)
+            # 保存ボタンを追加
+            if st.button("説明欄の設定を保存", key=f"btn_save_desc_{user_id}"):
+                set_user_setting(user_id, "description_columns_selected", description_columns)
+                st.success("✅ 説明欄の設定を保存しました。")
 
     # 作業指示書イベント名設定
     if outside_mode:
@@ -359,6 +362,8 @@ def render_tab2_register(user_id: str, editable_calendar_options: dict, service)
             )
 
             fallback_event_name_column = None
+            selected_event_name_col = None  # 初期化
+
             if not (has_mng_data and has_name_data):
                 available_event_name_cols = get_available_columns_for_event_name(st.session_state["merged_df_for_selector"])
                 event_name_options = ["選択しない"] + available_event_name_cols
@@ -374,13 +379,15 @@ def render_tab2_register(user_id: str, editable_calendar_options: dict, service)
                 )
                 if selected_event_name_col != "選択しない":
                     fallback_event_name_column = selected_event_name_col
-                set_user_setting(user_id, "event_name_col_selected", selected_event_name_col)
             else:
                 st.info("「管理番号」と「物件名」のデータが両方存在するため、それらがイベント名として使用されます。")
-            set_user_setting(user_id, "add_task_type_to_event_name", add_task_type_to_event_name)
-
-    # ToDo連携設定は tab7 に集約したため、ここから削除済み
-
+            
+            # 保存ボタンを追加
+            if st.button("イベント名設定を保存", key=f"btn_save_name_conf_{user_id}"):
+                set_user_setting(user_id, "add_task_type_to_event_name", add_task_type_to_event_name)
+                if selected_event_name_col is not None:
+                    set_user_setting(user_id, "event_name_col_selected", selected_event_name_col)
+                st.success("✅ イベント名の生成設定を保存しました。")
 
     st.subheader("➡️ イベント登録・更新実行")
     if not st.button("Googleカレンダーに登録・更新する"):
