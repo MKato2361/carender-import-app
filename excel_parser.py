@@ -145,21 +145,41 @@ def _load_and_merge_dataframes(uploaded_files):
     merged_df["管理番号"] = merged_df["管理番号"].astype(str)
     merged_df["元管理番号"] = merged_df["元管理番号"].astype(str)
 
+    # 複数ファイルを管理番号でマージ
+    merged_df = dataframes[0].copy()
+    merged_df["管理番号"] = merged_df["管理番号"].astype(str)
+    merged_df["元管理番号"] = merged_df["元管理番号"].astype(str)
+
     for df in dataframes[1:]:
         df_copy = df.copy()
         df_copy["管理番号"] = df_copy["管理番号"].astype(str)
         df_copy["元管理番号"] = df_copy["元管理番号"].astype(str)
-        cols_to_merge = [
-            col
-            for col in df_copy.columns
-            if col == "管理番号" or col == "元管理番号" or col not in merged_df.columns
-        ]
+
+        # ① 結合キー「管理番号」は常に含める
+        # ② それ以外は、merged_df にまだ存在しない列だけをマージ対象にする
+        cols_to_merge = []
+        for col in df_copy.columns:
+            if col == "管理番号":
+                cols_to_merge.append(col)
+            else:
+                # 既に merged_df に同名の列がある場合は追加しない（重複回避）
+                if col not in merged_df.columns:
+                    cols_to_merge.append(col)
+
+        # もし cols_to_merge に管理番号しか入っていないなら、重複データは無視して continue する
+        if cols_to_merge == ["管理番号"]:
+            # このファイルにマージ追加する新しい列がない -> 次へ
+            # ただし管理番号の存在確認のため outer 結合だけは行いたい場合は以下の1行を使う（必要なら）
+            # merged_df = pd.merge(merged_df, df_copy[["管理番号"]], on="管理番号", how="outer")
+            continue
+
         merged_df = pd.merge(
             merged_df,
             df_copy[cols_to_merge],
             on="管理番号",
             how="outer",
         )
+
 
     return merged_df
 
@@ -403,3 +423,4 @@ def process_excel_data_for_calendar(
         )
 
     return pd.DataFrame(output_records) if output_records else pd.DataFrame()
+
