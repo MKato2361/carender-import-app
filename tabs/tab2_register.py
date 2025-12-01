@@ -380,6 +380,45 @@ def render_tab2_register(user_id: str, editable_calendar_options: dict, service)
             set_user_setting(user_id, "add_task_type_to_event_name", add_task_type_to_event_name)
 
     # ToDo連携設定は tab7 に集約したため、ここから削除済み
+# --- ここから挿入 ---
+# 明示的にユーザー選択を保存するボタン
+if st.button("選択項目を保存", key=f"save_selects_{user_id}"):
+    # カレンダー選択を保存
+    set_user_setting(
+        user_id,
+        "selected_calendar_name_outside" if outside_mode else "selected_calendar_name",
+        selected_calendar_name,
+    )
+
+    # 説明カラムの選択（作業モード時のみ）
+    if not outside_mode:
+        # description_columns は上で定義済み
+        set_user_setting(user_id, "description_columns_selected", description_columns)
+
+    # イベント名代替列（存在すれば）
+    # ウィジェットが存在する場合は session_state に格納されているはずなのでまずそこから取得
+    event_name_key = f"event_name_selector_register_{user_id}"
+    if event_name_key in st.session_state:
+        selected_event_name_col = st.session_state.get(event_name_key)
+    else:
+        # ウィジェットが無ければ既存の設定をそのまま保存（None でも可）
+        selected_event_name_col = get_user_setting(user_id, "event_name_col_selected")
+    set_user_setting(user_id, "event_name_col_selected", selected_event_name_col)
+
+    # 「作業タイプをイベント名に追加」フラグ
+    add_task_key = f"add_task_type_checkbox_{user_id}"
+    if add_task_key in st.session_state:
+        add_task_flag = bool(st.session_state.get(add_task_key))
+    else:
+        add_task_flag = bool(get_user_setting(user_id, "add_task_type_to_event_name"))
+    set_user_setting(user_id, "add_task_type_to_event_name", add_task_flag)
+
+    # （必要なら）終日/非公開のデフォルトも保存可能にする（コメント化してあるので必要なら有効化）
+    # set_user_setting(user_id, "default_all_day_override", st.session_state.get(f"all_day_override_{'outside' if outside_mode else 'work'}"))
+    # set_user_setting(user_id, "default_private_event", st.session_state.get(f"private_event_{'outside' if outside_mode else 'work'}"))
+
+    st.success("選択項目を保存しました。")
+# --- ここまで挿入 ---
 
     st.subheader("➡️ イベント登録・更新実行")
     if not st.button("Googleカレンダーに登録・更新する"):
