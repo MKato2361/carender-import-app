@@ -40,7 +40,7 @@ from calendar_utils import (
 )
 from firebase_auth import initialize_firebase, firebase_auth_form, get_firebase_user_id
 from session_utils import (
-    initialize_session_state,
+    #initialize_session_state,
     get_user_setting,
     set_user_setting,
     get_all_user_settings,
