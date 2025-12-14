@@ -1,4 +1,5 @@
 import streamlit as st
+from calendar_utils import fetch_all_events
 from datetime import datetime, date, timedelta, timezone
 
 JST = timezone(timedelta(hours=9))
@@ -112,12 +113,7 @@ def render_tab3_delete(editable_calendar_options, service, tasks_service, defaul
                 st.session_state["confirm_delete"] = False
 
                 time_min_utc, time_max_utc = to_utc_range(delete_start_date, delete_end_date)
-                events_to_delete = service.events().list(
-                    calendarId=calendar_id_del,
-                    timeMin=time_min_utc,
-                    timeMax=time_max_utc,
-                    singleEvents=True,
-                ).execute().get("items", [])
+                events_to_delete = fetch_all_events(service, calendar_id_del, time_min_utc, time_max_utc)
 
                 if not events_to_delete:
                     st.info("指定期間内に削除するイベントはありませんでした。")

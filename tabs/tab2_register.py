@@ -31,6 +31,10 @@ def is_event_changed(existing_event: dict, new_event_data: dict) -> bool:
         return True
     if nz(existing_event.get("description")) != nz(new_event_data.get("description")):
         return True
+    if nz(existing_event.get("location")) != nz(new_event_data.get("location")):
+        return True
+    if nz(existing_event.get("visibility")) != nz(new_event_data.get("visibility")):
+        return True
     if nz(existing_event.get("transparency")) != nz(new_event_data.get("transparency")):
         return True
     if (existing_event.get("start") or {}) != (new_event_data.get("start") or {}):
@@ -47,6 +51,36 @@ def default_fetch_window_years(years: int = 2):
         (now_utc + timedelta(days=365 * years)).isoformat(),
     )
 
+
+
+def compute_fetch_window_from_df(df: pd.DataFrame, buffer_days: int = 30):
+    """DFのStart/End Date列からイベント取得範囲（timeMin/timeMax）を最小化する。
+    - timeMin/timeMax はRFC3339（タイムゾーン付き）で返す
+    - 解析不能な場合は None を返す
+    """
+    try:
+        if df is None or df.empty:
+            return None
+        # 文字列列を想定（%Y/%m/%d）
+        s = pd.to_datetime(df.get("Start Date"), format="%Y/%m/%d", errors="coerce")
+        e = pd.to_datetime(df.get("End Date"), format="%Y/%m/%d", errors="coerce")
+        # End Dateが空の行はStart Dateで補完
+        e = e.fillna(s)
+        s_min = s.min()
+        e_max = e.max()
+        if pd.isna(s_min) or pd.isna(e_max):
+            return None
+
+        min_date = (s_min.date() - timedelta(days=buffer_days))
+        max_date = (e_max.date() + timedelta(days=buffer_days))
+
+        # timeMax は排他的なので、翌日の0時にする（終日イベントも取りこぼしにくい）
+        time_min_dt = datetime.combine(min_date, datetime.min.time()).replace(tzinfo=JST)
+        time_max_dt = datetime.combine(max_date + timedelta(days=1), datetime.min.time()).replace(tzinfo=JST)
+
+        return (time_min_dt.isoformat(), time_max_dt.isoformat())
+    except Exception:
+        return None
 
 def extract_worksheet_id_from_description(desc: str) -> str | None:
     import re, unicodedata
@@ -499,7 +533,12 @@ def render_tab2_register(user_id: str, editable_calendar_options: dict, service)
     updated_count = 0
     skipped_count = 0
 
-    time_min, time_max = default_fetch_window_years(2)
+    window = compute_fetch_window_from_df(df, buffer_days=30)
+    if window:
+        time_min, time_max = window
+    else:
+        time_min, time_max = default_fetch_window_years(2)
+
     with st.spinner("既存イベントを取得中..."):
         events = fetch_all_events(service, calendar_id, time_min, time_max)
 
@@ -540,7 +579,10 @@ def render_tab2_register(user_id: str, editable_calendar_options: dict, service)
             "summary": subject,
             "location": safe_get(row, "Location", ""),
             "description": desc_text,
-            "transparency": "transparent" if private_flag == "True" else "opaque",
+            # 「非公開」は visibility で制御（Private=True → private）
+            "visibility": "private" if str(private_flag).strip() == "True" else "default",
+            # 予定あり/空き（free/busy）は transparency。既定は「予定あり」
+            "transparency": "opaque",
         }
 
         try:
