@@ -6,7 +6,6 @@ from io import BytesIO
 
 import pandas as pd
 import streamlit as st
-from session_utils import get_user_setting, set_user_setting
 
 # ==============================
 # 正規表現（全角/半角/表記ゆれ対応）
@@ -90,7 +89,7 @@ def to_utc_range(d1: date, d2: date):
 # ==============================
 # タブ5本体
 # ==============================
-def render_tab5_export(user_id, editable_calendar_options, service, fetch_all_events):
+def render_tab5_export(editable_calendar_options, service, fetch_all_events):
     """タブ5: カレンダーイベントをExcel/CSVへ出力（WONUM & ASSETNUM 抽出不可完全除外版）"""
 
     st.subheader("カレンダーイベントをExcelに出力")
@@ -105,45 +104,10 @@ def render_tab5_export(user_id, editable_calendar_options, service, fetch_all_ev
         st.error("利用可能なカレンダーが見つかりません。")
         return
 
-    # 共有フラグ（Firestore → session_state へ）
-    share_on = st.session_state.get("share_calendar_selection_across_tabs")
-    if share_on is None:
-        saved_share = get_user_setting(user_id, "share_calendar_selection_across_tabs")
-        share_on = True if saved_share is None else bool(saved_share)
-        st.session_state["share_calendar_selection_across_tabs"] = share_on
-
-    calendar_names = list(editable_calendar_options.keys())
-
-    stored_global = get_user_setting(user_id, "selected_calendar_name")
-    stored_export = get_user_setting(user_id, "selected_calendar_name_export")
-
-    effective_name = calendar_names[0]
-    if share_on and stored_global in calendar_names:
-        effective_name = stored_global
-    elif (not share_on) and stored_export in calendar_names:
-        effective_name = stored_export
-    elif stored_global in calendar_names:
-        effective_name = stored_global
-
-    widget_key = "export_calendar_select"
-    st.session_state[widget_key] = effective_name
-
-    def _on_change_calendar():
-        val = st.session_state.get(widget_key)
-        if not val:
-            return
-        if share_on:
-            set_user_setting(user_id, "selected_calendar_name", val)
-            st.session_state["selected_calendar_name"] = val
-        else:
-            set_user_setting(user_id, "selected_calendar_name_export", val)
-
     selected_calendar_name_export = st.selectbox(
         "出力対象カレンダーを選択",
-        calendar_names,
-        index=calendar_names.index(effective_name),
-        key=widget_key,
-        on_change=_on_change_calendar,
+        list(editable_calendar_options.keys()),
+        key="export_calendar_select",
     )
     calendar_id_export = editable_calendar_options[selected_calendar_name_export]
 

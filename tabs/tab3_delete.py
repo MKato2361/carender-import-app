@@ -1,12 +1,11 @@
 import streamlit as st
-from session_utils import get_user_setting, set_user_setting
 from calendar_utils import fetch_all_events
 from datetime import datetime, date, timedelta, timezone
 
 JST = timezone(timedelta(hours=9))
 
 
-def render_tab3_delete(user_id, editable_calendar_options, service, tasks_service, default_task_list_id):
+def render_tab3_delete(editable_calendar_options, service, tasks_service, default_task_list_id):
     st.subheader("イベントを削除")
 
     if not editable_calendar_options:
@@ -14,54 +13,8 @@ def render_tab3_delete(user_id, editable_calendar_options, service, tasks_servic
         return
 
     # -------------------------------
-    # カレンダー選択（基準カレンダー設定と連動）
+    # カレンダー選択（サイドバー設定と連動）
     # -------------------------------
-    calendar_names = list(editable_calendar_options.keys())
-
-    # 共有フラグ（Firestore → session_state へ）
-    share_on = st.session_state.get("share_calendar_selection_across_tabs")
-    if share_on is None:
-        saved_share = get_user_setting(user_id, "share_calendar_selection_across_tabs")
-        share_on = True if saved_share is None else bool(saved_share)
-        st.session_state["share_calendar_selection_across_tabs"] = share_on
-
-    # Firestore に保存された基準カレンダー（tab2と同じ）
-    stored_global = get_user_setting(user_id, "selected_calendar_name")
-    stored_delete = get_user_setting(user_id, "selected_calendar_name_delete")
-
-    # 有効な初期値（共有ONなら基準カレンダー、共有OFFならタブ専用）
-    effective_name = calendar_names[0]
-    if share_on and stored_global in calendar_names:
-        effective_name = stored_global
-    elif (not share_on) and stored_delete in calendar_names:
-        effective_name = stored_delete
-    elif stored_global in calendar_names:
-        # 共有OFFでも基準が入っている場合はフォールバックとして使う
-        effective_name = stored_global
-
-    widget_key = "del_calendar_select"
-    # ウィジェットをFirestoreの値に同期（次回以降も同じ初期値になる）
-    st.session_state[widget_key] = effective_name
-
-    def _on_change_calendar():
-        val = st.session_state.get(widget_key)
-        if not val:
-            return
-        if share_on:
-            set_user_setting(user_id, "selected_calendar_name", val)
-            st.session_state["selected_calendar_name"] = val
-        else:
-            set_user_setting(user_id, "selected_calendar_name_delete", val)
-            st.session_state["selected_calendar_name_delete"] = val
-
-    selected_calendar_name_del = st.selectbox(
-        "削除対象カレンダーを選択",
-        calendar_names,
-        index=calendar_names.index(effective_name),
-        key=widget_key,
-        on_change=_on_change_calendar,
-    )
-# -------------------------------
     calendar_names = list(editable_calendar_options.keys())
 
     # サイドバーの「タブ間で選択を共有」と連動

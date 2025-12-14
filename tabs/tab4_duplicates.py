@@ -1,5 +1,4 @@
 import streamlit as st
-from session_utils import get_user_setting, set_user_setting
 import pandas as pd
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
@@ -23,7 +22,7 @@ def parse_created(dt_str: Optional[str]) -> datetime:
     return datetime.min.replace(tzinfo=timezone.utc)
 
 
-def render_tab4_duplicates(user_id, service, editable_calendar_options, fetch_all_events):
+def render_tab4_duplicates(service, editable_calendar_options, fetch_all_events):
     st.subheader("🔍 重複イベントの検出・削除")
 
     # メッセージ復元
@@ -36,48 +35,8 @@ def render_tab4_duplicates(user_id, service, editable_calendar_options, fetch_al
         st.session_state["last_dup_message"] = None
 
     # カレンダー選択
-    # 共有フラグ（Firestore → session_state）
-    share_on = st.session_state.get("share_calendar_selection_across_tabs")
-    if share_on is None:
-        saved_share = get_user_setting(user_id, "share_calendar_selection_across_tabs") if user_id else None
-        share_on = True if saved_share is None else bool(saved_share)
-        st.session_state["share_calendar_selection_across_tabs"] = share_on
-
     calendar_options = list(editable_calendar_options.keys())
-
-    stored_global = get_user_setting(user_id, "selected_calendar_name") if user_id else st.session_state.get("selected_calendar_name")
-    stored_dup = get_user_setting(user_id, "selected_calendar_name_duplicates") if user_id else st.session_state.get("selected_calendar_name_duplicates")
-
-    effective_name = calendar_options[0]
-    if share_on and stored_global in calendar_options:
-        effective_name = stored_global
-    elif (not share_on) and stored_dup in calendar_options:
-        effective_name = stored_dup
-    elif stored_global in calendar_options:
-        effective_name = stored_global
-
-    widget_key = "dup_calendar_select"
-    st.session_state[widget_key] = effective_name
-
-    def _on_change_calendar():
-        val = st.session_state.get(widget_key)
-        if not val:
-            return
-        if share_on:
-            if user_id:
-                set_user_setting(user_id, "selected_calendar_name", val)
-            st.session_state["selected_calendar_name"] = val
-        else:
-            if user_id:
-                set_user_setting(user_id, "selected_calendar_name_duplicates", val)
-
-    selected_calendar = st.selectbox(
-        "対象カレンダーを選択",
-        calendar_options,
-        index=calendar_options.index(effective_name),
-        key=widget_key,
-        on_change=_on_change_calendar,
-    )
+    selected_calendar = st.selectbox("対象カレンダーを選択", calendar_options, key="dup_calendar_select")
     calendar_id = editable_calendar_options[selected_calendar]
 
     # 削除モード
