@@ -328,17 +328,17 @@ def _save_description_settings(user_id: str):
 
 def _save_event_name_settings(user_id: str):
     """イベント名生成設定を保存するコールバック (on_clickで使用)"""
-    
+
     # 1. 作業タイプ追加フラグの保存
     chk_key = f"add_task_type_checkbox_{user_id}"
     if chk_key in st.session_state:
         set_user_setting(user_id, "add_task_type_to_event_name", st.session_state[chk_key])
-    
+
     # 2. 代替列の選択の保存
     sel_key = f"event_name_selector_register_{user_id}"
     if sel_key in st.session_state:
         set_user_setting(user_id, "event_name_col_selected", st.session_state[sel_key])
-    
+
     st.toast("✅ イベント名の生成設定を保存しました", icon="💾")
 # ----------------------------------------
 
@@ -364,7 +364,7 @@ def render_tab2_register(user_id: str, editable_calendar_options: dict, service)
         return
 
     calendar_options = list(editable_calendar_options.keys())
-    
+
     # get_user_setting を使って永続化された設定を読み込む
     if outside_mode:
         saved_calendar_name = get_user_setting(user_id, "selected_calendar_name_outside")
@@ -378,7 +378,7 @@ def render_tab2_register(user_id: str, editable_calendar_options: dict, service)
 
     # 登録先カレンダーの選択 (on_changeで保存)
     select_key = "reg_calendar_select_outside" if outside_mode else "reg_calendar_select"
-    
+
     st.selectbox(
         "登録先カレンダーを選択" + ("（作業外予定）" if outside_mode else "（作業指示書）"),
         calendar_options,
@@ -387,7 +387,7 @@ def render_tab2_register(user_id: str, editable_calendar_options: dict, service)
         # on_changeで保存処理を呼び出す
         on_change=lambda u=user_id, o=outside_mode: _save_calendar_selection(u, o)
     )
-    
+
     # st.session_stateから現在の選択値を取得し、後続処理で使用
     selected_calendar_name = st.session_state.get(select_key, calendar_options[default_index])
     calendar_id = editable_calendar_options[selected_calendar_name]
@@ -413,32 +413,35 @@ def render_tab2_register(user_id: str, editable_calendar_options: dict, service)
             saved_description_cols = get_user_setting(user_id, "description_columns_selected") or []
             # プールに存在するカラムのみをデフォルト値とする
             default_selection = [col for col in saved_description_cols if col in description_columns_pool]
-            
-            desc_key = f"description_selector_register_{user_id}"
-            # セッション初回表示時は、Firestore保存値（default_selection）でウィジェット状態をシードする
-            seeded_flag = f"_desc_selector_seeded_{user_id}"
-            if not st.session_state.get(seeded_flag):
-                st.session_state[desc_key] = list(default_selection)
-                st.session_state[seeded_flag] = True
 
+            desc_key = f"description_selector_register_{user_id}"
+
+            # ✅ 初回だけシード（default と session_state の二重指定を避ける）
+            if desc_key not in st.session_state:
+                st.session_state[desc_key] = list(default_selection)
+            else:
+                # プールから消えた列が残っていたら除外（値はユーザー選択を優先）
+                st.session_state[desc_key] = [c for c in st.session_state[desc_key] if c in description_columns_pool]
+
+            # ✅ default は渡さない（Streamlitのwarning回避）
             description_columns = st.multiselect(
                 "説明欄に含める列（複数選択可）",
                 description_columns_pool,
-                default=default_selection,
                 key=desc_key,
                 on_change=_save_description_settings,
                 args=(user_id,),
             )
-            
-            # コールバックを使った保存ボタン
+
+            # （任意）保存ボタン：on_changeで自動保存されるが、明示保存も残す
             st.button(
                 "説明欄の設定を保存",
                 key=f"btn_save_desc_{user_id}",
-                # クリック時にのみ保存関数を呼び出す
-                on_click=lambda u=user_id: _save_description_settings(u)
+                on_click=lambda u=user_id: _save_description_settings(u),
             )
+
             # multiselectの現在の値を取得 (これがイベント生成時に使われる)
-            description_columns = st.session_state.get(desc_key, default_selection)
+            description_columns = st.session_state.get(desc_key, [])
+
 
 
     # 作業指示書イベント名設定
@@ -449,7 +452,7 @@ def render_tab2_register(user_id: str, editable_calendar_options: dict, service)
     else:
         with st.expander("🧱 イベント名の生成設定", expanded=True):
             has_mng_data, has_name_data = check_event_name_columns(st.session_state["merged_df_for_selector"])
-            
+
             # get_user_setting を使って永続化された設定を読み込む
             saved_event_name_col = get_user_setting(user_id, "event_name_col_selected")
             saved_task_type_flag = get_user_setting(user_id, "add_task_type_to_event_name")
@@ -470,7 +473,7 @@ def render_tab2_register(user_id: str, editable_calendar_options: dict, service)
                     name_index = event_name_options.index(saved_event_name_col) if saved_event_name_col in event_name_options else 0
                 except Exception:
                     name_index = 0
-                
+
                 selected_event_name_col = st.selectbox(
                     "イベント名として使用する代替列を選択してください:",
                     options=event_name_options,
@@ -483,7 +486,7 @@ def render_tab2_register(user_id: str, editable_calendar_options: dict, service)
                 # 代替列が選択されていない場合、設定ファイルから取得した値をセット（実際には「管理番号」などが使用されるため、ここは情報表示のみ）
                 selected_event_name_col = saved_event_name_col
                 st.info("「管理番号」と「物件名」のデータが両方存在するため、それらがイベント名として使用されます。")
-            
+
             # コールバックを使った保存ボタン
             st.button(
                 "イベント名設定を保存",
@@ -491,12 +494,12 @@ def render_tab2_register(user_id: str, editable_calendar_options: dict, service)
                 # クリック時にのみ保存関数を呼び出す
                 on_click=lambda u=user_id: _save_event_name_settings(u)
             )
-            
+
             # 最終的な設定値の取得 (st.session_stateから)
             if not outside_mode:
                 checkbox_key = f"add_task_type_checkbox_{user_id}"
                 add_task_type_to_event_name = st.session_state.get(checkbox_key, bool(saved_task_type_flag))
-                
+
                 if not (has_mng_data and has_name_data):
                     selectbox_key = f"event_name_selector_register_{user_id}"
                     current_selection = st.session_state.get(selectbox_key)
