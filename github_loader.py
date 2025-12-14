@@ -28,7 +28,6 @@ def _headers() -> Dict[str, str]:
     return {"Authorization": f"token {get_pat()}"}
 
 @st.cache_data(ttl=600)
-@st.cache_data(ttl=600)
 def list_dir(path: str = "") -> List[Dict]:
     path = path.lstrip("/")  # ✅ 余分な削除のみ
     url = f"{GITHUB_API_BASE}/repos/{GITHUB_OWNER}/{GITHUB_REPO}/contents/{path}"
