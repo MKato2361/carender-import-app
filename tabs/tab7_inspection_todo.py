@@ -7,7 +7,6 @@ import unicodedata
 
 import pandas as pd
 import streamlit as st
-from session_utils import get_user_setting, set_user_setting
 from firebase_admin import firestore
 
 # 物件マスタの列定義などを流用
@@ -18,6 +17,19 @@ from tabs.tab6_property_master import (
     _normalize_df,
 )
 from utils.helpers import safe_get  # 既存ヘルパー
+from session_utils import get_user_setting, set_user_setting
+
+def _get_current_user_key(fallback: str = "") -> str:
+    """設定保存用のユーザーキーを取得（優先: uid -> email）。"""
+    return (
+        st.session_state.get("user_id")
+        or st.session_state.get("firebase_uid")
+        or st.session_state.get("localId")
+        or st.session_state.get("uid")
+        or st.session_state.get("user_email")
+        or fallback
+        or ""
+    )
 
 
 # JST（日時計算用）
@@ -542,7 +554,6 @@ def render_tab7_inspection_todo(
     default_task_list_id: Optional[str],
     sheets_service: Any,
     current_user_email: Optional[str] = None,
-    user_id: Optional[str] = None,
 ):
     """
     点検イベント → 物件マスタ突合 → Google ToDo 自動生成タブ
@@ -583,61 +594,61 @@ def render_tab7_inspection_todo(
     )
 
     # -------------------------------
-    # カレンダー選択（基準カレンダー設定と連動）
+    # カレンダー選択（サイドバー設定と連動）
     # -------------------------------
     cal_names = list(editable_calendar_options.keys())
     if not cal_names:
         st.error("利用可能なカレンダーがありません。")
         return
 
-    # 共有フラグ（Firestore → session_state）
-    share_on = st.session_state.get("share_calendar_selection_across_tabs")
-    if share_on is None:
-        saved_share = get_user_setting(user_id, "share_calendar_selection_across_tabs") if user_id else None
-        share_on = True if saved_share is None else bool(saved_share)
-        st.session_state["share_calendar_selection_across_tabs"] = share_on
+    # サイドバーの「タブ間で選択を共有」と連動
+    share_on = st.session_state.get("share_calendar_selection_across_tabs", True)
 
-    # Firestore保存値（user_idが無ければ session_state をフォールバック）
-    stored_global = get_user_setting(user_id, "selected_calendar_name") if user_id else st.session_state.get("selected_calendar_name")
-    stored_tab = get_user_setting(user_id, "selected_calendar_name_inspection_todo") if user_id else st.session_state.get("selected_calendar_name_inspection_todo")
+    # Firestore保存の「基準カレンダー」を最優先（tab2と同期）
+    user_key = _get_current_user_key(fallback=current_user_email or "")
+    saved_global_name = get_user_setting(user_key, "selected_calendar_name") if user_key else None
+    saved_tab_name = get_user_setting(user_key, "selected_calendar_name_inspection_todo") if user_key else None
 
-    effective_name = cal_names[0]
-    if share_on and stored_global in cal_names:
-        effective_name = stored_global
-    elif (not share_on) and stored_tab in cal_names:
-        effective_name = stored_tab
-    elif stored_global in cal_names:
-        effective_name = stored_global
+    # 互換: セッションState値もフォールバック
+    if not saved_global_name:
+        saved_global_name = st.session_state.get("selected_calendar_name")
+    if not saved_tab_name:
+        saved_tab_name = st.session_state.get("selected_calendar_name_inspection_todo")
 
-    widget_key = "ins_todo_calendar"
-    st.session_state[widget_key] = effective_name
+    if share_on and saved_global_name in cal_names:
+        initial_name = saved_global_name
+    elif (not share_on) and saved_tab_name in cal_names:
+        initial_name = saved_tab_name
+    elif saved_tab_name in cal_names:
+        initial_name = saved_tab_name
+    else:
+        initial_name = cal_names[0]
 
-    def _on_change_calendar():
-        val = st.session_state.get(widget_key)
-        if not val:
-            return
-        if share_on:
-            if user_id:
-                set_user_setting(user_id, "selected_calendar_name", val)
-            st.session_state["selected_calendar_name"] = val
-        else:
-            if user_id:
-                set_user_setting(user_id, "selected_calendar_name_inspection_todo", val)
-            st.session_state["selected_calendar_name_inspection_todo"] = val
-
-    if effective_name in cal_names:
-        st.session_state[widget_key] = effective_name
+    default_index = cal_names.index(initial_name)
 
     calendar_name = st.selectbox(
         "対象カレンダー",
         cal_names,
-        key=widget_key,
-        on_change=_on_change_calendar,
+        index=default_index,
+        key="ins_todo_calendar",
     )
+
+    # 保存
+    if user_key:
+        if share_on:
+            if saved_global_name != calendar_name:
+                set_user_setting(user_key, "selected_calendar_name", calendar_name)
+        else:
+            if saved_tab_name != calendar_name:
+                set_user_setting(user_key, "selected_calendar_name_inspection_todo", calendar_name)
+
+    st.session_state["selected_calendar_name_inspection_todo"] = calendar_name
+    if share_on:
+        st.session_state["selected_calendar_name"] = calendar_name
 
     calendar_id = editable_calendar_options.get(calendar_name)
 
-# 期間指定
+    # 期間指定
     today = date.today()
     col_d1, col_d2 = st.columns(2)
     with col_d1:
