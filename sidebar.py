@@ -109,77 +109,91 @@ def render_sidebar(
         # ========================
         # 📅 カレンダー設定（折りたたみ）
         # ========================
-        
-with st.expander("📅 カレンダー設定", expanded=False):
-    if editable_calendar_options:
-        calendar_options = list(editable_calendar_options.keys())
+        with st.expander("📅 カレンダー設定", expanded=False):
+            if editable_calendar_options:
+                calendar_options = list(editable_calendar_options.keys())
 
-        # Firestore に保存されている「基準カレンダー」（tab2と同じキー）
-        stored_calendar = get_user_setting(user_id, "selected_calendar_name")
+                # Firestore に保存されているカレンダー名
+                stored_calendar = get_user_setting(user_id, "selected_calendar_name")
+                # 画面での直近の選択状態
+                session_calendar = st.session_state.get("sidebar_default_calendar")
 
-        # 共有設定（Firestore → session_state）
-        share_key = "share_calendar_selection_across_tabs"
-        if share_key not in st.session_state:
-            saved_share = get_user_setting(user_id, share_key)
-            st.session_state[share_key] = True if saved_share is None else bool(saved_share)
+                # 有効なカレンダー名を決定（優先順位：画面 > Firestore > 先頭）
+                effective_calendar = calendar_options[0]
+                if session_calendar in calendar_options:
+                    effective_calendar = session_calendar
+                elif stored_calendar in calendar_options:
+                    effective_calendar = stored_calendar
 
-        # 有効なカレンダー名を決定（優先順位：Firestore > 既存session_state > 先頭）
-        cal_key = "sidebar_base_calendar_select"
+                # selectbox の state を常に「有効なカレンダー名」に同期
+                st.session_state["sidebar_default_calendar"] = effective_calendar
 
-        effective_calendar = None
-        if stored_calendar in calendar_options:
-            effective_calendar = stored_calendar
-        elif st.session_state.get(cal_key) in calendar_options:
-            effective_calendar = st.session_state.get(cal_key)
-        else:
-            effective_calendar = calendar_options[0]
+                st.markdown("**基準カレンダー**")
 
-        # ここで session_state を “先に” 合わせてから widget を作る（初期誤表示→固定化を防ぐ）
-        # Firestore が後から有効化された場合でも、次の rerun で stored_calendar に追従できる
-        st.session_state[cal_key] = effective_calendar
+                default_calendar = st.selectbox(
+                    "デフォルトカレンダー",
+                    calendar_options,
+                    key="sidebar_default_calendar",
+                )
 
-        # 選択変更時：Firestoreへ保存（＝基準カレンダー）
-        def _on_change_sidebar_calendar():
-            set_user_setting(user_id, "selected_calendar_name", st.session_state.get(cal_key))
+                # グローバルにも反映（他タブで使う想定）
+                st.session_state["selected_calendar_name"] = default_calendar
 
-        st.selectbox(
-            "基準カレンダー（共通）",
-            calendar_options,
-            key=cal_key,
-            on_change=_on_change_sidebar_calendar,
-            help="tab2で設定する基準カレンダーと同じものです。ONの場合、他タブもこのカレンダーが初期選択になります。",
-        )
+                # 🔽 共有設定：その下に縦に配置
+                prev_share = st.session_state.get("share_calendar_selection_across_tabs")
+                if prev_share is None:
+                    saved_share = get_user_setting(
+                        user_id, "share_calendar_selection_across_tabs"
+                    )
+                    prev_share = True if saved_share is None else bool(saved_share)
+                    st.session_state["share_calendar_selection_across_tabs"] = (
+                        prev_share
+                    )
 
-        # 共有設定（変更時にFirestoreへ保存）
-        def _on_change_share_flag():
-            set_user_setting(user_id, share_key, bool(st.session_state.get(share_key)))
+                share_calendar = st.checkbox(
+                    "タブ間で選択を共有",
+                    value=prev_share,
+                    help="ONにすると、登録タブで選んだカレンダーが他のタブにも自動で反映されます。",
+                )
 
-        st.checkbox(
-            "タブ間で選択を共有",
-            key=share_key,
-            on_change=_on_change_share_flag,
-            help="ONにすると、基準カレンダー（tab2で選んだもの）が他のタブにも反映されます。",
-        )
-    else:
-        st.info("編集可能なカレンダーが見つかりませんでした。")
-        # --- 新規イベントのデフォルト設定（非公開／終日） ---
-        st.markdown("**新規イベントのデフォルト**")
-        
-        saved_private = get_user_setting(user_id, "default_private_event")
-        saved_allday = get_user_setting(user_id, "default_allday_event")
-        
-        default_private = st.checkbox(
-        "標準で「非公開」",
-        value=(saved_private if saved_private is not None else True),
-        key="sidebar_default_private",
-        )
-        
-        default_allday = st.checkbox(
-        "標準で「終日」",
-        value=(saved_allday if saved_allday is not None else False),
-        key="sidebar_default_allday",
-        )
-        
+                if share_calendar != prev_share:
+                    st.session_state["share_calendar_selection_across_tabs"] = (
+                        share_calendar
+                    )
+                    set_user_setting(
+                        user_id, "share_calendar_selection_across_tabs", share_calendar
+                    )
+                    save_user_setting_to_firestore(
+                        user_id,
+                        "share_calendar_selection_across_tabs",
+                        share_calendar,
+                    )
+                    st.rerun()
+            else:
+                st.info(
+                    "編集可能なカレンダーが取得できていません。認証状態や権限を確認してください。"
+                )
+
+            st.markdown("---")
+
+            # --- 新規イベントのデフォルト設定（非公開／終日） ---
+            st.markdown("**新規イベントのデフォルト**")
+
+            saved_private = get_user_setting(user_id, "default_private_event")
+            saved_allday = get_user_setting(user_id, "default_allday_event")
+
+            default_private = st.checkbox(
+                "標準で「非公開」",
+                value=(saved_private if saved_private is not None else True),
+                key="sidebar_default_private",
+            )
+
+            default_allday = st.checkbox(
+                "標準で「終日」",
+                value=(saved_allday if saved_allday is not None else False),
+                key="sidebar_default_allday",
+            )
+
         # ========================
         # ✅ ToDo設定（折りたたみ）
         # ========================
