@@ -178,9 +178,6 @@ if not user_id:
         firebase_auth_form()
     st.stop()
 
-
-# セッションにも保持（他モジュールの互換用）
-st.session_state["user_id"] = user_id
 def load_user_settings_from_firestore(user_id: str) -> None:
     if not user_id:
         return
@@ -238,16 +235,6 @@ except Exception as e:
 st.session_state["sheets_service"] = sheets_service
 
 # ==================================================
-# 3.5) サイドバー（別ファイル）
-# ==================================================
-render_sidebar(
-    user_id=user_id,
-    editable_calendar_options=editable_calendar_options,
-    save_user_setting_to_firestore=save_user_setting_to_firestore,
-)
-
-
-# ==================================================
 # 4) メインコンテンツ (UI改善版)
 # ==================================================
 # タブのコンテナ
@@ -289,7 +276,7 @@ with tabs[1]:
 
     with sub_tab_del:
         with st.container(border=True):
-            render_tab3_delete(user_id, editable_calendar_options, service, tasks_service, default_task_list_id)
+            render_tab3_delete(editable_calendar_options, service, tasks_service, default_task_list_id)
 
     with sub_tab_todo:
         with st.container(border=True):
@@ -300,7 +287,6 @@ with tabs[1]:
                 default_task_list_id=default_task_list_id,
                 sheets_service=sheets_service,
                 current_user_email=current_user_email,
-                user_id=user_id,
             )
 
     with sub_tab_notice_fax:
@@ -310,13 +296,12 @@ with tabs[1]:
                 editable_calendar_options=editable_calendar_options,
                 sheets_service=sheets_service,
                 current_user_email=current_user_email,
-                user_id=user_id,
             )
 
 # --- Tab 3: Export ---
 with tabs[2]:
     with st.container(border=True):
-        render_tab5_export(user_id, editable_calendar_options, service, fetch_all_events)
+        render_tab5_export(editable_calendar_options, service, fetch_all_events)
 
 # --- Tab 4: Property Master ---
 with tabs[3]:
@@ -338,4 +323,12 @@ if is_admin:
                 current_user_name=current_user_name,
             )
 
+# ==================================================
+# 5) サイドバー（別ファイル）
+# ==================================================
+render_sidebar(
+    user_id=user_id,
+    editable_calendar_options=editable_calendar_options,
+    save_user_setting_to_firestore=save_user_setting_to_firestore,
+)
 
