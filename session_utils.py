@@ -30,16 +30,25 @@ def _get_db():
         return None
 
 
-def load_user_settings_from_firestore(user_id: str) -> dict:
-    """Firestore からユーザー設定を取得（存在しなければ空dict）。"""
+def load_user_settings_from_firestore(user_id: str) -> dict | None:
+    """Firestore からユーザー設定を取得。
+
+    戻り値:
+      - dict: 取得成功（存在しなければ空dict）
+      - None: Firestore がまだ利用できない（未初期化など）ため後で再試行してほしい
+    """
     db = _get_db()
-    if not db or not user_id:
+    if not user_id:
         return {}
+    if not db:
+        # Firebase未初期化など。ここで「読み込み済み」と扱うと永遠に再読込できないので None にする
+        return None
     try:
         snap = db.collection(SETTINGS_COLLECTION).document(user_id).get()
         return snap.to_dict() if getattr(snap, "exists", False) else {}
     except Exception:
-        return {}
+        # 例外時は「取得失敗」扱いで再試行できるよう None
+        return None
 
 
 def save_user_setting_to_firestore(user_id: str, key: str, value):
@@ -56,7 +65,12 @@ def save_user_setting_to_firestore(user_id: str, key: str, value):
 
 
 def initialize_session_state(user_id: str):
-    """ユーザーごとのセッション状態を初期化（初回のみ Firestore からもロード）。"""
+    """ユーザーごとのセッション状態を初期化（初回のみ Firestore からもロード）。
+
+    重要:
+      - Firestore が未初期化/一時エラーのときに「読み込み済み」フラグを立てない。
+        そうしないと、初回だけDEFAULTで固定されて後から保存値が反映されないことがある。
+    """
     if "user_settings" not in st.session_state:
         st.session_state["user_settings"] = {}
     if "_user_settings_loaded" not in st.session_state:
@@ -68,23 +82,18 @@ def initialize_session_state(user_id: str):
     if user_id not in st.session_state["user_settings"]:
         st.session_state["user_settings"][user_id] = copy.deepcopy(DEFAULT_SETTINGS)
 
-    # 1セッション中に Firestore から何度もロードしない
-    if user_id not in st.session_state["_user_settings_loaded"]:
-        saved = load_user_settings_from_firestore(user_id)
-        if isinstance(saved, dict) and saved:
-            # DEFAULT に上書き（未知キーも保持）
-            st.session_state["user_settings"][user_id].update(saved)
-        st.session_state["_user_settings_loaded"].add(user_id)
-
-
-def set_user_setting(user_id: str, key: str, value, persist: bool = True):
-    """指定されたユーザーの設定を保存（デフォルトでFirestoreにも永続化）。"""
-    initialize_session_state(user_id)
-    if not user_id:
+    if user_id in st.session_state["_user_settings_loaded"]:
         return
-    st.session_state["user_settings"][user_id][key] = value
-    if persist:
-        save_user_setting_to_firestore(user_id, key, value)
+
+    saved = load_user_settings_from_firestore(user_id)
+    if saved is None:
+        # Firestore未準備/取得失敗 → 次のrerunで再試行したいので loaded に入れない
+        return
+
+    if isinstance(saved, dict) and saved:
+        st.session_state["user_settings"][user_id].update(saved)
+
+    st.session_state["_user_settings_loaded"].add(user_id)
 
 
 def get_user_setting(user_id: str, key: str):

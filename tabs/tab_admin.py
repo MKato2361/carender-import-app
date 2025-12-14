@@ -331,7 +331,7 @@ def render_tab_admin(
             col_f0, col_f1, col_f2, col_f3, col_f4 = st.columns([1, 4, 2, 2, 2])
 
             with col_f0:
-                st.checkbox("", key=cb_key)
+                st.checkbox("選択", key=cb_key, label_visibility="collapsed")
 
             with col_f1:
                 if html_url:

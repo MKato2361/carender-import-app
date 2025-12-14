@@ -10,6 +10,7 @@ import zipfile
 
 import pandas as pd
 import streamlit as st
+from session_utils import get_user_setting, set_user_setting
 from firebase_admin import firestore
 
 # 物件マスタ関連（tab6 と同じロジックを再利用）
@@ -20,19 +21,6 @@ from tabs.tab6_property_master import (
     _normalize_df,
 )
 from utils.helpers import safe_get
-from session_utils import get_user_setting, set_user_setting
-
-def _get_current_user_key(fallback: str = "") -> str:
-    """設定保存用のユーザーキーを取得（優先: uid -> email）。"""
-    return (
-        st.session_state.get("user_id")
-        or st.session_state.get("firebase_uid")
-        or st.session_state.get("localId")
-        or st.session_state.get("uid")
-        or st.session_state.get("user_email")
-        or fallback
-        or ""
-    )
 
 # 貼り紙テンプレ生成ユーティリティ
 try:
@@ -332,7 +320,6 @@ def render_tab8_notice_fax(
         mode = st.radio(
             "貼り紙対象の選び方",
             mode_options,
-            index=0,
             key="notice_fax_mode",
         )
         use_master_filter = (mode == mode_options[0])
@@ -344,60 +331,60 @@ def render_tab8_notice_fax(
         use_master_filter = False
 
     # ----------------------------------------------------
-    # カレンダー選択（サイドバー設定と連動）
+    # カレンダー選択（基準カレンダー設定と連動）
     # ----------------------------------------------------
     cal_names = list(editable_calendar_options.keys())
     if not cal_names:
         st.error("利用可能なカレンダーがありません。")
         return
 
-    # サイドバーの「タブ間で選択を共有」と連動
-    share_on = st.session_state.get("share_calendar_selection_across_tabs", True)
+    # 共有フラグ（Firestore → session_state）
+    share_on = st.session_state.get("share_calendar_selection_across_tabs")
+    if share_on is None:
+        saved_share = get_user_setting(user_id, "share_calendar_selection_across_tabs") if user_id else None
+        share_on = True if saved_share is None else bool(saved_share)
+        st.session_state["share_calendar_selection_across_tabs"] = share_on
 
-    user_key = _get_current_user_key(fallback=current_user_email or "")
-    saved_global_name = get_user_setting(user_key, "selected_calendar_name") if user_key else None
-    saved_tab_name = get_user_setting(user_key, "selected_calendar_name_notice_fax") if user_key else None
+    stored_global = get_user_setting(user_id, "selected_calendar_name") if user_id else st.session_state.get("selected_calendar_name")
+    stored_tab = get_user_setting(user_id, "selected_calendar_name_notice_fax") if user_id else st.session_state.get("selected_calendar_name_notice_fax")
 
-    # 互換: セッションState値もフォールバック
-    if not saved_global_name:
-        saved_global_name = st.session_state.get("selected_calendar_name")
-    if not saved_tab_name:
-        saved_tab_name = st.session_state.get("selected_calendar_name_notice_fax")
+    effective_name = cal_names[0]
+    if share_on and stored_global in cal_names:
+        effective_name = stored_global
+    elif (not share_on) and stored_tab in cal_names:
+        effective_name = stored_tab
+    elif stored_global in cal_names:
+        effective_name = stored_global
 
-    if share_on and saved_global_name in cal_names:
-        initial_name = saved_global_name
-    elif (not share_on) and saved_tab_name in cal_names:
-        initial_name = saved_tab_name
-    elif saved_tab_name in cal_names:
-        initial_name = saved_tab_name
-    else:
-        initial_name = cal_names[0]
+    widget_key = "notice_fax_calendar"
+    st.session_state[widget_key] = effective_name
 
-    default_index = cal_names.index(initial_name)
+    def _on_change_calendar():
+        val = st.session_state.get(widget_key)
+        if not val:
+            return
+        if share_on:
+            if user_id:
+                set_user_setting(user_id, "selected_calendar_name", val)
+            st.session_state["selected_calendar_name"] = val
+        else:
+            if user_id:
+                set_user_setting(user_id, "selected_calendar_name_notice_fax", val)
+            st.session_state["selected_calendar_name_notice_fax"] = val
+
+    if effective_name in cal_names:
+        st.session_state[widget_key] = effective_name
 
     calendar_name = st.selectbox(
         "対象カレンダー",
         cal_names,
-        index=default_index,
-        key="notice_fax_calendar",
+        key=widget_key,
+        on_change=_on_change_calendar,
     )
-
-    # 保存
-    if user_key:
-        if share_on:
-            if saved_global_name != calendar_name:
-                set_user_setting(user_key, "selected_calendar_name", calendar_name)
-        else:
-            if saved_tab_name != calendar_name:
-                set_user_setting(user_key, "selected_calendar_name_notice_fax", calendar_name)
-
-    st.session_state["selected_calendar_name_notice_fax"] = calendar_name
-    if share_on:
-        st.session_state["selected_calendar_name"] = calendar_name
 
     calendar_id = editable_calendar_options.get(calendar_name)
 
-    # 期間指定
+# 期間指定
     today = date.today()
     col_d1, col_d2 = st.columns(2)
     with col_d1:
