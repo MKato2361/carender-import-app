@@ -113,59 +113,70 @@ def render_sidebar(
             if editable_calendar_options:
                 calendar_options = list(editable_calendar_options.keys())
 
-                # Firestore に保存されている「基準カレンダー」（tab2と同じキー）
+                # Firestore に保存されているカレンダー名
                 stored_calendar = get_user_setting(user_id, "selected_calendar_name")
-
-                # 共有設定（FireStore → session_state）
-                share_on = st.session_state.get("share_calendar_selection_across_tabs")
-                if share_on is None:
-                    saved_share = get_user_setting(user_id, "share_calendar_selection_across_tabs")
-                    share_on = True if saved_share is None else bool(saved_share)
-                    st.session_state["share_calendar_selection_across_tabs"] = share_on
-
-                # 有効なカレンダー名を決定（優先順位：Firestore > 画面の直近 > 先頭）
+                # 画面での直近の選択状態
                 session_calendar = st.session_state.get("sidebar_default_calendar")
+
+                # 有効なカレンダー名を決定（優先順位：画面 > Firestore > 先頭）
                 effective_calendar = calendar_options[0]
-                if stored_calendar in calendar_options:
-                    effective_calendar = stored_calendar
-                elif session_calendar in calendar_options:
+                if session_calendar in calendar_options:
                     effective_calendar = session_calendar
+                elif stored_calendar in calendar_options:
+                    effective_calendar = stored_calendar
 
-                # selectbox の state を常に「有効なカレンダー名」に同期（基準カレンダーを一貫させる）
+                # selectbox の state を常に「有効なカレンダー名」に同期
                 st.session_state["sidebar_default_calendar"] = effective_calendar
-                # 互換：旧コードが参照する共通キーにも入れておく（他タブはFirestore参照に寄せている）
-                st.session_state["selected_calendar_name"] = effective_calendar
-
-                def _on_change_sidebar_calendar():
-                    val = st.session_state.get("sidebar_default_calendar")
-                    if val:
-                        set_user_setting(user_id, "selected_calendar_name", val)
-                        st.session_state["selected_calendar_name"] = val
 
                 st.markdown("**基準カレンダー**")
-                st.selectbox(
+
+                default_calendar = st.selectbox(
                     "デフォルトカレンダー",
                     calendar_options,
                     key="sidebar_default_calendar",
-                    on_change=_on_change_sidebar_calendar,
                 )
 
-                # 🔽 共有設定：その下に縦に配置（変更時にFirestoreへ保存）
-                def _on_change_share_flag():
-                    set_user_setting(
-                        user_id,
-                        "share_calendar_selection_across_tabs",
-                        bool(st.session_state.get("share_calendar_selection_across_tabs")),
+                # グローバルにも反映（他タブで使う想定）
+                st.session_state["selected_calendar_name"] = default_calendar
+
+                # 🔽 共有設定：その下に縦に配置
+                prev_share = st.session_state.get("share_calendar_selection_across_tabs")
+                if prev_share is None:
+                    saved_share = get_user_setting(
+                        user_id, "share_calendar_selection_across_tabs"
+                    )
+                    prev_share = True if saved_share is None else bool(saved_share)
+                    st.session_state["share_calendar_selection_across_tabs"] = (
+                        prev_share
                     )
 
-                st.checkbox(
+                share_calendar = st.checkbox(
                     "タブ間で選択を共有",
-                    key="share_calendar_selection_across_tabs",
-                    on_change=_on_change_share_flag,
-                    value=share_on,
-                    help="ONにすると、基準カレンダー（tab2で選んだもの）が他のタブにも反映されます。",
+                    value=prev_share,
+                    help="ONにすると、登録タブで選んだカレンダーが他のタブにも自動で反映されます。",
                 )
-# --- 新規イベントのデフォルト設定（非公開／終日） ---
+
+                if share_calendar != prev_share:
+                    st.session_state["share_calendar_selection_across_tabs"] = (
+                        share_calendar
+                    )
+                    set_user_setting(
+                        user_id, "share_calendar_selection_across_tabs", share_calendar
+                    )
+                    save_user_setting_to_firestore(
+                        user_id,
+                        "share_calendar_selection_across_tabs",
+                        share_calendar,
+                    )
+                    st.rerun()
+            else:
+                st.info(
+                    "編集可能なカレンダーが取得できていません。認証状態や権限を確認してください。"
+                )
+
+            st.markdown("---")
+
+            # --- 新規イベントのデフォルト設定（非公開／終日） ---
             st.markdown("**新規イベントのデフォルト**")
 
             saved_private = get_user_setting(user_id, "default_private_event")
