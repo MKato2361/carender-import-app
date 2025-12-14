@@ -6,6 +6,19 @@ from io import BytesIO
 
 import pandas as pd
 import streamlit as st
+from session_utils import get_user_setting, set_user_setting
+
+def _get_current_user_key(fallback: str = "") -> str:
+    """設定保存用のユーザーキーを取得（優先: uid -> email）。"""
+    return (
+        st.session_state.get("user_id")
+        or st.session_state.get("firebase_uid")
+        or st.session_state.get("localId")
+        or st.session_state.get("uid")
+        or st.session_state.get("user_email")
+        or fallback
+        or ""
+    )
 
 # ==============================
 # 正規表現（全角/半角/表記ゆれ対応）
@@ -104,12 +117,51 @@ def render_tab5_export(editable_calendar_options, service, fetch_all_events):
         st.error("利用可能なカレンダーが見つかりません。")
         return
 
+    # 出力対象カレンダー（基準カレンダーと同期）
+    calendar_options = list(editable_calendar_options.keys())
+    share_on = st.session_state.get("share_calendar_selection_across_tabs", True)
+
+    user_key = _get_current_user_key()
+    saved_global = get_user_setting(user_key, "selected_calendar_name") if user_key else None
+    saved_tab = get_user_setting(user_key, "selected_calendar_name_export") if user_key else None
+
+    if not saved_global:
+        saved_global = st.session_state.get("selected_calendar_name")
+    if not saved_tab:
+        saved_tab = st.session_state.get("selected_calendar_name_export")
+
+    if share_on and saved_global in calendar_options:
+        initial_name = saved_global
+    elif (not share_on) and saved_tab in calendar_options:
+        initial_name = saved_tab
+    elif saved_tab in calendar_options:
+        initial_name = saved_tab
+    else:
+        initial_name = calendar_options[0]
+
+    default_index = calendar_options.index(initial_name)
+
     selected_calendar_name_export = st.selectbox(
         "出力対象カレンダーを選択",
-        list(editable_calendar_options.keys()),
+        calendar_options,
+        index=default_index,
         key="export_calendar_select",
     )
+
+    if user_key:
+        if share_on:
+            if saved_global != selected_calendar_name_export:
+                set_user_setting(user_key, "selected_calendar_name", selected_calendar_name_export)
+        else:
+            if saved_tab != selected_calendar_name_export:
+                set_user_setting(user_key, "selected_calendar_name_export", selected_calendar_name_export)
+
+    st.session_state["selected_calendar_name_export"] = selected_calendar_name_export
+    if share_on:
+        st.session_state["selected_calendar_name"] = selected_calendar_name_export
+
     calendar_id_export = editable_calendar_options[selected_calendar_name_export]
+
 
     st.subheader("🗓️ 出力期間の選択")
     today_date_export = date.today()

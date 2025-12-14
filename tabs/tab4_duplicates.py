@@ -4,6 +4,19 @@ from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 import re
 import unicodedata
+from session_utils import get_user_setting, set_user_setting
+
+def _get_current_user_key(fallback: str = "") -> str:
+    """設定保存用のユーザーキーを取得（優先: uid -> email）。"""
+    return (
+        st.session_state.get("user_id")
+        or st.session_state.get("firebase_uid")
+        or st.session_state.get("localId")
+        or st.session_state.get("uid")
+        or st.session_state.get("user_email")
+        or fallback
+        or ""
+    )
 
 # --- 正規表現（main.pyと同じものをコピー） ---
 RE_WORKSHEET_ID = re.compile(r"\[作業指示書[：:]\s*([0-9０-９]+)\]")
@@ -34,10 +47,55 @@ def render_tab4_duplicates(service, editable_calendar_options, fetch_all_events)
             st.info(msg_text)
         st.session_state["last_dup_message"] = None
 
-    # カレンダー選択
+    # カレンダー選択（基準カレンダー: selected_calendar_name と同期）
     calendar_options = list(editable_calendar_options.keys())
-    selected_calendar = st.selectbox("対象カレンダーを選択", calendar_options, key="dup_calendar_select")
+    if not calendar_options:
+        st.error("利用可能なカレンダーがありません。")
+        return
+
+    share_on = st.session_state.get("share_calendar_selection_across_tabs", True)
+    user_key = _get_current_user_key()
+    saved_global = get_user_setting(user_key, "selected_calendar_name") if user_key else None
+    saved_tab = get_user_setting(user_key, "selected_calendar_name_duplicates") if user_key else None
+
+    if not saved_global:
+        saved_global = st.session_state.get("selected_calendar_name")
+    if not saved_tab:
+        saved_tab = st.session_state.get("selected_calendar_name_duplicates")
+
+    if share_on and saved_global in calendar_options:
+        initial_name = saved_global
+    elif (not share_on) and saved_tab in calendar_options:
+        initial_name = saved_tab
+    elif saved_tab in calendar_options:
+        initial_name = saved_tab
+    else:
+        initial_name = calendar_options[0]
+
+    default_index = calendar_options.index(initial_name)
+
+    selected_calendar = st.selectbox(
+        "対象カレンダーを選択",
+        calendar_options,
+        index=default_index,
+        key="dup_calendar_select",
+    )
+
+    # 保存
+    if user_key:
+        if share_on:
+            if saved_global != selected_calendar:
+                set_user_setting(user_key, "selected_calendar_name", selected_calendar)
+        else:
+            if saved_tab != selected_calendar:
+                set_user_setting(user_key, "selected_calendar_name_duplicates", selected_calendar)
+
+    st.session_state["selected_calendar_name_duplicates"] = selected_calendar
+    if share_on:
+        st.session_state["selected_calendar_name"] = selected_calendar
+
     calendar_id = editable_calendar_options[selected_calendar]
+
 
     # 削除モード
     delete_mode = st.radio(
