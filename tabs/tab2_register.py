@@ -414,11 +414,20 @@ def render_tab2_register(user_id: str, editable_calendar_options: dict, service)
             # プールに存在するカラムのみをデフォルト値とする
             default_selection = [col for col in saved_description_cols if col in description_columns_pool]
             
+            desc_key = f"description_selector_register_{user_id}"
+            # セッション初回表示時は、Firestore保存値（default_selection）でウィジェット状態をシードする
+            seeded_flag = f"_desc_selector_seeded_{user_id}"
+            if not st.session_state.get(seeded_flag):
+                st.session_state[desc_key] = list(default_selection)
+                st.session_state[seeded_flag] = True
+
             description_columns = st.multiselect(
                 "説明欄に含める列（複数選択可）",
                 description_columns_pool,
                 default=default_selection,
-                key=f"description_selector_register_{user_id}",
+                key=desc_key,
+                on_change=_save_description_settings,
+                args=(user_id,),
             )
             
             # コールバックを使った保存ボタン
@@ -429,7 +438,6 @@ def render_tab2_register(user_id: str, editable_calendar_options: dict, service)
                 on_click=lambda u=user_id: _save_description_settings(u)
             )
             # multiselectの現在の値を取得 (これがイベント生成時に使われる)
-            desc_key = f"description_selector_register_{user_id}"
             description_columns = st.session_state.get(desc_key, default_selection)
 
 
