@@ -17,6 +17,19 @@ from tabs.tab6_property_master import (
     _normalize_df,
 )
 from utils.helpers import safe_get  # 既存ヘルパー
+from session_utils import get_user_setting, set_user_setting
+
+def _get_current_user_key(fallback: str = "") -> str:
+    """設定保存用のユーザーキーを取得（優先: uid -> email）。"""
+    return (
+        st.session_state.get("user_id")
+        or st.session_state.get("firebase_uid")
+        or st.session_state.get("localId")
+        or st.session_state.get("uid")
+        or st.session_state.get("user_email")
+        or fallback
+        or ""
+    )
 
 
 # JST（日時計算用）
@@ -591,21 +604,24 @@ def render_tab7_inspection_todo(
     # サイドバーの「タブ間で選択を共有」と連動
     share_on = st.session_state.get("share_calendar_selection_across_tabs", True)
 
-    # 共通キー（全タブ共通）
-    saved_global_name = st.session_state.get("selected_calendar_name")
-    # 点検ToDoタブ専用キー
-    saved_tab_name = st.session_state.get("selected_calendar_name_inspection_todo")
+    # Firestore保存の「基準カレンダー」を最優先（tab2と同期）
+    user_key = _get_current_user_key(fallback=current_user_email or "")
+    saved_global_name = get_user_setting(user_key, "selected_calendar_name") if user_key else None
+    saved_tab_name = get_user_setting(user_key, "selected_calendar_name_inspection_todo") if user_key else None
 
-    # 初期表示に使うカレンダー名を決定
-    initial_name: str
+    # 互換: セッションState値もフォールバック
+    if not saved_global_name:
+        saved_global_name = st.session_state.get("selected_calendar_name")
+    if not saved_tab_name:
+        saved_tab_name = st.session_state.get("selected_calendar_name_inspection_todo")
+
     if share_on and saved_global_name in cal_names:
-        # 共有ON -> 共通設定を優先
         initial_name = saved_global_name
+    elif (not share_on) and saved_tab_name in cal_names:
+        initial_name = saved_tab_name
     elif saved_tab_name in cal_names:
-        # 共有OFF or 共通が未設定 -> タブ専用設定を使用
         initial_name = saved_tab_name
     else:
-        # どちらもなければ先頭
         initial_name = cal_names[0]
 
     default_index = cal_names.index(initial_name)
@@ -617,10 +633,16 @@ def render_tab7_inspection_todo(
         key="ins_todo_calendar",
     )
 
-    # タブ専用の選択状態を保存
-    st.session_state["selected_calendar_name_inspection_todo"] = calendar_name
+    # 保存
+    if user_key:
+        if share_on:
+            if saved_global_name != calendar_name:
+                set_user_setting(user_key, "selected_calendar_name", calendar_name)
+        else:
+            if saved_tab_name != calendar_name:
+                set_user_setting(user_key, "selected_calendar_name_inspection_todo", calendar_name)
 
-    # 共有ONのときは共通キーも更新 → 他タブの初期値にも反映
+    st.session_state["selected_calendar_name_inspection_todo"] = calendar_name
     if share_on:
         st.session_state["selected_calendar_name"] = calendar_name
 
