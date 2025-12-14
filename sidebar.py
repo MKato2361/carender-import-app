@@ -382,13 +382,13 @@ def render_sidebar(
 
             token_in_secrets = False
             try:
-                token_in_secrets = bool(st.secrets.get("GITHUB_TOKEN", ""))
+                token_in_secrets = bool(st.secrets.get("GITHUB_PAT", ""))
             except Exception:
                 token_in_secrets = False
 
             token_in_headers = False
             try:
-                token_in_headers = bool(_headers.get("Authorization"))
+                token_in_headers = bool(_headers().get("Authorization"))
             except Exception:
                 token_in_headers = False
 
