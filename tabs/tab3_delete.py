@@ -33,49 +33,24 @@ def render_tab3_delete(editable_calendar_options, service, tasks_service, defaul
     # サイドバーの「タブ間で選択を共有」と連動
     share_on = st.session_state.get("share_calendar_selection_across_tabs", True)
 
-    # Firestoreに保存された「基準カレンダー」を最優先で使う（tab2と同期）
-    user_key = _get_current_user_key()
-    saved_global_name = get_user_setting(user_key, "selected_calendar_name") if user_key else None
-    saved_delete_name = get_user_setting(user_key, "selected_calendar_name_delete") if user_key else None
+    # サイドバーで設定した「基準カレンダー」を初期値として使う（タブ側の選択は永続化しない）
+    base_calendar = (
+        st.session_state.get("base_calendar_name")
+        or st.session_state.get("selected_calendar_name")
+        or calendar_names[0]
+    )
+    if base_calendar not in calendar_names:
+        base_calendar = calendar_names[0]
 
-    # 旧: セッションStateの値もフォールバックとして利用（互換）
-    if not saved_global_name:
-        saved_global_name = st.session_state.get("selected_calendar_name")
-    if not saved_delete_name:
-        saved_delete_name = st.session_state.get("selected_calendar_name_delete")
-
-    # 初期表示に使うカレンダー名を決定
-    if share_on and saved_global_name in calendar_names:
-        initial_name = saved_global_name
-    elif (not share_on) and saved_delete_name in calendar_names:
-        initial_name = saved_delete_name
-    elif saved_delete_name in calendar_names:
-        initial_name = saved_delete_name
-    else:
-        initial_name = calendar_names[0]
-
-    default_index = calendar_names.index(initial_name)
+    select_key = "del_calendar_select"
+    if (select_key not in st.session_state) or (st.session_state.get(select_key) not in calendar_names):
+        st.session_state[select_key] = base_calendar
 
     selected_calendar_name_del = st.selectbox(
         "削除対象カレンダーを選択",
         calendar_names,
-        index=default_index,
-        key="del_calendar_select",
+        key=select_key,
     )
-
-    # 選択を保存（共有ONなら基準カレンダーに保存＝他タブに反映）
-    if user_key:
-        if share_on:
-            if saved_global_name != selected_calendar_name_del:
-                set_user_setting(user_key, "selected_calendar_name", selected_calendar_name_del)
-        else:
-            if saved_delete_name != selected_calendar_name_del:
-                set_user_setting(user_key, "selected_calendar_name_delete", selected_calendar_name_del)
-
-    # セッションStateにも反映（タブ内の表示用）
-    st.session_state["selected_calendar_name_delete"] = selected_calendar_name_del
-    if share_on:
-        st.session_state["selected_calendar_name"] = selected_calendar_name_del
 
     calendar_id_del = editable_calendar_options[selected_calendar_name_del]
 

@@ -365,31 +365,29 @@ def render_tab2_register(user_id: str, editable_calendar_options: dict, service)
 
     calendar_options = list(editable_calendar_options.keys())
 
-    # get_user_setting を使って永続化された設定を読み込む
-    if outside_mode:
-        saved_calendar_name = get_user_setting(user_id, "selected_calendar_name_outside")
-    else:
-        saved_calendar_name = get_user_setting(user_id, "selected_calendar_name")
+    # サイドバーで設定した「基準カレンダー」を初期値として使う（タブ側の選択は永続化しない）
+    base_calendar = (
+        st.session_state.get("base_calendar_name")
+        or st.session_state.get("selected_calendar_name")
+        or get_user_setting(user_id, "selected_calendar_name")
+        or calendar_options[0]
+    )
+    if base_calendar not in calendar_options:
+        base_calendar = calendar_options[0]
 
-    try:
-        default_index = calendar_options.index(saved_calendar_name)
-    except Exception:
-        default_index = 0
-
-    # 登録先カレンダーの選択 (on_changeで保存)
+    # 登録先カレンダーの選択（タブ側は「選べるが保存しない」）
     select_key = "reg_calendar_select_outside" if outside_mode else "reg_calendar_select"
+    if (select_key not in st.session_state) or (st.session_state.get(select_key) not in calendar_options):
+        st.session_state[select_key] = base_calendar
 
     st.selectbox(
         "登録先カレンダーを選択" + ("（作業外予定）" if outside_mode else "（作業指示書）"),
         calendar_options,
-        index=default_index,
         key=select_key,
-        # on_changeで保存処理を呼び出す
-        on_change=lambda u=user_id, o=outside_mode: _save_calendar_selection(u, o)
     )
 
     # st.session_stateから現在の選択値を取得し、後続処理で使用
-    selected_calendar_name = st.session_state.get(select_key, calendar_options[default_index])
+    selected_calendar_name = st.session_state.get(select_key, base_calendar)
     calendar_id = editable_calendar_options[selected_calendar_name]
 
 

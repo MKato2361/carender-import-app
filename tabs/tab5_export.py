@@ -117,48 +117,26 @@ def render_tab5_export(editable_calendar_options, service, fetch_all_events):
         st.error("利用可能なカレンダーが見つかりません。")
         return
 
-    # 出力対象カレンダー（基準カレンダーと同期）
+    # 出力対象カレンダー（サイドバーの基準カレンダーを初期値に。タブ側は永続化しない）
     calendar_options = list(editable_calendar_options.keys())
-    share_on = st.session_state.get("share_calendar_selection_across_tabs", True)
 
-    user_key = _get_current_user_key()
-    saved_global = get_user_setting(user_key, "selected_calendar_name") if user_key else None
-    saved_tab = get_user_setting(user_key, "selected_calendar_name_export") if user_key else None
+    base_calendar = (
+        st.session_state.get("base_calendar_name")
+        or st.session_state.get("selected_calendar_name")
+        or calendar_options[0]
+    )
+    if base_calendar not in calendar_options:
+        base_calendar = calendar_options[0]
 
-    if not saved_global:
-        saved_global = st.session_state.get("selected_calendar_name")
-    if not saved_tab:
-        saved_tab = st.session_state.get("selected_calendar_name_export")
-
-    if share_on and saved_global in calendar_options:
-        initial_name = saved_global
-    elif (not share_on) and saved_tab in calendar_options:
-        initial_name = saved_tab
-    elif saved_tab in calendar_options:
-        initial_name = saved_tab
-    else:
-        initial_name = calendar_options[0]
-
-    default_index = calendar_options.index(initial_name)
+    select_key = "export_calendar_select"
+    if (select_key not in st.session_state) or (st.session_state.get(select_key) not in calendar_options):
+        st.session_state[select_key] = base_calendar
 
     selected_calendar_name_export = st.selectbox(
         "出力対象カレンダーを選択",
         calendar_options,
-        index=default_index,
-        key="export_calendar_select",
+        key=select_key,
     )
-
-    if user_key:
-        if share_on:
-            if saved_global != selected_calendar_name_export:
-                set_user_setting(user_key, "selected_calendar_name", selected_calendar_name_export)
-        else:
-            if saved_tab != selected_calendar_name_export:
-                set_user_setting(user_key, "selected_calendar_name_export", selected_calendar_name_export)
-
-    st.session_state["selected_calendar_name_export"] = selected_calendar_name_export
-    if share_on:
-        st.session_state["selected_calendar_name"] = selected_calendar_name_export
 
     calendar_id_export = editable_calendar_options[selected_calendar_name_export]
 

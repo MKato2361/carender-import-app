@@ -601,50 +601,24 @@ def render_tab7_inspection_todo(
         st.error("利用可能なカレンダーがありません。")
         return
 
-    # サイドバーの「タブ間で選択を共有」と連動
-    share_on = st.session_state.get("share_calendar_selection_across_tabs", True)
+    # サイドバーで設定した「基準カレンダー」を初期値として使う（タブ側の選択は永続化しない）
+    base_calendar = (
+        st.session_state.get("base_calendar_name")
+        or st.session_state.get("selected_calendar_name")
+        or cal_names[0]
+    )
+    if base_calendar not in cal_names:
+        base_calendar = cal_names[0]
 
-    # Firestore保存の「基準カレンダー」を最優先（tab2と同期）
-    user_key = _get_current_user_key(fallback=current_user_email or "")
-    saved_global_name = get_user_setting(user_key, "selected_calendar_name") if user_key else None
-    saved_tab_name = get_user_setting(user_key, "selected_calendar_name_inspection_todo") if user_key else None
-
-    # 互換: セッションState値もフォールバック
-    if not saved_global_name:
-        saved_global_name = st.session_state.get("selected_calendar_name")
-    if not saved_tab_name:
-        saved_tab_name = st.session_state.get("selected_calendar_name_inspection_todo")
-
-    if share_on and saved_global_name in cal_names:
-        initial_name = saved_global_name
-    elif (not share_on) and saved_tab_name in cal_names:
-        initial_name = saved_tab_name
-    elif saved_tab_name in cal_names:
-        initial_name = saved_tab_name
-    else:
-        initial_name = cal_names[0]
-
-    default_index = cal_names.index(initial_name)
+    select_key = "ins_todo_calendar"
+    if (select_key not in st.session_state) or (st.session_state.get(select_key) not in cal_names):
+        st.session_state[select_key] = base_calendar
 
     calendar_name = st.selectbox(
         "対象カレンダー",
         cal_names,
-        index=default_index,
-        key="ins_todo_calendar",
+        key=select_key,
     )
-
-    # 保存
-    if user_key:
-        if share_on:
-            if saved_global_name != calendar_name:
-                set_user_setting(user_key, "selected_calendar_name", calendar_name)
-        else:
-            if saved_tab_name != calendar_name:
-                set_user_setting(user_key, "selected_calendar_name_inspection_todo", calendar_name)
-
-    st.session_state["selected_calendar_name_inspection_todo"] = calendar_name
-    if share_on:
-        st.session_state["selected_calendar_name"] = calendar_name
 
     calendar_id = editable_calendar_options.get(calendar_name)
 
