@@ -249,16 +249,6 @@ tab_labels = [
 if is_admin:
     tab_labels.append("5. 管理者")
 
-
-# ==================================================
-# Sidebar (base calendar) - must run BEFORE creating tab widgets
-# ==================================================
-render_sidebar(
-    user_id=user_id,
-    editable_calendar_options=editable_calendar_options,
-    save_user_setting_to_firestore=save_user_setting_to_firestore,
-)
-
 tabs = st.tabs(tab_labels)
 st.markdown("</div>", unsafe_allow_html=True)
 
@@ -336,4 +326,9 @@ if is_admin:
 # ==================================================
 # 5) サイドバー（別ファイル）
 # ==================================================
+render_sidebar(
+    user_id=user_id,
+    editable_calendar_options=editable_calendar_options,
+    save_user_setting_to_firestore=save_user_setting_to_firestore,
+)
 
