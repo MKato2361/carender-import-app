@@ -113,33 +113,47 @@ def render_sidebar(
             if editable_calendar_options:
                 calendar_options = list(editable_calendar_options.keys())
 
-                # Firestore に保存されているカレンダー名
+                # Firestore に保存されている基準カレンダー名（あれば）
                 stored_calendar = get_user_setting(user_id, "selected_calendar_name")
-                # 画面での直近の選択状態
-                session_calendar = st.session_state.get("sidebar_default_calendar")
 
-                # 有効なカレンダー名を決定（優先順位：画面 > Firestore > 先頭）
-                effective_calendar = calendar_options[0]
-                if session_calendar in calendar_options:
-                    effective_calendar = session_calendar
-                elif stored_calendar in calendar_options:
-                    effective_calendar = stored_calendar
+                # まずは「このセッションでの選択」が有効かを確認。無効なら Firestore → 先頭 の順に採用。
+                current = st.session_state.get("sidebar_default_calendar")
+                if current not in calendar_options:
+                    if stored_calendar in calendar_options:
+                        current = stored_calendar
+                    else:
+                        current = calendar_options[0]
+                    # 初回だけ初期値をセット（毎回上書きしない）
+                    st.session_state["sidebar_default_calendar"] = current
 
-                # selectbox の state を常に「有効なカレンダー名」に同期
-                st.session_state["sidebar_default_calendar"] = effective_calendar
+                # 他タブが参照するグローバル値も、未設定/無効のときだけ同期
+                if st.session_state.get("selected_calendar_name") not in calendar_options:
+                    st.session_state["selected_calendar_name"] = st.session_state["sidebar_default_calendar"]
 
                 st.markdown("**基準カレンダー**")
+
+                def _on_change_base_calendar():
+                    chosen = st.session_state.get("sidebar_default_calendar")
+                    if not chosen:
+                        return
+                    # グローバルに反映（他タブで使う）
+                    st.session_state["selected_calendar_name"] = chosen
+                    # Firestoreにも保存（次回起動時に確実に復元する）
+                    try:
+                        save_user_setting_to_firestore(user_id, "selected_calendar_name", chosen)
+                    except Exception:
+                        pass
 
                 default_calendar = st.selectbox(
                     "デフォルトカレンダー",
                     calendar_options,
                     key="sidebar_default_calendar",
+                    on_change=_on_change_base_calendar,
                 )
 
-                # グローバルにも反映（他タブで使う想定）
+                # 返り値でも同期（この実行ターン内の他処理で即反映させる）
                 st.session_state["selected_calendar_name"] = default_calendar
 
-                # 🔽 共有設定：その下に縦に配置
                 prev_share = st.session_state.get("share_calendar_selection_across_tabs")
                 if prev_share is None:
                     saved_share = get_user_setting(

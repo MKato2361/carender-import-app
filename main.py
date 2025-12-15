@@ -170,6 +170,14 @@ if not initialize_firebase():
 
 db = firestore.client()
 user_id = get_firebase_user_id()
+
+# --- Ensure user id is available consistently across all tabs ---
+# Tabs use various session_state keys (user_id/localId/firebase_uid etc.) to persist settings.
+if user_id:
+    st.session_state["user_id"] = user_id
+    st.session_state["localId"] = user_id
+    st.session_state["firebase_uid"] = user_id
+
 if not user_id:
     # ログイン画面を少し中央寄せで見やすく
     col1, col2, col3 = st.columns([1, 2, 1])
@@ -331,4 +339,3 @@ render_sidebar(
     editable_calendar_options=editable_calendar_options,
     save_user_setting_to_firestore=save_user_setting_to_firestore,
 )
-
