@@ -78,10 +78,10 @@ div[data-testid="stTabs"] { position: sticky; top: 42px; z-index: 15; background
     backdrop-filter: blur(6px); }
 .block-container, section[data-testid="stMainBlockContainer"], main {
     padding-top: 0 !important; padding-bottom: 0 !important; margin-bottom: 0 !important;
-    height: auto !important; min-height: 100vh !important; overflow: visible !important; }
-footer, div[data-testid="stBottomBlockContainer"] { display: none !important; height: 0 !important; margin: 0 !important; padding: 0 !important; }
-html, body, #root { height: auto !important; min-height: 100% !important; margin: 0 !important; padding: 0 !important;
-    overflow-x: hidden !important; overflow-y: auto !important; overscroll-behavior: none !important; -webkit-overflow-scrolling: touch !important; }
+    height: auto !important; min-height: 100vh !重要; overflow: visible !重要; }
+footer, div[data-testid="stBottomBlockContainer"] { display: none !重要; height: 0 !重要; margin: 0 !重要; padding: 0 !重要; }
+html, body, #root { height: auto !重要; min-height: 100% !重要; margin: 0 !重要; padding: 0 !重要;
+    overflow-x: hidden !重要; overflow-y: auto !重要; overscroll-behavior: none !重要; -webkit-overflow-scrolling: touch !重要; }
 </style>
 <div class="header-bar">📅 Googleカレンダー一括イベント登録・削除</div>
 """,
@@ -200,11 +200,8 @@ load_user_settings_from_firestore(user_id)
 # ==================================================
 # 2-b) ユーザー情報 / 権限
 # ==================================================
-current_user_email = st.session_state.get("user_email") or ""
+current_user_email = user_id
 current_user_name: Optional[str] = None
-if not current_user_email:
-    # フォールバック（互換性のため）
-    current_user_email = user_id
 
 user_doc = get_or_create_user(current_user_email, current_user_name)
 current_role = user_doc.get("role") or get_user_role(current_user_email)
@@ -223,6 +220,16 @@ with google_auth_placeholder.container():
         google_auth_placeholder.empty()
 
 service, editable_calendar_options = ensure_services(creds)
+
+# ==================================================
+# サイドバーはタブ描画より先に実行（基準カレンダーを初期値として反映するため）
+render_sidebar(
+    user_id=user_id,
+    editable_calendar_options=editable_calendar_options,
+    save_user_setting_to_firestore=save_user_setting_to_firestore,
+)
+# ==================================================
+
 tasks_service = st.session_state.get("tasks_service")
 default_task_list_id = st.session_state.get("default_task_list_id")
 
@@ -326,9 +333,4 @@ if is_admin:
 # ==================================================
 # 5) サイドバー（別ファイル）
 # ==================================================
-render_sidebar(
-    user_id=user_id,
-    editable_calendar_options=editable_calendar_options,
-    save_user_setting_to_firestore=save_user_setting_to_firestore,
-)
 
