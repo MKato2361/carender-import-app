@@ -111,7 +111,7 @@ def render_tab_admin(
     """
     管理者専用タブ。
     - current_user_email: Firebase 認証などから取得したユーザーのメールアドレス
-    - current_user_name : 表示名（あれば）
+    - current_user_name : 表示名(あれば)
     """
 
     # ログイン情報チェック
@@ -320,13 +320,14 @@ def render_tab_admin(
         st.caption("※ 行のチェックボックスで選択して削除することもできます。")
 
         st.markdown("#### ファイル一覧（チェックして削除）")
-        for item in file_items:
+        for idx, item in enumerate(file_items):
             path = item.get("path")
             sha = item.get("sha")
             size = item.get("size")
             html_url = item.get("html_url")
 
-            cb_key = f"admin_github_ck_{sha}"
+            # ★ 修正: インデックスとSHAを組み合わせて一意のキーを生成
+            cb_key = f"admin_github_ck_{idx}_{sha}"
 
             col_f0, col_f1, col_f2, col_f3, col_f4 = st.columns([1, 4, 2, 2, 2])
 
@@ -360,9 +361,10 @@ def render_tab_admin(
                 targets = file_items
             else:
                 # individual チェック ON のものだけ削除
-                for item in file_items:
+                for idx, item in enumerate(file_items):
                     sha = item.get("sha")
-                    cb_key = f"admin_github_ck_{sha}"
+                    # ★ 修正: 同じキー生成ロジックを使用
+                    cb_key = f"admin_github_ck_{idx}_{sha}"
                     if st.session_state.get(cb_key):
                         targets.append(item)
 
@@ -392,9 +394,10 @@ def render_tab_admin(
 
                 # 再取得のためキャッシュ削除＆チェック解除
                 st.session_state.pop(cache_key, None)
-                for item in file_items:
+                for idx, item in enumerate(file_items):
                     sha = item.get("sha")
-                    cb_key = f"admin_github_ck_{sha}"
+                    # ★ 修正: 同じキー生成ロジックを使用
+                    cb_key = f"admin_github_ck_{idx}_{sha}"
                     if cb_key in st.session_state:
                         del st.session_state[cb_key]
                 st.session_state["admin_github_delete_all"] = False
