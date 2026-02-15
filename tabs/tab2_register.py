@@ -419,7 +419,7 @@ def render_tab2_register(user_id: str, editable_calendar_options: dict, service)
                 st.session_state[desc_key] = list(default_selection)
             else:
                 # プールから消えた列が残っていたら除外（値はユーザー選択を優先）
-              #  st.session_state[desc_key] = [c for c in st.session_state[desc_key] if c in description_columns_pool]
+                st.session_state[desc_key] = [c for c in st.session_state[desc_key] if c in description_columns_pool]
 
             # ✅ default は渡さない（Streamlitのwarning回避）
             description_columns = st.multiselect(
