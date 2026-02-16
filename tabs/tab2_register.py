@@ -82,7 +82,7 @@ def compute_fetch_window_from_df(df: pd.DataFrame, buffer_days: int = 30):
     except Exception:
         return None
 
-def extract_worksheet_id_from_description(desc: str) -> str | None:
+def extract_worksheet_id_from_description(desc: str) -> Optional[str]:
     import re, unicodedata
     RE_WORKSHEET_ID = re.compile(r"\[作業指示書[：:]\s*([0-9０-９]+)\]")
     if not desc:
@@ -138,7 +138,7 @@ def _to_dt(val: str) -> Optional[datetime]:
     return None
 
 
-def _split_dt_cell(val: str) -> tuple[str, str]:
+def _split_dt_cell(val: str) -> tuple:
     if isinstance(val, datetime):
         dt = val.astimezone(JST) if val.tzinfo else val.replace(tzinfo=JST)
     else:
@@ -148,7 +148,7 @@ def _split_dt_cell(val: str) -> tuple[str, str]:
     return dt.strftime("%Y/%m/%d"), dt.strftime("%H:%M")
 
 
-def _normalize_minute_str(dt_like: datetime | str) -> str:
+def _normalize_minute_str(dt_like) -> str:
     if isinstance(dt_like, str):
         d = _to_dt(dt_like)
     else:
@@ -159,7 +159,7 @@ def _normalize_minute_str(dt_like: datetime | str) -> str:
     return d.strftime("%Y-%m-%dT%H:%M")
 
 
-def _normalize_event_times_to_key(start_dict: dict, end_dict: dict) -> tuple[str, str]:
+def _normalize_event_times_to_key(start_dict: dict, end_dict: dict) -> tuple:
     def norm_one(d: dict) -> str:
         if not d:
             return ""
@@ -175,7 +175,7 @@ def _normalize_event_times_to_key(start_dict: dict, end_dict: dict) -> tuple[str
     return norm_one(start_dict), norm_one(end_dict)
 
 
-def _normalize_row_times_to_key(row: dict, all_day_flag: str) -> tuple[str, str]:
+def _normalize_row_times_to_key(row: dict, all_day_flag: str) -> tuple:
     if all_day_flag == "True":
         try:
             sd = datetime.strptime(row.get("Start Date", ""), "%Y/%m/%d").date().strftime("%Y-%m-%d")
