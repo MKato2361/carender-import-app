@@ -331,10 +331,14 @@ def process_excel_data_for_calendar(
             continue
 
         # 場所
-        location = row.get(addr_col, "") if addr_col else ""
-        if isinstance(location, str) and "北海道札幌市" in location:
-            location = location.replace("北海道札幌市", "")
-
+        location = ""
+        if addr_col and addr_col in row:
+        location_value = row.get(addr_col, "")
+        if pd.notna(location_value):  # ← NaNチェックを追加
+        location = str(location_value).strip()  # ← 必ず文字列に変換
+        # "北海道札幌市" を削除
+        if "北海道札幌市" in location:
+            location = location.replace("北海道札幌市", "").strip()
         # Description用の必須項目とオプション項目を整理
         required_items = []
         optional_items = []
@@ -423,4 +427,5 @@ def process_excel_data_for_calendar(
         )
 
     return pd.DataFrame(output_records) if output_records else pd.DataFrame()
+
 
