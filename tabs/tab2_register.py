@@ -1,5 +1,7 @@
 import streamlit as st
 import pandas as pd
+import unicodedata
+import re
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from typing import Dict, List, Optional
@@ -91,6 +93,14 @@ def extract_worksheet_id_from_description(desc: str) -> str | None:
     if not m:
         return None
     return unicodedata.normalize("NFKC", m.group(1)).strip()
+
+def normalize_col_name(s: str) -> str:
+    if not s:
+        return ""
+    s = unicodedata.normalize("NFKC", s)
+    s = s.strip()
+    s = re.sub(r"\s+", "", s)
+    return s
 
 
 # ---- timezone-safe datetime converter ----
@@ -407,19 +417,27 @@ def render_tab2_register(user_id: str, editable_calendar_options: dict, service)
             description_columns = []
         else:
             description_columns_pool = st.session_state.get("description_columns_pool", [])
-            # get_user_setting を使って永続化された設定を読み込む
             saved_description_cols = get_user_setting(user_id, "description_columns_selected") or []
-            # プールに存在するカラムのみをデフォルト値とする
-            default_selection = [col for col in saved_description_cols if col in description_columns_pool]
+
+            # 列名正規化マップ
+            norm_pool = {normalize_col_name(c): c for c in description_columns_pool}
+
+            default_selection = []
+            for c in saved_description_cols:
+                nc = normalize_col_name(c)
+            if nc in norm_pool:
+                default_selection.append(norm_pool[nc])
 
             desc_key = f"description_selector_register_{user_id}"
 
-            # ✅ 初回だけシード（default と session_state の二重指定を避ける）
             if desc_key not in st.session_state:
                 st.session_state[desc_key] = list(default_selection)
-            else:
-                # プールから消えた列が残っていたら除外（値はユーザー選択を優先）
-                st.session_state[desc_key] = [c for c in st.session_state[desc_key] if c in description_columns_pool]
+        else:
+            st.session_state[desc_key] = [
+                norm_pool[normalize_col_name(c)]
+            for c in st.session_state[desc_key]
+            if normalize_col_name(c) in norm_pool
+            ]    
 
             # ✅ default は渡さない（Streamlitのwarning回避）
             description_columns = st.multiselect(
