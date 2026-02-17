@@ -110,7 +110,8 @@ def render_tab5_export(editable_calendar_options, service, fetch_all_events):
     def safe_filename(name: str) -> str:
         name = unicodedata.normalize("NFKC", name)
         name = re.sub(r'[\/\\\:\*\?\"\<\>\|]', "", name)
-        name = name.strip(" .")
+        name = re.sub(r'[@.]', "_", name)   # @ と . を _ に変換
+        name = name.strip("_ ")             # 先頭・末尾の _ や空白を除去
         return name or "output"
 
     if not editable_calendar_options:
