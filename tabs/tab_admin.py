@@ -213,83 +213,32 @@ def render_tab_admin(
                 else:
                     st.warning("メールアドレスを入力してください。")
 
-    # --------------------------
+  # --------------------------
     # 📂 GitHub ファイル管理
     # --------------------------
     with tab_files:
-        st.subheader("GitHub ファイルアップロード / 削除")
-
+        st.subheader("📂 GitHub ファイル管理")
         st.caption(
             f"対象リポジトリ: `{GITHUB_OWNER}/{GITHUB_REPO}`  （PAT: secrets の GITHUB_PAT を利用）"
         )
 
-        # ベースディレクトリ
-        default_base = st.session_state.get("admin_github_base_path", "")
+        # ── 対象ディレクトリ ──────────────────────────────────
         base_path = st.text_input(
             "対象ディレクトリ（例: state / templates / 空欄でリポジトリルート）",
-            value=default_base,
+            value=st.session_state.get("admin_github_base_path", ""),
             key="admin_github_base_input",
         )
         st.session_state["admin_github_base_path"] = base_path
 
-        col_up1, col_up2 = st.columns([3, 1])
-        with col_up1:
-            # ★ 複数ファイルアップロード対応
-            uploaded_files = st.file_uploader(
-                "アップロードするファイル（複数可）",
-                key="admin_github_uploader",
-                accept_multiple_files=True,
-            )
-        with col_up2:
-            commit_message = st.text_input(
-                "コミットメッセージ",
-                value=f"Upload from admin UI ({datetime.now().strftime('%Y-%m-%d %H:%M')})",
-                key="admin_github_commit_msg",
-            )
-
-        if st.button("アップロード実行", type="primary", key="admin_github_do_upload"):
-            if not uploaded_files:
-                st.warning("ファイルを選択してください。")
-            else:
-                clean_base = base_path.strip().strip("/")
-                success_count = 0
-                error_count = 0
-
-                for f in uploaded_files:
-                    if clean_base:
-                        target_path = f"{clean_base}/{f.name}"
-                    else:
-                        target_path = f.name
-
-                    try:
-                        res = upload_file_to_github(
-                            target_path=target_path,
-                            content=f.getvalue(),
-                            message=commit_message,
-                        )
-                        success_count += 1
-                        st.success(f"アップロード完了: `{target_path}`")
-                        with st.expander(f"GitHub API レスポンス: {f.name}", expanded=False):
-                            st.json(res)
-                    except Exception as e:
-                        error_count += 1
-                        st.error(f"アップロード中にエラーが発生しました: {f.name} ({e})")
-
-                if success_count > 0:
-                    # 再取得のためキャッシュ削除
-                    st.session_state.pop("admin_github_last_list", None)
-
-                if error_count == 0:
-                    st.info(f"{success_count} 件のファイルをアップロードしました。")
-                elif success_count > 0:
-                    st.warning(f"{success_count} 件成功、{error_count} 件でエラーが発生しました。")
-
         st.markdown("---")
-        st.subheader("ディレクトリ内のファイル一覧 / 一括削除")
 
-        # 一覧キャッシュ制御
-        if st.button("一覧を再取得", key="admin_github_reload"):
-            st.session_state.pop("admin_github_last_list", None)
+        # ── 現在のファイル状況 ────────────────────────────────
+        st.markdown("#### 現在のファイル状況")
+
+        col_reload, _ = st.columns([1, 5])
+        with col_reload:
+            if st.button("🔄 再取得", key="admin_github_reload"):
+                st.session_state.pop("admin_github_last_list", None)
 
         cache_key = "admin_github_last_list"
         if cache_key not in st.session_state:
@@ -302,108 +251,178 @@ def render_tab_admin(
         else:
             items = st.session_state[cache_key]
 
-        # ファイルだけ対象
         file_items = [it for it in items if it.get("type") == "file"]
 
-        if not file_items:
-            st.info("削除対象のファイルが見つかりませんでした（type=file がありません）。")
-            return
+        if file_items:
+            # ヘッダー行
+            hcol1, hcol2, hcol3 = st.columns([4, 2, 3])
+            with hcol1:
+                st.caption("ファイル名")
+            with hcol2:
+                st.caption("SHA")
+            with hcol3:
+                st.caption("更新日時 (コミット)")
 
-        # 「全ファイル削除」チェックボックス
-        delete_all = st.checkbox(
-            "⚠️ このディレクトリ内の全ファイルを削除する（type=file のみ）",
-            key="admin_github_delete_all",
-            help="チェックが入っている状態で『選択したファイルを削除』ボタンを押すと、"
-                 "下の一覧に表示されているファイルがすべて削除されます。",
-        )
+            for item in file_items:
+                path     = item.get("path", "")
+                sha      = item.get("sha", "")
+                html_url = item.get("html_url", "")
 
-        st.caption("※ 行のチェックボックスで選択して削除することもできます。")
+                # GitHub API の contents エンドポイントには updated_at がないため、
+                # commits API で最終コミット日時を取得する（件数が多い場合は省略可）
+                try:
+                    commit_url = (
+                        f"{GITHUB_API_BASE}/repos/{GITHUB_OWNER}/{GITHUB_REPO}"
+                        f"/commits?path={path}&per_page=1"
+                    )
+                    cr = requests.get(commit_url, headers=_headers())
+                    if cr.status_code == 200 and cr.json():
+                        raw_date = cr.json()[0]["commit"]["committer"]["date"]  # ISO8601
+                        updated  = raw_date[:10]  # "YYYY-MM-DD" だけ表示
+                    else:
+                        updated = "-"
+                except Exception:
+                    updated = "-"
 
-        st.markdown("#### ファイル一覧（チェックして削除）")
-        for idx, item in enumerate(file_items):
-            path = item.get("path")
-            sha = item.get("sha")
-            size = item.get("size")
-            html_url = item.get("html_url")
-
-            # ★ 修正: インデックスとSHAを組み合わせて一意のキーを生成
-            cb_key = f"admin_github_ck_{idx}_{sha}"
-
-            col_f0, col_f1, col_f2, col_f3, col_f4 = st.columns([1, 4, 2, 2, 2])
-
-            with col_f0:
-                st.checkbox("", key=cb_key)
-
-            with col_f1:
-                if html_url:
-                    st.markdown(f"[`{path}`]({html_url})")
-                else:
-                    st.write(f"`{path}`")
-
-            with col_f2:
-                st.write(f"SHA: `{sha[:7]}`" if sha else "-")
-
-            with col_f3:
-                st.write(f"{size} bytes" if size is not None else "")
-
-            with col_f4:
-                st.write("")
+                c1, c2, c3 = st.columns([4, 2, 3])
+                with c1:
+                    if html_url:
+                        st.markdown(f"[`{path}`]({html_url})")
+                    else:
+                        st.write(f"`{path}`")
+                with c2:
+                    st.write(f"`{sha[:7]}`" if sha else "-")
+                with c3:
+                    st.write(updated)
+        else:
+            st.info("ファイルが見つかりませんでした。")
 
         st.markdown("---")
 
-        # 削除ボタン
-        if st.button("🗑️ 選択したファイルを削除", type="primary", key="admin_github_delete_selected"):
-            # 削除対象を決定
-            targets: List[Dict] = []
+        # ── アップロード ──────────────────────────────────────
+        st.markdown("#### ファイルをアップロード")
+        st.caption("既存ファイルは自動で上書き、新規ファイルは新規作成されます。")
 
-            if delete_all:
-                # delete_all ON → file_items 全部削除
-                targets = file_items
-            else:
-                # individual チェック ON のものだけ削除
-                for idx, item in enumerate(file_items):
-                    sha = item.get("sha")
-                    # ★ 修正: 同じキー生成ロジックを使用
-                    cb_key = f"admin_github_ck_{idx}_{sha}"
-                    if st.session_state.get(cb_key):
-                        targets.append(item)
+        col_up1, col_up2 = st.columns([3, 2])
+        with col_up1:
+            uploaded_files = st.file_uploader(
+                "ファイルを選択（複数可）",
+                key="admin_github_uploader",
+                accept_multiple_files=True,
+            )
+        with col_up2:
+            commit_message = st.text_input(
+                "コミットメッセージ",
+                value=f"Upload from admin UI ({datetime.now().strftime('%Y-%m-%d %H:%M')})",
+                key="admin_github_commit_msg",
+            )
 
-            if not targets:
-                st.warning("削除対象のファイルが選択されていません。")
+        # アップロード予定ファイルのプレビュー
+        if uploaded_files:
+            existing_names = {it.get("name") for it in file_items}
+            for f in uploaded_files:
+                if f.name in existing_names:
+                    st.warning(f"⚠️ 上書き: `{f.name}` （既存ファイルを更新します）")
+                else:
+                    st.success(f"✅ 新規: `{f.name}`")
+
+        if st.button("▶ アップロード実行", type="primary", key="admin_github_do_upload"):
+            if not uploaded_files:
+                st.warning("ファイルを選択してください。")
             else:
-                error_count = 0
-                for item in targets:
-                    path = item.get("path")
-                    sha = item.get("sha")
-                    if not path or not sha:
-                        continue
+                clean_base    = base_path.strip().strip("/")
+                success_count = 0
+                error_count   = 0
+
+                for f in uploaded_files:
+                    target_path = f"{clean_base}/{f.name}" if clean_base else f.name
                     try:
-                        delete_file_from_github(
-                            target_path=path,
-                            sha=sha,
-                            message=f"Delete from admin UI ({datetime.now().strftime('%Y-%m-%d %H:%M')})",
+                        upload_file_to_github(
+                            target_path=target_path,
+                            content=f.getvalue(),
+                            message=commit_message,
                         )
+                        success_count += 1
+                        st.success(f"完了: `{target_path}`")
                     except Exception as e:
                         error_count += 1
-                        st.error(f"削除中にエラーが発生しました: {path} ({e})")
+                        st.error(f"エラー: `{f.name}` ({e})")
+
+                # キャッシュ削除して一覧を更新
+                st.session_state.pop(cache_key, None)
 
                 if error_count == 0:
-                    st.success(f"{len(targets)} 件のファイルを削除しました。")
+                    st.info(f"{success_count} 件のアップロードが完了しました。")
                 else:
-                    st.warning(f"{len(targets)} 件中 {error_count} 件でエラーが発生しました。")
-
-                # 再取得のためキャッシュ削除＆チェック解除
-                st.session_state.pop(cache_key, None)
-                for idx, item in enumerate(file_items):
-                    sha = item.get("sha")
-                    # ★ 修正: 同じキー生成ロジックを使用
-                    cb_key = f"admin_github_ck_{idx}_{sha}"
-                    if cb_key in st.session_state:
-                        del st.session_state[cb_key]
-                st.session_state["admin_github_delete_all"] = False
+                    st.warning(f"{success_count} 件成功、{error_count} 件でエラーが発生しました。")
 
                 st.rerun()
 
+        st.markdown("---")
+
+        # ── 削除操作（折りたたみ）────────────────────────────
+        with st.expander("⚙️ 削除操作（展開して表示）"):
+            if not file_items:
+                st.info("削除対象のファイルがありません。")
+            else:
+                delete_all = st.checkbox(
+                    "⚠️ このディレクトリ内の全ファイルを削除する",
+                    key="admin_github_delete_all",
+                )
+                st.caption("または行ごとにチェックして個別削除できます。")
+
+                for idx, item in enumerate(file_items):
+                    path = item.get("path", "")
+                    sha  = item.get("sha", "")
+                    cb_key = f"admin_github_ck_{idx}_{sha}"
+
+                    col_ck, col_name = st.columns([1, 6])
+                    with col_ck:
+                        st.checkbox("", key=cb_key)
+                    with col_name:
+                        st.write(f"`{path}`")
+
+                if st.button("🗑️ 選択したファイルを削除", type="primary", key="admin_github_delete_selected"):
+                    if delete_all:
+                        targets = file_items
+                    else:
+                        targets = [
+                            item for idx, item in enumerate(file_items)
+                            if st.session_state.get(f"admin_github_ck_{idx}_{item.get('sha')}")
+                        ]
+
+                    if not targets:
+                        st.warning("削除対象のファイルが選択されていません。")
+                    else:
+                        error_count = 0
+                        for item in targets:
+                            path = item.get("path", "")
+                            sha  = item.get("sha", "")
+                            if not path or not sha:
+                                continue
+                            try:
+                                delete_file_from_github(
+                                    target_path=path,
+                                    sha=sha,
+                                    message=f"Delete from admin UI ({datetime.now().strftime('%Y-%m-%d %H:%M')})",
+                                )
+                            except Exception as e:
+                                error_count += 1
+                                st.error(f"削除エラー: `{path}` ({e})")
+
+                        if error_count == 0:
+                            st.success(f"{len(targets)} 件を削除しました。")
+                        else:
+                            st.warning(f"{len(targets)} 件中 {error_count} 件でエラーが発生しました。")
+
+                        # キャッシュ・チェック状態をリセット
+                        st.session_state.pop(cache_key, None)
+                        for idx, item in enumerate(file_items):
+                            cb_key = f"admin_github_ck_{idx}_{item.get('sha')}"
+                            st.session_state.pop(cb_key, None)
+                        st.session_state["admin_github_delete_all"] = False
+
+                        st.rerun()
     # --------------------------
     # 🔁 重複イベントの検出・削除（元タブ4）
     # --------------------------
