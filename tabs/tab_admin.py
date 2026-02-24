@@ -213,7 +213,7 @@ def render_tab_admin(
                 else:
                     st.warning("メールアドレスを入力してください。")
 
-  # --------------------------
+ # --------------------------
     # 📂 GitHub ファイル管理
     # --------------------------
     with tab_files:
@@ -239,6 +239,7 @@ def render_tab_admin(
         with col_reload:
             if st.button("🔄 再取得", key="admin_github_reload"):
                 st.session_state.pop("admin_github_last_list", None)
+                st.session_state.pop("admin_github_commit_dates", None)
 
         cache_key = "admin_github_last_list"
         if cache_key not in st.session_state:
@@ -254,6 +255,13 @@ def render_tab_admin(
         file_items = [it for it in items if it.get("type") == "file"]
 
         if file_items:
+            # 更新日を一括取得（APIコールはディレクトリ内ファイル数分だが1ループで完結）
+            date_cache_key = "admin_github_commit_dates"
+            if date_cache_key not in st.session_state:
+                with st.spinner("更新日時を取得中..."):
+                    st.session_state[date_cache_key] = get_dir_commit_dates(base_path)
+            commit_dates: Dict[str, str] = st.session_state[date_cache_key]
+
             # ヘッダー行
             hcol1, hcol2, hcol3 = st.columns([4, 2, 3])
             with hcol1:
@@ -261,28 +269,13 @@ def render_tab_admin(
             with hcol2:
                 st.caption("SHA")
             with hcol3:
-                st.caption("更新日時 (コミット)")
+                st.caption("最終更新日")
 
             for item in file_items:
                 path     = item.get("path", "")
                 sha      = item.get("sha", "")
                 html_url = item.get("html_url", "")
-
-                # GitHub API の contents エンドポイントには updated_at がないため、
-                # commits API で最終コミット日時を取得する（件数が多い場合は省略可）
-                try:
-                    commit_url = (
-                        f"{GITHUB_API_BASE}/repos/{GITHUB_OWNER}/{GITHUB_REPO}"
-                        f"/commits?path={path}&per_page=1"
-                    )
-                    cr = requests.get(commit_url, headers=_headers())
-                    if cr.status_code == 200 and cr.json():
-                        raw_date = cr.json()[0]["commit"]["committer"]["date"]  # ISO8601
-                        updated  = raw_date[:10]  # "YYYY-MM-DD" だけ表示
-                    else:
-                        updated = "-"
-                except Exception:
-                    updated = "-"
+                updated  = commit_dates.get(path, "-")
 
                 c1, c2, c3 = st.columns([4, 2, 3])
                 with c1:
@@ -350,6 +343,7 @@ def render_tab_admin(
 
                 # キャッシュ削除して一覧を更新
                 st.session_state.pop(cache_key, None)
+                st.session_state.pop("admin_github_commit_dates", None)
 
                 if error_count == 0:
                     st.info(f"{success_count} 件のアップロードが完了しました。")
@@ -417,6 +411,7 @@ def render_tab_admin(
 
                         # キャッシュ・チェック状態をリセット
                         st.session_state.pop(cache_key, None)
+                        st.session_state.pop("admin_github_commit_dates", None)
                         for idx, item in enumerate(file_items):
                             cb_key = f"admin_github_ck_{idx}_{item.get('sha')}"
                             st.session_state.pop(cb_key, None)
