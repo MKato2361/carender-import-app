@@ -17,8 +17,10 @@ from streamlit.runtime.uploaded_file_manager import UploadedFile
 from utils.helpers import safe_get, to_utc_range, default_fetch_window_years
 from utils.parsers import extract_worksheet_id_from_text
 from utils.user_roles import get_or_create_user, get_user_role, ROLE_ADMIN
-from github_loader import walk_repo_tree, load_file_bytes_from_github, is_supported_file
-from github_loader import _headers, GITHUB_OWNER, GITHUB_REPO
+
+# ★ 削除: main.py では直接使わないため github_loader のインポートを除去
+# from github_loader import walk_repo_tree, load_file_bytes_from_github, is_supported_file
+# from github_loader import _headers, GITHUB_OWNER, GITHUB_REPO
 
 # ---- Tab Modules ----
 from tabs.tab1_upload import render_tab1_upload
@@ -31,7 +33,7 @@ from tabs.tab6_property_master import render_tab6_property_master
 from tabs.tab7_inspection_todo import render_tab7_inspection_todo
 from tabs.tab8_notice_fax import render_tab8_notice_fax
 
-from sidebar import render_sidebar  # ★ 追加
+from sidebar import render_sidebar
 # ---- Auth & Logic ----
 from calendar_utils import (
     authenticate_google,
@@ -48,7 +50,7 @@ from session_utils import (
 )
 
 # ==================================================
-# 0) ページ設定 & スタイル (カラーは変更せず維持)
+# 0) ページ設定 & スタイル
 # ==================================================
 st.set_page_config(page_title="Googleカレンダー一括イベント登録・削除", layout="wide")
 
@@ -61,7 +63,6 @@ def load_custom_css() -> None:
 
 load_custom_css()
 
-# 元のCSSを維持（ダークモード/ライトモード対応）
 st.markdown(
     """
 <style>
@@ -146,14 +147,14 @@ def build_tasks_service_safe(creds):
     return None, None
 
 def ensure_services(creds):
-    if "calendar_service" not in st.session_state or not st.session_state["calendar_service"]:
+    if "calendar_service" not in st.session_state or st.session_state["calendar_service"] is None:
         service, editable = build_calendar_service(creds)
         if not service:
             st.warning("Google認証の状態を確認するか、ページをリロードしてください。")
             st.stop()
         st.session_state["calendar_service"] = service
         st.session_state["editable_calendar_options"] = editable
-    if "tasks_service" not in st.session_state or not st.session_state.get("tasks_service"):
+    if "tasks_service" not in st.session_state or st.session_state.get("tasks_service") is None:
         tasks_service, default_task_list_id = build_tasks_service_safe(creds)
         st.session_state["tasks_service"] = tasks_service
         st.session_state["default_task_list_id"] = default_task_list_id
@@ -171,7 +172,6 @@ if not initialize_firebase():
 db = firestore.client()
 user_id = get_firebase_user_id()
 if not user_id:
-    # ログイン画面を少し中央寄せで見やすく
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         st.info("利用を開始するにはログインしてください")
@@ -203,7 +203,6 @@ load_user_settings_from_firestore(user_id)
 current_user_email = st.session_state.get("user_email") or ""
 current_user_name: Optional[str] = None
 if not current_user_email:
-    # フォールバック（互換性のため）
     current_user_email = user_id
 
 user_doc = get_or_create_user(current_user_email, current_user_name)
@@ -235,8 +234,7 @@ except Exception as e:
 st.session_state["sheets_service"] = sheets_service
 
 # ==================================================
-# ==================================================
-# 5) サイドバー（先に描画して基準カレンダーを全タブへ反映）
+# 5) サイドバー
 # ==================================================
 render_sidebar(
     user_id=user_id,
@@ -244,9 +242,15 @@ render_sidebar(
     save_user_setting_to_firestore=save_user_setting_to_firestore,
 )
 
-# 4) メインコンテンツ (UI改善版)
 # ==================================================
-# タブのコンテナ
+# 4) メインコンテンツ
+# ==================================================
+# ★ 削除: session_state の初期化は tab1_upload.render_tab1_upload() 内で一元管理
+# if "uploaded_files" not in st.session_state:
+#     st.session_state["uploaded_files"] = []
+#     st.session_state["description_columns_pool"] = []
+#     st.session_state["merged_df_for_selector"] = pd.DataFrame()
+
 st.markdown('<div class="fixed-tabs">', unsafe_allow_html=True)
 
 tab_labels = [
@@ -261,14 +265,8 @@ if is_admin:
 tabs = st.tabs(tab_labels)
 st.markdown("</div>", unsafe_allow_html=True)
 
-if "uploaded_files" not in st.session_state:
-    st.session_state["uploaded_files"] = []
-    st.session_state["description_columns_pool"] = []
-    st.session_state["merged_df_for_selector"] = pd.DataFrame()
-
 # --- Tab 1: Upload ---
 with tabs[0]:
-    # コンテナで囲んで視認性を向上（色は変えず枠線と余白のみ）
     with st.container(border=True):
         st.caption("ExcelまたはCSVファイルをアップロードしてください")
         render_tab1_upload()
