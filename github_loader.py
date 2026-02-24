@@ -105,6 +105,42 @@ def list_github_files(base_path: str = "") -> List[Dict]:
     return data if isinstance(data, list) else [data]
 
 
+def get_dir_commit_dates(base_path: str = "") -> Dict[str, str]:
+    """
+    指定ディレクトリ配下の各ファイルの最終コミット日時を一括取得して返す。
+    返り値: { "path/to/file.csv": "2025-01-10", ... }
+
+    GitHub の /commits API はディレクトリ単位で絞り込めないため、
+    対象ディレクトリの直下ファイルごとに per_page=1 で1件だけ取得する。
+    ファイル数が多い場合は並列化を検討。
+    """
+    clean = base_path.strip().strip("/")
+    result: Dict[str, str] = {}
+
+    try:
+        items = list_github_files(clean)
+        file_paths = [it["path"] for it in items if it.get("type") == "file"]
+    except Exception:
+        return result
+
+    for path in file_paths:
+        try:
+            url = (
+                f"{GITHUB_API_BASE}/repos/{GITHUB_OWNER}/{GITHUB_REPO}"
+                f"/commits?path={path}&per_page=1"
+            )
+            res = requests.get(url, headers=_headers())
+            if res.status_code == 200 and res.json():
+                raw = res.json()[0]["commit"]["committer"]["date"]  # ISO8601
+                result[path] = raw[:10]  # "YYYY-MM-DD"
+            else:
+                result[path] = "-"
+        except Exception:
+            result[path] = "-"
+
+    return result
+
+
 def get_file_sha(target_path: str) -> Optional[str]:
     """
     指定パスのファイルが既に存在する場合は SHA を返す。
