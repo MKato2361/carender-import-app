@@ -4,7 +4,11 @@ import re
 from typing import List
 from io import BytesIO
 
-from github_loader import walk_repo_tree, load_file_bytes_from_github, is_supported_file
+from github_loader import (
+    walk_repo_tree_with_dates,  # ★ 更新日付き版に変更
+    load_file_bytes_from_github,
+    is_supported_file,
+)
 from utils.file_loader import (
     update_uploaded_files,
     clear_uploaded_files,
@@ -19,7 +23,6 @@ def _logical_github_name(filename: str) -> str:
     例: '北海道現場一覧20251127.xlsx' → '北海道現場一覧'
     """
     base, _ext = os.path.splitext(filename)
-    # ベース名の末尾に並んでいる数字だけを削除
     base = re.sub(r"\d+$", "", base)
     return base
 
@@ -27,28 +30,23 @@ def _logical_github_name(filename: str) -> str:
 def render_tab1_upload():
     st.subheader("ファイルをアップロード")
 
-    if "uploaded_files" not in st.session_state:
-        st.session_state["uploaded_files"] = []
-    if "uploaded_outside_work_file" not in st.session_state:
-        st.session_state["uploaded_outside_work_file"] = None
-    if "merged_df_for_selector" not in st.session_state:
-        st.session_state["merged_df_for_selector"] = None
-    if "description_columns_pool" not in st.session_state:
-        st.session_state["description_columns_pool"] = []
-    if "gh_checked" not in st.session_state:
-        # 論理名（末尾の日付除去）ごとの選択状態を保持する（今後の拡張用）
-        st.session_state["gh_checked"] = {}
-    if "upload_version" not in st.session_state:
-        st.session_state["upload_version"] = 0
-    if "gh_version" not in st.session_state:
-        st.session_state["gh_version"] = 0
-    # 「この一連のアップロードで既にデフォルトGitHubを適用したか？」フラグ
-    if "gh_defaults_applied" not in st.session_state:
-        st.session_state["gh_defaults_applied"] = False
+    # --- session_state 初期化 ---
+    defaults = {
+        "uploaded_files": [],
+        "uploaded_outside_work_file": None,
+        "merged_df_for_selector": None,
+        "description_columns_pool": [],
+        "gh_checked": {},
+        "upload_version": 0,
+        "gh_version": 0,
+        "gh_defaults_applied": False,
+    }
+    for key, val in defaults.items():
+        if key not in st.session_state:
+            st.session_state[key] = val
 
     # --- GitHub デフォルト論理名（サイドバー設定） ---
-    # サイドバーの「📦 GitHubファイル設定」で保存した値を利用
-    default_gh_logicals = set()
+    default_gh_logicals: set = set()
     default_gh_text = st.session_state.get("default_github_logical_names", "")
     if isinstance(default_gh_text, str):
         default_gh_logicals = {
@@ -62,15 +60,15 @@ def render_tab1_upload():
             """
 「作業指示書一覧」または「作業外予定一覧」をアップロードできます（同時不可）
 
-📌 作業指示書 → 複数ファイルOK + GitHubから選択可  
+📌 作業指示書 → 複数ファイルOK + GitHubから選択可
 📌 作業外予定 → ローカル1ファイルのみ、GitHub選択不可
 """
         )
 
-    has_work_files = len(st.session_state["uploaded_files"]) > 0
+    has_work_files   = len(st.session_state["uploaded_files"]) > 0
     has_outside_work = st.session_state["uploaded_outside_work_file"] is not None
 
-    disable_work_upload = has_outside_work
+    disable_work_upload    = has_outside_work
     disable_outside_upload = has_work_files
 
     uploaded_work_files = st.file_uploader(
@@ -89,12 +87,12 @@ def render_tab1_upload():
         key=f"outside_uploader_{st.session_state['upload_version']}",
     )
 
-    # ★ この実行で「新しく作業指示書一覧をアップロードしたか？」を判定
+    # 今回のrunで自動デフォルト適用するか判定
     auto_apply_gh_defaults_now = (
-        bool(uploaded_work_files)                # 今回のrunで何かしらアップロードされた
-        and not has_outside_work                 # 作業外予定ではなく作業指示書モード
-        and not st.session_state["gh_defaults_applied"]  # まだ自動適用していない
-        and len(default_gh_logicals) > 0         # サイドバー側に設定がある
+        bool(uploaded_work_files)
+        and not has_outside_work
+        and not st.session_state["gh_defaults_applied"]
+        and len(default_gh_logicals) > 0
     )
 
     selected_github_files: List[BytesIO] = []
@@ -102,30 +100,37 @@ def render_tab1_upload():
     # --- GitHub から作業指示書ファイルを選択 ---
     if not has_outside_work:
         try:
-            gh_nodes = walk_repo_tree(base_path="", max_depth=3)
-            st.markdown("📦 **GitHub上のCSV/Excel（作業指示書用）**")
-            for node in gh_nodes:
-                if node["type"] == "file" and is_supported_file(node["name"]):
-                    logical_key = _logical_github_name(node["name"])
-                    widget_key = f"gh::{st.session_state['gh_version']}::{node['path']}"
+            # ★ walk_repo_tree_with_dates で更新日も一緒に取得（キャッシュ済み）
+            gh_nodes = walk_repo_tree_with_dates(base_path="", max_depth=3)
+            file_nodes = [
+                n for n in gh_nodes
+                if n["type"] == "file" and is_supported_file(n["name"])
+            ]
 
-                    # ① 初期状態：まだ一度も表示していないチェックボックスは False で初期化
+            if file_nodes:
+                st.markdown("📦 **GitHub上のCSV/Excel（作業指示書用）**")
+
+                for node in file_nodes:
+                    logical_key = _logical_github_name(node["name"])
+                    widget_key  = f"gh::{st.session_state['gh_version']}::{node['path']}"
+                    updated      = node.get("updated", "")  # ★ 更新日
+
+                    # 初期化
                     if widget_key not in st.session_state:
                         st.session_state[widget_key] = False
 
-                    # ② このrunが「作業指示書アップロード直後」かつ
-                    #    サイドバーで記憶している論理名に含まれる場合、自動的にONにする
+                    # デフォルト論理名に一致する場合は自動ON
                     if auto_apply_gh_defaults_now and logical_key in default_gh_logicals:
                         st.session_state[widget_key] = True
 
-                    # ✔ チェックボックスを描画（valueはstateに任せる）
+                    # ★ ファイル名に更新日を付けてチェックボックス表示
+                    label = f"{node['name']}　`{updated}`" if updated else node["name"]
                     checked = st.checkbox(
-                        node["name"],
+                        label,
                         key=widget_key,
                         disabled=disable_work_upload,
                     )
 
-                    # 論理名ごとの状態も記録（将来的な利用のため）
                     st.session_state["gh_checked"][logical_key] = checked
 
                     if checked and not disable_work_upload:
@@ -136,7 +141,6 @@ def render_tab1_upload():
                         except Exception as e:
                             st.warning(f"GitHub取得エラー: {e}")
 
-            # ★ このrunで一度でもデフォルト適用したらフラグON
             if auto_apply_gh_defaults_now:
                 st.session_state["gh_defaults_applied"] = True
 
@@ -146,12 +150,10 @@ def render_tab1_upload():
     # --- 作業外予定ファイル（ローカル1ファイル） ---
     if uploaded_outside_file and not has_work_files:
         st.session_state["uploaded_outside_work_file"] = uploaded_outside_file
-        st.success(
-            f"作業外予定一覧ファイルを読み込みました：{uploaded_outside_file.name}"
-        )
+        st.success(f"作業外予定一覧ファイルを読み込みました：{uploaded_outside_file.name}")
 
-    # --- 新規に追加されたファイル（ローカル + GitHub）をまとめて処理 ---
-    new_files = []
+    # --- 新規ファイルをまとめて処理 ---
+    new_files: List = []
     if uploaded_work_files and not has_outside_work:
         new_files.extend(uploaded_work_files)
     if selected_github_files and not has_outside_work:
@@ -161,7 +163,7 @@ def render_tab1_upload():
         update_uploaded_files(new_files)
         merge_uploaded_files()
 
-    # --- 画面下部のステータス表示 ---
+    # --- ステータス表示 ---
     if has_outside_work:
         f = st.session_state["uploaded_outside_work_file"]
         st.info(f"📄 作業外予定ファイル：{f.name}")
@@ -178,20 +180,15 @@ def render_tab1_upload():
     if st.button("🗑️ すべてのアップロードファイルをクリア"):
         clear_uploaded_files()
         st.session_state["uploaded_outside_work_file"] = None
-        st.session_state["merged_df_for_selector"] = None
+        st.session_state["merged_df_for_selector"]     = None
 
-        # GitHubチェックボックスの状態もクリア
-        keys_to_delete = [
-            k for k in list(st.session_state.keys()) if k.startswith("gh::")
-        ]
-        for k in keys_to_delete:
+        # GitHubチェックボックスの状態をクリア
+        for k in [k for k in st.session_state if k.startswith("gh::")]:
             st.session_state.pop(k, None)
 
-        # デフォルト適用フラグもリセット（次のアップロード時に再度自動適用させる）
         st.session_state["gh_defaults_applied"] = False
-
         st.session_state["upload_version"] += 1
-        st.session_state["gh_version"] += 1
+        st.session_state["gh_version"]     += 1
 
         st.success("アップロード済みファイルとGitHub選択をすべてクリアしました。")
         st.rerun()
