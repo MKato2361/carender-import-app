@@ -37,10 +37,7 @@ def list_github_files(path: str = "") -> List[Dict]:
     ディレクトリとファイルの両方が返るので type を確認して利用。
     """
     clean_path = path.strip().strip("/")
-    if clean_path:
-        url_path = clean_path
-    else:
-        url_path = ""
+    url_path = clean_path if clean_path else ""
 
     url = f"{GITHUB_API_BASE}/repos/{GITHUB_OWNER}/{GITHUB_REPO}/contents/{url_path}"
     res = requests.get(url, headers=_headers())
@@ -69,7 +66,7 @@ def upload_file_to_github(target_path: str, content: bytes, message: str) -> Dic
     payload: Dict[str, object] = {
         "message": message,
         "content": b64_content,
-        "branch": "main",  # 必要に応じてブランチ名を変更
+        "branch": "main",
     }
 
     # 既存ファイルか確認
@@ -101,6 +98,38 @@ def delete_file_from_github(target_path: str, sha: str, message: str) -> Dict:
     return res.json()
 
 
+def get_dir_commit_dates(base_path: str = "") -> Dict[str, str]:
+    """
+    指定ディレクトリ直下の各ファイルの最終コミット日を一括取得。
+    返り値: { "path/to/file.csv": "2025-01-10", ... }
+    """
+    clean = base_path.strip().strip("/")
+    result: Dict[str, str] = {}
+
+    try:
+        items = list_github_files(clean)
+        file_paths = [it["path"] for it in items if it.get("type") == "file"]
+    except Exception:
+        return result
+
+    for path in file_paths:
+        try:
+            url = (
+                f"{GITHUB_API_BASE}/repos/{GITHUB_OWNER}/{GITHUB_REPO}"
+                f"/commits?path={path}&per_page=1"
+            )
+            res = requests.get(url, headers=_headers())
+            if res.status_code == 200 and res.json():
+                raw = res.json()[0]["commit"]["committer"]["date"]  # ISO8601
+                result[path] = raw[:10]  # "YYYY-MM-DD"
+            else:
+                result[path] = "-"
+        except Exception:
+            result[path] = "-"
+
+    return result
+
+
 # ==============================
 # 管理者タブ UI 本体
 # ==============================
@@ -129,7 +158,6 @@ def render_tab_admin(
 
     st.title("🔧 管理者メニュー")
 
-    # ★ ここを 2タブ → 3タブに変更
     tab_users, tab_files, tab_dup = st.tabs(
         ["👥 ユーザー管理", "📂 GitHubファイル管理", "🔁 重複イベントの検出・削除"]
     )
@@ -146,7 +174,6 @@ def render_tab_admin(
         else:
             df = pd.DataFrame(users)
 
-            # 表示順
             cols_order = [
                 c
                 for c in (
@@ -166,10 +193,7 @@ def render_tab_admin(
                 hide_index=True,
                 column_config={
                     "email": st.column_config.TextColumn("メールアドレス", disabled=True),
-                    "display_name": st.column_config.TextColumn(
-                        "表示名",
-                        disabled=True,
-                    ),
+                    "display_name": st.column_config.TextColumn("表示名", disabled=True),
                     "role": st.column_config.SelectboxColumn(
                         "ロール",
                         options=[ROLE_USER, ROLE_ADMIN],
@@ -213,7 +237,7 @@ def render_tab_admin(
                 else:
                     st.warning("メールアドレスを入力してください。")
 
- # --------------------------
+    # --------------------------
     # 📂 GitHub ファイル管理
     # --------------------------
     with tab_files:
@@ -255,7 +279,7 @@ def render_tab_admin(
         file_items = [it for it in items if it.get("type") == "file"]
 
         if file_items:
-            # 更新日を一括取得（APIコールはディレクトリ内ファイル数分だが1ループで完結）
+            # 更新日を一括取得
             date_cache_key = "admin_github_commit_dates"
             if date_cache_key not in st.session_state:
                 with st.spinner("更新日時を取得中..."):
@@ -366,8 +390,8 @@ def render_tab_admin(
                 st.caption("または行ごとにチェックして個別削除できます。")
 
                 for idx, item in enumerate(file_items):
-                    path = item.get("path", "")
-                    sha  = item.get("sha", "")
+                    path   = item.get("path", "")
+                    sha    = item.get("sha", "")
                     cb_key = f"admin_github_ck_{idx}_{sha}"
 
                     col_ck, col_name = st.columns([1, 6])
@@ -418,13 +442,13 @@ def render_tab_admin(
                         st.session_state["admin_github_delete_all"] = False
 
                         st.rerun()
+
     # --------------------------
     # 🔁 重複イベントの検出・削除（元タブ4）
     # --------------------------
     with tab_dup:
         st.subheader("🔁 重複イベントの検出・削除（管理者専用）")
 
-        # main.py の ensure_services でセットされたサービスを利用
         service = st.session_state.get("calendar_service")
         editable_calendar_options = st.session_state.get("editable_calendar_options")
 
@@ -432,7 +456,6 @@ def render_tab_admin(
             st.warning("カレンダーサービスが初期化されていません。トップ画面でGoogle認証を完了してください。")
             return
 
-        # もともとのタブ4と同じUIをここで呼び出し
         render_tab4_duplicates(
             service,
             editable_calendar_options,
