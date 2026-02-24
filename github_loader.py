@@ -75,6 +75,56 @@ def walk_repo_tree(base_path: str = "", max_depth: int = 3) -> List[Dict]:
     return nodes
 
 
+
+@st.cache_data(ttl=600)
+def walk_repo_tree_with_dates(base_path: str = "", max_depth: int = 3) -> List[Dict]:
+    """
+    walk_repo_tree と同じツリー構造を返しつつ、
+    ファイルノードには "updated" (YYYY-MM-DD) を付加する。
+    Commits API はファイルごとに1回だが、結果はまとめて ttl=600 でキャッシュされる。
+
+    返り値: [{name, path, type, depth, updated}, ...]
+      - type=="dir"  のとき updated==""
+      - type=="file" のとき updated=="2025-01-10" or "-"
+    """
+    nodes: List[Dict] = []
+
+    def _walk(path: str, depth: int):
+        if depth > max_depth:
+            return
+        try:
+            items = list_dir(path)
+        except Exception:
+            return
+        for it in items:
+            node = {
+                "name": it.get("name", ""),
+                "path": it.get("path", ""),
+                "type": it.get("type", ""),
+                "depth": depth,
+                "updated": "",
+            }
+            if it.get("type") == "file":
+                try:
+                    url = (
+                        f"{GITHUB_API_BASE}/repos/{GITHUB_OWNER}/{GITHUB_REPO}"
+                        f"/commits?path={it['path']}&per_page=1"
+                    )
+                    res = requests.get(url, headers=_headers())
+                    if res.status_code == 200 and res.json():
+                        raw = res.json()[0]["commit"]["committer"]["date"]
+                        node["updated"] = raw[:10]  # "YYYY-MM-DD"
+                    else:
+                        node["updated"] = "-"
+                except Exception:
+                    node["updated"] = "-"
+            nodes.append(node)
+            if it.get("type") == "dir":
+                _walk(it.get("path", ""), depth + 1)
+
+    _walk(base_path.strip("/"), 0)
+    return nodes
+
 @st.cache_data(ttl=600)
 def load_file_bytes_from_github(path: str) -> BytesIO:
     """指定パスのコンテンツ（Base64）を取得して BytesIO で返す。"""
