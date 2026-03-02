@@ -202,55 +202,6 @@ def _build_safe_title(when: str, mgmt: str, name: str) -> str:
     return "_".join(parts) if parts else "harigami"
 
 
-def _build_candidate(
-    ev: Dict[str, Any],
-    pm_idx: Optional[pd.DataFrame],
-    use_master_filter: bool,
-) -> Optional[Dict[str, Any]]:
-    desc = safe_get(ev, "description") or ""
-    summary = safe_get(ev, "summary") or ""
-
-    mgmt = (extract_assetnum(desc) or extract_assetnum(summary) or "").strip()
-    if not mgmt:
-        return None
-
-    pm_row = None
-    flag_val = pm_name = pm_remark = ""
-
-    if pm_idx is not None and mgmt in pm_idx.index:
-        pm_row = pm_idx.loc[mgmt]
-        flag_val = str(pm_row.get("貼り紙テンプレ種別", "")).strip()
-        pm_name = _display_value(pm_row.get("物件名", ""))
-        pm_remark = _display_value(pm_row.get("備考", ""))
-
-    if use_master_filter and (pm_row is None or flag_val != "自社"):
-        return None
-
-    start_dt = get_event_start_datetime(ev)
-    date_str = start_dt.date().strftime("%Y-%m-%d") if start_dt else ""
-    time_str = (
-        start_dt.strftime("%H:%M")
-        if start_dt and "dateTime" in (ev.get("start") or {})
-        else ""
-    )
-
-    work_type = extract_worktype(desc) or "default"
-    template_file = DEFAULT_TEMPLATE_MAP.get(work_type, DEFAULT_TEMPLATE_MAP.get("default"))
-
-    return {
-        "作成": True,
-        "event_id": ev.get("id") or "",
-        "管理番号": mgmt,
-        "物件名": _display_value(pm_name or summary or mgmt),
-        "予定日": date_str,
-        "予定時間": time_str,
-        "作業タイプ": work_type,
-        "テンプレファイル": template_file,
-        "貼り紙フラグ": flag_val,
-        "イベントタイトル": _display_value(summary),
-        "備考": _display_value(pm_remark),
-    }
-
 
 def _generate_single_docx(
     ev: Dict[str, Any],
@@ -480,15 +431,67 @@ def _step2_fetch(
 
     st.caption(f"取得イベント: {len(events)} 件")
 
-    idx = _pm_index(pm_view_df)
+    pm_idx = _pm_index(pm_view_df)
     candidates: List[Dict[str, Any]] = []
     events_by_id: Dict[str, Dict[str, Any]] = {}
 
     for ev in events:
-        cand = _build_candidate(ev, idx, use_master_filter)
-        if cand is None:
+        desc = safe_get(ev, "description") or ""
+        summary = safe_get(ev, "summary") or ""
+
+        # 管理番号抽出（説明 or タイトル）
+        mgmt = extract_assetnum(desc) or extract_assetnum(summary)
+        if not mgmt:
             continue
-        candidates.append(cand)
+        mgmt_norm = mgmt.strip()
+
+        pm_row = None
+        flag_val = ""
+        pm_name = ""
+        pm_remark = ""
+
+        if pm_idx is not None and mgmt_norm in pm_idx.index:
+            pm_row = pm_idx.loc[mgmt_norm]
+            flag_val = str(pm_row.get("貼り紙テンプレ種別", "")).strip()
+            pm_name = _display_value(pm_row.get("物件名", ""))
+            pm_remark = _display_value(pm_row.get("備考", ""))
+
+        # 物件マスタの「貼り紙テンプレ種別=自社」で絞り込むモード
+        if use_master_filter:
+            if pm_row is None:
+                continue
+            if flag_val != "自社":
+                continue
+
+        start_dt = get_event_start_datetime(ev)
+        start_date_val = start_dt.date() if start_dt else None
+        date_str = start_date_val.strftime("%Y-%m-%d") if start_date_val else ""
+        time_str = start_dt.strftime("%H:%M") if start_dt and "dateTime" in (ev.get("start") or {}) else ""
+
+        work_type = extract_worktype(desc)
+        if not work_type:
+            work_type = "default"
+        template_file = DEFAULT_TEMPLATE_MAP.get(work_type, DEFAULT_TEMPLATE_MAP.get("default"))
+
+        name_for_list = _display_value(pm_name or summary or mgmt_norm or "")
+        remark_for_list = _display_value(pm_remark or "")
+
+        candidates.append(
+            {
+                "作成": True,
+                "event_id": ev.get("id") or "",
+                "管理番号": mgmt_norm,
+                "物件名": name_for_list,
+                "予定日": date_str,
+                "予定時間": time_str,
+                "作業タイプ": work_type,
+                "テンプレファイル": template_file,
+                "貼り紙フラグ": flag_val,
+                "イベントタイトル": _display_value(summary),
+                "備考": remark_for_list,
+            }
+        )
+
         ev_id = ev.get("id")
         if ev_id:
             events_by_id[ev_id] = ev
