@@ -6,11 +6,16 @@ import streamlit as st
 from google_auth_oauthlib.flow import Flow
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
+from requests_oauthlib import OAuth2Session
 from firebase_admin import firestore
 from firebase_auth import get_firebase_user_id
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from datetime import datetime, timedelta, timezone
+
+# requests_oauthlib の PKCE を強制無効化
+os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
+os.environ["OAUTHLIB_RELAX_TOKEN_SCOPE"] = "1"
 
 # Google API スコープ
 SCOPES = [
@@ -81,48 +86,74 @@ def authenticate_google():
             st.error(f"Firestoreからトークン取得に失敗: {e}")
             creds = None
 
-    # --- 新しいOAuthフロー（Webリダイレクト型） ---
+    # --- 新しいOAuthフロー（OAuth2Session直接使用・PKCE完全無効） ---
     try:
-        client_config = {
-            "web": {
-                "client_id": st.secrets["google"]["client_id"],
-                "project_id": st.secrets["google"]["project_id"],
-                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-                "token_uri": "https://oauth2.googleapis.com/token",
-                "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-                "client_secret": st.secrets["google"]["client_secret"],
-                "redirect_uris": [st.secrets["google"]["redirect_uri"]]
-            }
-        }
+        client_id     = st.secrets["google"]["client_id"]
+        client_secret = st.secrets["google"]["client_secret"]
+        redirect_uri  = st.secrets["google"]["redirect_uri"]
 
-        flow = Flow.from_client_config(client_config, SCOPES)
-        flow.redirect_uri = st.secrets["google"]["redirect_uri"]
-
-        # ✅ PKCE（code_verifier）を無効化 → invalid_grant エラーを防ぐ
-        flow.oauth2session.code_challenge_method = None
+        AUTH_URI  = "https://accounts.google.com/o/oauth2/auth"
+        TOKEN_URI = "https://oauth2.googleapis.com/token"
 
         params = st.query_params
+
         if "code" not in params:
-            auth_url, _ = flow.authorization_url(
-                prompt='consent',
-                access_type='offline',
-                include_granted_scopes='true',
+            # ── 認証URLを生成（PKCEなし・state管理あり）──
+            oauth = OAuth2Session(
+                client_id=client_id,
+                redirect_uri=redirect_uri,
+                scope=SCOPES,
             )
+            auth_url, state = oauth.authorization_url(
+                AUTH_URI,
+                access_type="offline",
+                prompt="consent",
+                include_granted_scopes="true",
+            )
+            # state をセッションに保存（CSRF対策）
+            st.session_state["oauth_state"] = state
             st.markdown(f"[Googleでログインする]({auth_url})")
             st.stop()
+
         else:
-            code = params["code"]
-            flow.fetch_token(code=code)
-            creds = flow.credentials
-            st.session_state['credentials'] = creds
+            # ── コールバック：トークン取得 ──
+            state = st.session_state.get("oauth_state", "")
+            oauth = OAuth2Session(
+                client_id=client_id,
+                redirect_uri=redirect_uri,
+                scope=SCOPES,
+                state=state,
+            )
+            # authorization_response を手動組み立て（HTTPS強制）
+            current_url = redirect_uri + "?" + "&".join(
+                f"{k}={v}" for k, v in params.items()
+            )
+            token = oauth.fetch_token(
+                TOKEN_URI,
+                authorization_response=current_url,
+                client_secret=client_secret,
+                # ✅ code_verifier を渡さない → PKCE完全無効
+            )
+
+            # google.oauth2.credentials.Credentials に変換
+            creds = Credentials(
+                token=token["access_token"],
+                refresh_token=token.get("refresh_token"),
+                token_uri=TOKEN_URI,
+                client_id=client_id,
+                client_secret=client_secret,
+                scopes=SCOPES,
+            )
+            st.session_state["credentials"] = creds
             doc_ref.set(json.loads(creds.to_json()))
             st.success("Google認証が完了しました！")
             st.query_params.clear()
+            st.session_state.pop("oauth_state", None)
             st.rerun()
 
     except Exception as e:
         st.error(f"Google認証に失敗しました: {e}")
-        st.session_state['credentials'] = None
+        st.session_state["credentials"] = None
         return None
 
     return creds
