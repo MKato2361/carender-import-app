@@ -81,7 +81,7 @@ def authenticate_google():
             st.error(f"Firestoreからトークン取得に失敗: {e}")
             creds = None
 
-    # --- 新しいOAuthフロー（Webリダイレクト型） ---
+    # --- 新しいOAuthフロー（PKCE対応・session_state保持版） ---
     try:
         client_config = {
             "web": {
@@ -95,26 +95,48 @@ def authenticate_google():
             }
         }
 
-        flow = Flow.from_client_config(client_config, SCOPES)
-        flow.redirect_uri = st.secrets["google"]["redirect_uri"]
+        # query params 取得（Streamlit互換）
+        try:
+            params = st.query_params
+        except Exception:
+            params = st.experimental_get_query_params()
 
-        params = st.query_params
-        if "code" not in params:
+        # Flow を session_state に保存（PKCE対策の核心）
+        if "google_flow" not in st.session_state:
+            flow = Flow.from_client_config(client_config, SCOPES)
+            flow.redirect_uri = st.secrets["google"]["redirect_uri"]
+
             auth_url, _ = flow.authorization_url(
                 prompt='consent',
                 access_type='offline',
                 include_granted_scopes='true'
             )
+
+            st.session_state["google_flow"] = flow
             st.markdown(f"[Googleでログインする]({auth_url})")
             st.stop()
-        else:
+
+        flow = st.session_state["google_flow"]
+
+        if "code" in params:
             code = params["code"]
+            if isinstance(code, list):
+                code = code[0]
+
             flow.fetch_token(code=code)
             creds = flow.credentials
+
             st.session_state['credentials'] = creds
             doc_ref.set(json.loads(creds.to_json()))
+
             st.success("Google認証が完了しました！")
-            st.query_params.clear()
+
+            # code を URL から削除（無限ループ防止）
+            try:
+                st.query_params.clear()
+            except Exception:
+                st.experimental_set_query_params()
+
             st.rerun()
 
     except Exception as e:
@@ -123,6 +145,7 @@ def authenticate_google():
         return None
 
     return creds
+
 
 # ==============================
 # イベント操作関数群
@@ -137,6 +160,7 @@ def add_event_to_calendar(service, calendar_id, event_data):
         st.error(f"イベント追加失敗: {e}")
     return None
 
+
 # 💡 修正点: イベント全件取得のためのページネーションを追加
 def fetch_all_events(service, calendar_id, time_min=None, time_max=None):
     events = []
@@ -149,12 +173,12 @@ def fetch_all_events(service, calendar_id, time_min=None, time_max=None):
                 timeMax=time_max,
                 singleEvents=True,
                 orderBy='startTime',
-                pageToken=page_token  # ページトークンを指定
+                pageToken=page_token
             ).execute()
             events.extend(events_result.get('items', []))
-            page_token = events_result.get('nextPageToken') # 次のページトークンを取得
+            page_token = events_result.get('nextPageToken')
             if not page_token:
-                break # トークンがなければ終了
+                break
         return events
     except HttpError as e:
         st.error(f"イベント取得失敗 (HTTPエラー): {e}")
@@ -162,73 +186,50 @@ def fetch_all_events(service, calendar_id, time_min=None, time_max=None):
         st.error(f"イベント取得失敗: {e}")
     return []
 
+
 def update_event_if_needed(service, calendar_id, event_id, new_event_data):
     """
     既存イベントと new_event_data を比較し、差分がある場合のみ Google Calendar を更新する。
-
-    比較対象:
-      - summary（タイトル）
-      - description（説明）
-      - start（終日/時間指定/タイムゾーン含め厳密比較）
-      - end（終日/時間指定/タイムゾーン含め厳密比較）
-      - transparency（公開/非公開設定）
-      - recurrence（繰り返し設定があれば）
-
-    ※ Location（場所）は比較対象外（あなたの要望）
-    ※ 差分がある場合のみ update API を実行し、更新ログを st.info で表示
     """
     try:
         existing_event = service.events().get(calendarId=calendar_id, eventId=event_id).execute()
 
-        # ===== 差分判定 =====
         def normalize(val):
             return val or ""
 
-        # 1) summary
         if normalize(existing_event.get("summary")) != normalize(new_event_data.get("summary")):
             needs_update = True
-        # 2) description
         elif normalize(existing_event.get("description")) != normalize(new_event_data.get("description")):
             needs_update = True
         else:
             needs_update = False
 
-        # 3) transparency（非公開/公開）
         if not needs_update:
             if normalize(existing_event.get("transparency")) != normalize(new_event_data.get("transparency")):
                 needs_update = True
 
-        # 4) recurrence（繰り返し設定）
         if not needs_update:
             existing_recur = existing_event.get("recurrence") or []
             new_recur = new_event_data.get("recurrence") or []
             if existing_recur != new_recur:
                 needs_update = True
 
-        # 5) start
         if not needs_update:
             if (existing_event.get("start") or {}) != (new_event_data.get("start") or {}):
                 needs_update = True
 
-        # 6) end
         if not needs_update:
             if (existing_event.get("end") or {}) != (new_event_data.get("end") or {}):
                 needs_update = True
 
-        # ===== 更新実行 or スキップ =====
         if needs_update:
             updated_event = service.events().update(
                 calendarId=calendar_id,
                 eventId=event_id,
                 body=new_event_data
             ).execute()
-
-            # --- 更新ログ（簡潔型） ---
-            summary = new_event_data.get("summary") or "(無題)"
-
             return updated_event
 
-        # 差分なし → 更新不要
         return existing_event
 
     except HttpError as e:
@@ -249,6 +250,7 @@ def delete_event_from_calendar(service, calendar_id, event_id):
         st.error(f"イベント削除失敗: {e}")
     return False
 
+
 # ==============================
 # ToDoリスト操作関数群
 # ==============================
@@ -262,6 +264,7 @@ def build_tasks_service(creds):
         st.warning(f"Google Tasks サービスのビルドに失敗しました: {e}")
         return None
 
+
 def add_task_to_todo_list(tasks_service, task_list_id, task_data):
     try:
         return tasks_service.tasks().insert(tasklist=task_list_id, body=task_data).execute()
@@ -270,6 +273,7 @@ def add_task_to_todo_list(tasks_service, task_list_id, task_data):
     except Exception as e:
         st.error(f"タスク追加失敗: {e}")
     return None
+
 
 def find_and_delete_tasks_by_event_id(tasks_service, task_list_id, event_id):
     try:
