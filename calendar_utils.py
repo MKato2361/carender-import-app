@@ -16,135 +16,61 @@ from datetime import datetime, timedelta, timezone
 SCOPES = [
     "https://www.googleapis.com/auth/calendar",
     "https://www.googleapis.com/auth/tasks",
-    "https://www.googleapis.com/auth/spreadsheets"
+    "https://www.googleapis.com/auth/spreadsheets",
 ]
 
+CLIENT_SECRET_FILE = "client_secret.json"
+REDIRECT_URI = "http://localhost:8501"
+
+
 # ==============================
-# Google 認証（Webリダイレクト型 + トークン自動削除）
+# Google 認証（PKCE対応・Session保持）
 # ==============================
 def authenticate_google():
-    creds = None
-    user_id = get_firebase_user_id()
+    if "google_creds" in st.session_state:
+        return st.session_state["google_creds"]
 
-    if not user_id:
+    # Flow を session_state に保存（PKCE対策）
+    if "google_flow" not in st.session_state:
+        flow = Flow.from_client_secrets_file(
+            CLIENT_SECRET_FILE,
+            scopes=SCOPES,
+            redirect_uri=REDIRECT_URI,
+        )
+
+        auth_url, _ = flow.authorization_url(
+            prompt="consent",
+            access_type="offline",
+            include_granted_scopes="true",
+        )
+
+        st.session_state["google_flow"] = flow
+
+        st.markdown("### 🔐 Google認証が必要です")
+        st.markdown(f"[👉 Googleでログイン]({auth_url})")
         return None
 
-    db = firestore.client()
-    doc_ref = db.collection('google_tokens').document(user_id)
+    flow = st.session_state["google_flow"]
 
-    # --- セッションから ---
-    if 'credentials' in st.session_state and st.session_state['credentials']:
-        creds = st.session_state['credentials']
-        if creds.valid:
-            return creds
-        elif creds.expired and creds.refresh_token:
-            try:
-                creds.refresh(Request())
-                st.session_state['credentials'] = creds
-                doc_ref.set(json.loads(creds.to_json()))
-                return creds
-            except Exception as e:
-                st.warning(f"リフレッシュトークンの更新に失敗: {e}")
-                doc_ref.delete()
-                st.session_state.pop('credentials', None)
-                return authenticate_google()
+    query_params = st.query_params
 
-    # --- Firestoreから ---
-    try:
-        doc = doc_ref.get()
-        if doc.exists:
-            token_data = doc.to_dict()
-            creds = Credentials.from_authorized_user_info(token_data, SCOPES)
-            st.session_state['credentials'] = creds
-
-            if creds.expired and creds.refresh_token:
-                try:
-                    creds.refresh(Request())
-                    st.session_state['credentials'] = creds
-                    doc_ref.set(json.loads(creds.to_json()))
-                    st.info("Google認証トークンを更新しました。")
-                    st.rerun()
-                except Exception as e:
-                    st.warning(f"Firestoreトークンの更新に失敗: {e}")
-                    doc_ref.delete()
-                    st.session_state.pop('credentials', None)
-                    return authenticate_google()
-
-            return creds
-    except Exception as e:
-        if "invalid_grant" in str(e):
-            st.warning("保存されたGoogleトークンが無効化されました。再認証します。")
-            doc_ref.delete()
-            st.session_state.pop('credentials', None)
-            return authenticate_google()
-        else:
-            st.error(f"Firestoreからトークン取得に失敗: {e}")
-            creds = None
-
-    # --- 新しいOAuthフロー（PKCE対応・session_state保持版） ---
-    try:
-        client_config = {
-            "web": {
-                "client_id": st.secrets["google"]["client_id"],
-                "project_id": st.secrets["google"]["project_id"],
-                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-                "token_uri": "https://oauth2.googleapis.com/token",
-                "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-                "client_secret": st.secrets["google"]["client_secret"],
-                "redirect_uris": [st.secrets["google"]["redirect_uri"]]
-            }
-        }
-
-        # query params 取得（Streamlit互換）
+    if "code" in query_params:
         try:
-            params = st.query_params
-        except Exception:
-            params = st.experimental_get_query_params()
+            flow.fetch_token(code=query_params["code"])
 
-        # Flow を session_state に保存（PKCE対策の核心）
-        if "google_flow" not in st.session_state:
-            flow = Flow.from_client_config(client_config, SCOPES)
-            flow.redirect_uri = st.secrets["google"]["redirect_uri"]
-
-            auth_url, _ = flow.authorization_url(
-                prompt='consent',
-                access_type='offline',
-                include_granted_scopes='true'
-            )
-
-            st.session_state["google_flow"] = flow
-            st.markdown(f"[Googleでログインする]({auth_url})")
-            st.stop()
-
-        flow = st.session_state["google_flow"]
-
-        if "code" in params:
-            code = params["code"]
-            if isinstance(code, list):
-                code = code[0]
-
-            flow.fetch_token(code=code)
             creds = flow.credentials
+            st.session_state["google_creds"] = creds
 
-            st.session_state['credentials'] = creds
-            doc_ref.set(json.loads(creds.to_json()))
+            # URLから code を削除
+            st.query_params.clear()
 
-            st.success("Google認証が完了しました！")
+            return creds
 
-            # code を URL から削除（無限ループ防止）
-            try:
-                st.query_params.clear()
-            except Exception:
-                st.experimental_set_query_params()
+        except Exception as e:
+            st.error(f"Google認証に失敗しました: {e}")
+            return None
 
-            st.rerun()
-
-    except Exception as e:
-        st.error(f"Google認証に失敗しました: {e}")
-        st.session_state['credentials'] = None
-        return None
-
-    return creds
+    return None
 
 
 # ==============================
@@ -161,7 +87,6 @@ def add_event_to_calendar(service, calendar_id, event_data):
     return None
 
 
-# 💡 修正点: イベント全件取得のためのページネーションを追加
 def fetch_all_events(service, calendar_id, time_min=None, time_max=None):
     events = []
     page_token = None
@@ -188,30 +113,25 @@ def fetch_all_events(service, calendar_id, time_min=None, time_max=None):
 
 
 def update_event_if_needed(service, calendar_id, event_id, new_event_data):
-    """
-    既存イベントと new_event_data を比較し、差分がある場合のみ Google Calendar を更新する。
-    """
     try:
         existing_event = service.events().get(calendarId=calendar_id, eventId=event_id).execute()
 
         def normalize(val):
             return val or ""
 
+        needs_update = False
+
         if normalize(existing_event.get("summary")) != normalize(new_event_data.get("summary")):
             needs_update = True
         elif normalize(existing_event.get("description")) != normalize(new_event_data.get("description")):
             needs_update = True
-        else:
-            needs_update = False
 
         if not needs_update:
             if normalize(existing_event.get("transparency")) != normalize(new_event_data.get("transparency")):
                 needs_update = True
 
         if not needs_update:
-            existing_recur = existing_event.get("recurrence") or []
-            new_recur = new_event_data.get("recurrence") or []
-            if existing_recur != new_recur:
+            if (existing_event.get("recurrence") or []) != (new_event_data.get("recurrence") or []):
                 needs_update = True
 
         if not needs_update:
@@ -236,7 +156,6 @@ def update_event_if_needed(service, calendar_id, event_id, new_event_data):
         st.error(f"イベント更新失敗 (HTTPエラー): {e}")
     except Exception as e:
         st.error(f"イベント更新失敗: {e}")
-
     return None
 
 
