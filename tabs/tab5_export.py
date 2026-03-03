@@ -232,43 +232,74 @@ def render_tab5_export(
 
     st.subheader("🗓️ 出力期間の選択")
     today_date_export = date.today()
-    export_start_date = st.date_input("出力開始日", value=today_date_export - timedelta(days=30))
-    export_end_date = st.date_input("出力終了日", value=today_date_export)
-    export_format = st.radio("出力形式を選択", ("CSV", "Excel"), index=0)
 
-    if export_start_date > export_end_date:
-        st.error("出力開始日は終了日より前に設定してください。")
+    # UI修正1: 開始日・終了日を範囲選択UIに統合（順序ミスエラーが構造的に起きなくなる）
+    date_range = st.date_input(
+        "出力期間（開始日 〜 終了日）",
+        value=(today_date_export - timedelta(days=30), today_date_export),
+        min_value=today_date_export - timedelta(days=365 * 3),
+        max_value=today_date_export,
+    )
+
+    # 範囲選択中（片方だけ選択した状態）はボタンを無効化
+    if not isinstance(date_range, (list, tuple)) or len(date_range) != 2:
+        st.info("終了日を選択してください。")
         return
 
-    if st.button("指定期間のイベントを読み込む"):
-        with st.spinner("イベントを読み込み中..."):
-            try:
-                # 🟡 修正4: データ取得・変換ロジックを分離した関数に委譲
-                df_filtered, excluded_count = _fetch_and_extract(
-                    service,
-                    calendar_id_export,
-                    export_start_date,
-                    export_end_date,
-                    fetch_all_events,
-                )
+    export_start_date, export_end_date = date_range
 
-                if df_filtered.empty:
-                    st.info("指定期間内にイベントは見つかりませんでした。")
-                    return
+    # UI修正2: 出力形式を読み込みボタンの前に配置し、1アクションで完結させる
+    export_format = st.radio("出力形式を選択", ("CSV", "Excel"), index=0, horizontal=True)
 
-                st.dataframe(df_filtered)
+    # UI修正2: ボタンラベルを「読み込み → ダウンロード」の1アクションであることを明示
+    button_label = f"📥 イベントを読み込んで {export_format} でダウンロード"
 
-                if excluded_count > 0:
-                    st.warning(f"⚠️ 作業指示書番号/管理番号なし（抽出不可） {excluded_count} 件を除外しました。")
+    if st.button(button_label, type="primary"):
 
-                start_str = export_start_date.strftime("%Y%m%d")
-                end_str = export_end_date.strftime("%m%d")
-                file_base_name = f"{safe_filename(selected_calendar_name_export)}_{start_str}_{end_str}"
+        # UI修正3: 進捗バーで処理の進捗を可視化
+        progress = st.progress(0, text="📡 カレンダーからイベントを取得中...")
 
-                # 🟡 修正4: ダウンロードUI描画を分離した関数に委譲
-                _build_download_section(df_filtered, file_base_name, export_format)
+        try:
+            time_min_utc, time_max_utc = to_utc_range(export_start_date, export_end_date)
+            events_raw = fetch_all_events(service, calendar_id_export, time_min_utc, time_max_utc)
 
-                st.success(f"{len(df_filtered)} 件のイベントを読み込みました。（※番号なし抽出不可は除外済）")
+            if not events_raw:
+                progress.empty()
+                st.info("指定期間内にイベントは見つかりませんでした。")
+                return
 
-            except Exception as e:
-                st.error(f"イベントの読み込み中にエラーが発生しました: {e}")
+            progress.progress(40, text=f"🔍 {len(events_raw)} 件のイベントを解析中...")
+
+            df_filtered, excluded_count = _fetch_and_extract(
+                service,
+                calendar_id_export,
+                export_start_date,
+                export_end_date,
+                fetch_all_events,
+            )
+
+            progress.progress(80, text="📄 ファイルを生成中...")
+
+            start_str = export_start_date.strftime("%Y%m%d")
+            end_str = export_end_date.strftime("%m%d")
+            file_base_name = f"{safe_filename(selected_calendar_name_export)}_{start_str}_{end_str}"
+
+            _build_download_section(df_filtered, file_base_name, export_format)
+
+            progress.progress(100, text="✅ 完了")
+
+            if df_filtered.empty:
+                st.info("番号が抽出できるイベントが見つかりませんでした。")
+                return
+
+            # UI修正（提案6）: 成功メッセージ → 警告 → テーブルの順に整理
+            st.success(f"✅ {len(df_filtered)} 件を出力しました。（期間: {export_start_date} 〜 {export_end_date}）")
+
+            if excluded_count > 0:
+                st.warning(f"⚠️ 作業指示書番号/管理番号なし（抽出不可） {excluded_count} 件を除外しました。")
+
+            st.dataframe(df_filtered)
+
+        except Exception as e:
+            progress.empty()
+            st.error(f"イベントの読み込み中にエラーが発生しました: {e}")
