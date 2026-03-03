@@ -1,7 +1,7 @@
 import os
 import json
-import pickle
-from pathlib import Path
+import time
+import random
 import streamlit as st
 from google_auth_oauthlib.flow import Flow
 from google.auth.transport.requests import Request
@@ -23,6 +23,57 @@ SCOPES = [
     "https://www.googleapis.com/auth/tasks",
     "https://www.googleapis.com/auth/spreadsheets"
 ]
+
+# ==============================
+# リトライ設定
+# ==============================
+_RETRYABLE_STATUS = {403, 429, 500, 502, 503, 504}
+_MAX_RETRIES = 5
+_BACKOFF_BASE = 2.0   # 秒
+_BACKOFF_MAX  = 64.0  # 秒（上限）
+
+
+def _is_rate_limit_error(e: HttpError) -> bool:
+    """403 rateLimitExceeded / 429 Too Many Requests を判定する"""
+    if e.resp.status not in _RETRYABLE_STATUS:
+        return False
+    # 403 の場合は reason を確認（forbidden と区別）
+    if e.resp.status == 403:
+        try:
+            details = json.loads(e.content).get("error", {}).get("errors", [])
+            return any(
+                d.get("reason") in ("rateLimitExceeded", "userRateLimitExceeded")
+                for d in details
+            )
+        except Exception:
+            return False
+    return True  # 429, 5xx は無条件リトライ
+
+
+def _call_with_retry(api_call, *args, **kwargs):
+    """
+    指数バックオフ付きリトライでGoogle API呼び出しを実行する。
+
+    - リトライ対象: 403 rateLimitExceeded / 429 / 5xx
+    - 非リトライ対象: 404, 401 など → そのまま raise
+    - 最大リトライ回数: _MAX_RETRIES
+    """
+    last_error = None
+    for attempt in range(_MAX_RETRIES + 1):
+        try:
+            return api_call(*args, **kwargs)
+        except HttpError as e:
+            if not _is_rate_limit_error(e):
+                raise  # リトライ対象外はそのまま上に投げる
+            last_error = e
+            if attempt == _MAX_RETRIES:
+                break
+            wait = min(_BACKOFF_BASE ** attempt + random.uniform(0, 1), _BACKOFF_MAX)
+            st.warning(f"レートリミット到達。{wait:.1f} 秒後にリトライします… (試行 {attempt + 1}/{_MAX_RETRIES})")
+            time.sleep(wait)
+
+    raise last_error  # 全リトライ失敗
+
 
 # ==============================
 # Google 認証（Webリダイレクト型 + トークン自動削除）
@@ -98,7 +149,6 @@ def authenticate_google():
         params = st.query_params
 
         if "code" not in params:
-            # ── 認証URLを生成（PKCEなし・state管理あり）──
             oauth = OAuth2Session(
                 client_id=client_id,
                 redirect_uri=redirect_uri,
@@ -110,13 +160,11 @@ def authenticate_google():
                 prompt="consent",
                 include_granted_scopes="true",
             )
-            # state をセッションに保存（CSRF対策）
             st.session_state["oauth_state"] = state
             st.markdown(f"[Googleでログインする]({auth_url})")
             st.stop()
 
         else:
-            # ── コールバック：トークン取得 ──
             state = st.session_state.get("oauth_state", "")
             oauth = OAuth2Session(
                 client_id=client_id,
@@ -124,7 +172,6 @@ def authenticate_google():
                 scope=SCOPES,
                 state=state,
             )
-            # authorization_response を手動組み立て（HTTPS強制）
             current_url = redirect_uri + "?" + "&".join(
                 f"{k}={v}" for k, v in params.items()
             )
@@ -132,10 +179,7 @@ def authenticate_google():
                 TOKEN_URI,
                 authorization_response=current_url,
                 client_secret=client_secret,
-                # ✅ code_verifier を渡さない → PKCE完全無効
             )
-
-            # google.oauth2.credentials.Credentials に変換
             creds = Credentials(
                 token=token["access_token"],
                 refresh_token=token.get("refresh_token"),
@@ -158,13 +202,16 @@ def authenticate_google():
 
     return creds
 
+
 # ==============================
 # イベント操作関数群
 # ==============================
 
 def add_event_to_calendar(service, calendar_id, event_data):
     try:
-        return service.events().insert(calendarId=calendar_id, body=event_data).execute()
+        return _call_with_retry(
+            lambda: service.events().insert(calendarId=calendar_id, body=event_data).execute()
+        )
     except HttpError as e:
         st.error(f"イベント追加失敗 (HTTPエラー): {e}")
     except Exception as e:
@@ -173,21 +220,23 @@ def add_event_to_calendar(service, calendar_id, event_data):
 
 
 def fetch_all_events(service, calendar_id, time_min=None, time_max=None):
-    """イベント全件取得（ページネーション対応）"""
+    """イベント全件取得（ページネーション＋リトライ対応）"""
     events = []
     page_token = None
     try:
         while True:
-            events_result = service.events().list(
-                calendarId=calendar_id,
-                timeMin=time_min,
-                timeMax=time_max,
-                singleEvents=True,
-                orderBy='startTime',
-                pageToken=page_token
-            ).execute()
-            events.extend(events_result.get('items', []))
-            page_token = events_result.get('nextPageToken')
+            result = _call_with_retry(
+                lambda pt=page_token: service.events().list(
+                    calendarId=calendar_id,
+                    timeMin=time_min,
+                    timeMax=time_max,
+                    singleEvents=True,
+                    orderBy="startTime",
+                    pageToken=pt,
+                ).execute()
+            )
+            events.extend(result.get("items", []))
+            page_token = result.get("nextPageToken")
             if not page_token:
                 break
         return events
@@ -200,86 +249,64 @@ def fetch_all_events(service, calendar_id, time_min=None, time_max=None):
 
 def update_event_if_needed(service, calendar_id, event_id, new_event_data):
     """
-    既存イベントと new_event_data を比較し、差分がある場合のみ Google Calendar を更新する。
-
-    比較対象:
-      - summary（タイトル）
-      - description（説明）
-      - start（終日/時間指定/タイムゾーン含め厳密比較）
-      - end（終日/時間指定/タイムゾーン含め厳密比較）
-      - transparency（公開/非公開設定）
-      - recurrence（繰り返し設定があれば）
-
-    ※ Location（場所）は比較対象外
-    ※ 差分がある場合のみ update API を実行
+    既存イベントと new_event_data を比較し、差分がある場合のみ更新する。
+    API呼び出しはレートリミット対応のリトライ付き。
     """
     try:
-        existing_event = service.events().get(calendarId=calendar_id, eventId=event_id).execute()
+        existing_event = _call_with_retry(
+            lambda: service.events().get(calendarId=calendar_id, eventId=event_id).execute()
+        )
 
-        def normalize(val):
-            return val or ""
-
+        nz = lambda v: v or ""
         needs_update = False
 
-        # 1) summary
-        if normalize(existing_event.get("summary")) != normalize(new_event_data.get("summary")):
-            needs_update = True
+        for field in ("summary", "description", "transparency"):
+            if nz(existing_event.get(field)) != nz(new_event_data.get(field)):
+                needs_update = True
+                break
 
-        # 2) description
         if not needs_update:
-            if normalize(existing_event.get("description")) != normalize(new_event_data.get("description")):
+            if (existing_event.get("recurrence") or []) != (new_event_data.get("recurrence") or []):
                 needs_update = True
 
-        # 3) transparency（非公開/公開）
-        if not needs_update:
-            if normalize(existing_event.get("transparency")) != normalize(new_event_data.get("transparency")):
-                needs_update = True
-
-        # 4) recurrence（繰り返し設定）
-        if not needs_update:
-            existing_recur = existing_event.get("recurrence") or []
-            new_recur = new_event_data.get("recurrence") or []
-            if existing_recur != new_recur:
-                needs_update = True
-
-        # 5) start
         if not needs_update:
             if (existing_event.get("start") or {}) != (new_event_data.get("start") or {}):
                 needs_update = True
 
-        # 6) end
         if not needs_update:
             if (existing_event.get("end") or {}) != (new_event_data.get("end") or {}):
                 needs_update = True
 
         if needs_update:
-            updated_event = service.events().update(
-                calendarId=calendar_id,
-                eventId=event_id,
-                body=new_event_data
-            ).execute()
-            return updated_event
+            return _call_with_retry(
+                lambda: service.events().update(
+                    calendarId=calendar_id,
+                    eventId=event_id,
+                    body=new_event_data,
+                ).execute()
+            )
 
-        # 差分なし → 更新不要
         return existing_event
 
     except HttpError as e:
         st.error(f"イベント更新失敗 (HTTPエラー): {e}")
     except Exception as e:
         st.error(f"イベント更新失敗: {e}")
-
     return None
 
 
 def delete_event_from_calendar(service, calendar_id, event_id):
     try:
-        service.events().delete(calendarId=calendar_id, eventId=event_id).execute()
+        _call_with_retry(
+            lambda: service.events().delete(calendarId=calendar_id, eventId=event_id).execute()
+        )
         return True
     except HttpError as e:
         st.error(f"イベント削除失敗 (HTTPエラー): {e}")
     except Exception as e:
         st.error(f"イベント削除失敗: {e}")
     return False
+
 
 # ==============================
 # ToDoリスト操作関数群
@@ -297,7 +324,9 @@ def build_tasks_service(creds):
 
 def add_task_to_todo_list(tasks_service, task_list_id, task_data):
     try:
-        return tasks_service.tasks().insert(tasklist=task_list_id, body=task_data).execute()
+        return _call_with_retry(
+            lambda: tasks_service.tasks().insert(tasklist=task_list_id, body=task_data).execute()
+        )
     except HttpError as e:
         st.error(f"タスク追加失敗 (HTTPエラー): {e}")
     except Exception as e:
@@ -307,12 +336,18 @@ def add_task_to_todo_list(tasks_service, task_list_id, task_data):
 
 def find_and_delete_tasks_by_event_id(tasks_service, task_list_id, event_id):
     try:
-        tasks_result = tasks_service.tasks().list(tasklist=task_list_id).execute()
+        tasks_result = _call_with_retry(
+            lambda: tasks_service.tasks().list(tasklist=task_list_id).execute()
+        )
         tasks = tasks_result.get('items', [])
         deleted_count = 0
         for task in tasks:
-            if (event_id in task.get('notes', '') or event_id in task.get('title', '')):
-                tasks_service.tasks().delete(tasklist=task_list_id, task=task['id']).execute()
+            if event_id in task.get('notes', '') or event_id in task.get('title', ''):
+                _call_with_retry(
+                    lambda tid=task['id']: tasks_service.tasks().delete(
+                        tasklist=task_list_id, task=tid
+                    ).execute()
+                )
                 deleted_count += 1
         return deleted_count
     except HttpError as e:
