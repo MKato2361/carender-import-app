@@ -31,8 +31,7 @@ def _logical_github_name(filename: str) -> str:
 def _clear_github_cache():
     """list_dir と walk_repo_tree_with_dates の両キャッシュをクリアする。"""
     list_dir.clear()
-                    # list_dir・walk_repo_tree_with_dates の両キャッシュをクリア
-                    _clear_github_cache()
+    walk_repo_tree_with_dates.clear()
 
 
 def render_tab1_upload():
@@ -108,13 +107,16 @@ def render_tab1_upload():
     # --- GitHub から作業指示書ファイルを選択 ---
     if not has_outside_work:
         try:
-            # ★ GitHub ファイルリストの再読み込みボタン
+            # ★ タイトルと再読み込みボタンを横並び表示
             col_title, col_reload = st.columns([6, 1])
             with col_title:
                 st.markdown("📦 **GitHub上のCSV/Excel（作業指示書用）**")
             with col_reload:
-                if st.button("🔄", help="GitHubのファイル一覧と更新日を最新状態に再取得します", disabled=disable_work_upload):
-                    
+                if st.button(
+                    "🔄",
+                    help="GitHubのファイル一覧と更新日を最新状態に再取得します",
+                    disabled=disable_work_upload,
+                ):
                     # list_dir・walk_repo_tree_with_dates の両キャッシュをクリア
                     _clear_github_cache()
                     # チェックボックスのkeyを更新して再描画（既存の選択状態もリセット）
@@ -122,7 +124,7 @@ def render_tab1_upload():
                     st.session_state["gh_defaults_applied"] = False
                     st.rerun()
 
-            # ★ walk_repo_tree_with_dates で更新日も一緒に取得（キャッシュ済み）
+            # walk_repo_tree_with_dates で更新日も一緒に取得（キャッシュ済み）
             gh_nodes = walk_repo_tree_with_dates(base_path="", max_depth=3)
             file_nodes = [
                 n for n in gh_nodes
@@ -143,7 +145,7 @@ def render_tab1_upload():
                     if auto_apply_gh_defaults_now and logical_key in default_gh_logicals:
                         st.session_state[widget_key] = True
 
-                    # ★ ファイル名に更新日を付けてチェックボックス表示
+                    # ファイル名に更新日を付けてチェックボックス表示
                     label = f"{node['name']}　`{updated}`" if updated else node["name"]
                     checked = st.checkbox(
                         label,
