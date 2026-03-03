@@ -5,9 +5,10 @@ from typing import List
 from io import BytesIO
 
 from github_loader import (
-    walk_repo_tree_with_dates,  # ★ 更新日付き版に変更
+    walk_repo_tree_with_dates,
     load_file_bytes_from_github,
     is_supported_file,
+    list_dir,  # ★ キャッシュクリアのためにインポート
 )
 from utils.file_loader import (
     update_uploaded_files,
@@ -25,6 +26,13 @@ def _logical_github_name(filename: str) -> str:
     base, _ext = os.path.splitext(filename)
     base = re.sub(r"\d+$", "", base)
     return base
+
+
+def _clear_github_cache():
+    """list_dir と walk_repo_tree_with_dates の両キャッシュをクリアする。"""
+    list_dir.clear()
+                    # list_dir・walk_repo_tree_with_dates の両キャッシュをクリア
+                    _clear_github_cache()
 
 
 def render_tab1_upload():
@@ -100,6 +108,20 @@ def render_tab1_upload():
     # --- GitHub から作業指示書ファイルを選択 ---
     if not has_outside_work:
         try:
+            # ★ GitHub ファイルリストの再読み込みボタン
+            col_title, col_reload = st.columns([6, 1])
+            with col_title:
+                st.markdown("📦 **GitHub上のCSV/Excel（作業指示書用）**")
+            with col_reload:
+                if st.button("🔄", help="GitHubのファイル一覧と更新日を最新状態に再取得します", disabled=disable_work_upload):
+                    
+                    # list_dir・walk_repo_tree_with_dates の両キャッシュをクリア
+                    _clear_github_cache()
+                    # チェックボックスのkeyを更新して再描画（既存の選択状態もリセット）
+                    st.session_state["gh_version"] += 1
+                    st.session_state["gh_defaults_applied"] = False
+                    st.rerun()
+
             # ★ walk_repo_tree_with_dates で更新日も一緒に取得（キャッシュ済み）
             gh_nodes = walk_repo_tree_with_dates(base_path="", max_depth=3)
             file_nodes = [
@@ -108,8 +130,6 @@ def render_tab1_upload():
             ]
 
             if file_nodes:
-                st.markdown("📦 **GitHub上のCSV/Excel（作業指示書用）**")
-
                 for node in file_nodes:
                     logical_key = _logical_github_name(node["name"])
                     widget_key  = f"gh::{st.session_state['gh_version']}::{node['path']}"
