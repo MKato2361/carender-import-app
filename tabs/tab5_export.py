@@ -256,7 +256,6 @@ def render_tab5_export(
             "📅 開始日",
             key="export_start_date",
             min_value=today_date_export - timedelta(days=365 * 3),
-            max_value=today_date_export,
             on_change=_on_start_date_change,
         )
     with col2:
