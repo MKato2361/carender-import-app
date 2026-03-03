@@ -361,13 +361,27 @@ def _render_calendar_selector(
         saved = get_user_setting(user_id, setting_key)
         st.session_state[select_key] = saved if saved in calendar_options else base_calendar
 
-    st.selectbox(
-        "登録先カレンダーを選択" + ("（作業外予定）" if outside_mode else "（作業指示書）"),
-        calendar_options,
-        key=select_key,
-        on_change=_save_calendar_selection,
-        args=(user_id, outside_mode),
-    )
+    col_select, col_info = st.columns([3, 1])
+    with col_select:
+        st.selectbox(
+            "登録先カレンダーを選択" + ("（作業外予定）" if outside_mode else "（作業指示書）"),
+            calendar_options,
+            key=select_key,
+            on_change=_save_calendar_selection,
+            args=(user_id, outside_mode),
+        )
+    with col_info:
+        st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)  # ラベル分の余白
+        selected = st.session_state[select_key]
+        is_base = selected == base_calendar
+        badge_color = "#2563eb" if is_base else "#6b7280"
+        badge_label = "基準" if is_base else "変更中"
+        st.markdown(
+            f"<span style='background:{badge_color};color:#fff;padding:3px 10px;"
+            f"border-radius:12px;font-size:0.75rem;white-space:nowrap'>{badge_label}</span>",
+            unsafe_allow_html=True,
+        )
+
     return st.session_state[select_key]
 
 
@@ -493,6 +507,7 @@ def _execute_registration(
 ):
     """Googleカレンダーへのイベント登録・更新を実行する"""
     progress = st.progress(0)
+    status_text = st.empty()
     added_count = updated_count = skipped_count = 0
     total = len(df)
 
@@ -592,11 +607,18 @@ def _execute_registration(
         except Exception as e:
             st.error(f"イベント '{event_data.get('summary', '(無題)')}' の登録/更新に失敗しました: {e}")
 
-        progress.progress((i + 1) / total)
+        done = i + 1
+        progress.progress(done / total)
+        status_text.caption(
+            f"処理中 ({done}/{total})：{subject or '(無題)'}　"
+            f"✅ {added_count}件登録　🔧 {updated_count}件更新　↪ {skipped_count}件スキップ"
+        )
 
+    status_text.empty()
     st.success(
         f"✅ 登録: {added_count} 件 / 🔧 更新: {updated_count} 件 / ↪ スキップ: {skipped_count} 件 処理完了！"
     )
+    st.caption("※ スキップ = カレンダー上の既存イベントと内容が同一のため更新不要だったもの")
 
 
 # ============================================================
@@ -649,9 +671,8 @@ def render_tab2_register(user_id: str, editable_calendar_options: dict, service)
 
     # --- 実行 ---
     st.subheader("➡️ イベント登録・更新実行")
-    if not st.button("Googleカレンダーに登録・更新する"):
-        return
 
+    # ボタン表示前にデータを処理して件数を取得
     try:
         if outside_mode:
             raw_df = _read_outside_file_to_df(outside_file)
@@ -673,5 +694,8 @@ def render_tab2_register(user_id: str, editable_calendar_options: dict, service)
         st.warning("有効なイベントデータがありません。処理を中断しました。")
         return
 
-    st.info(f"{len(df)} 件のイベントを処理します。")
+    event_count = len(df)
+    if not st.button(f"▶ Googleカレンダーに登録・更新する（{event_count} 件）"):
+        return
+
     _execute_registration(service, df, calendar_id, outside_mode)
