@@ -233,20 +233,49 @@ def render_tab5_export(
     st.subheader("🗓️ 出力期間の選択")
     today_date_export = date.today()
 
-    # UI修正1: 開始日・終了日を範囲選択UIに統合（順序ミスエラーが構造的に起きなくなる）
-    date_range = st.date_input(
-        "出力期間（開始日 〜 終了日）",
-        value=(today_date_export - timedelta(days=30), today_date_export),
-        min_value=today_date_export - timedelta(days=365 * 3),
-        max_value=today_date_export,
-    )
+    # session_state の初期化（初回のみ）
+    if "export_start_date" not in st.session_state:
+        st.session_state["export_start_date"] = today_date_export - timedelta(days=30)
+    if "export_end_date" not in st.session_state:
+        st.session_state["export_end_date"] = today_date_export
 
-    # 範囲選択中（片方だけ選択した状態）はボタンを無効化
-    if not isinstance(date_range, (list, tuple)) or len(date_range) != 2:
-        st.info("終了日を選択してください。")
+    def _on_start_date_change():
+        """開始日が変わったら終了日を自動で1ヶ月後にセット"""
+        import calendar as cal_mod
+        new_start = st.session_state["export_start_date"]
+        month = new_start.month + 1
+        year = new_start.year + (1 if month > 12 else 0)
+        month = month if month <= 12 else 1
+        last_day = cal_mod.monthrange(year, month)[1]
+        auto_end = new_start.replace(year=year, month=month, day=min(new_start.day, last_day))
+        st.session_state["export_end_date"] = auto_end
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.date_input(
+            "📅 開始日",
+            key="export_start_date",
+            min_value=today_date_export - timedelta(days=365 * 3),
+            max_value=today_date_export,
+            on_change=_on_start_date_change,
+        )
+    with col2:
+        st.date_input(
+            "📅 終了日（開始日選択で自動セット・調整可）",
+            key="export_end_date",
+            min_value=st.session_state["export_start_date"],
+            max_value=today_date_export + timedelta(days=365),
+        )
+
+    export_start_date: date = st.session_state["export_start_date"]
+    export_end_date: date = st.session_state["export_end_date"]
+
+    if export_start_date > export_end_date:
+        st.error("⚠️ 終了日は開始日以降に設定してください。")
         return
 
-    export_start_date, export_end_date = date_range
+    period_days = (export_end_date - export_start_date).days + 1
+    st.caption(f"📆 選択期間: {export_start_date} 〜 {export_end_date}（{period_days} 日間）")
 
     # UI修正2: 出力形式を読み込みボタンの前に配置し、1アクションで完結させる
     export_format = st.radio("出力形式を選択", ("CSV", "Excel"), index=0, horizontal=True)
