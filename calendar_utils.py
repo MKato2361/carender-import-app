@@ -28,6 +28,18 @@ SCOPES = [
 # Google 認証（Webリダイレクト型 + トークン自動削除）
 # ==============================
 def authenticate_google():
+     if st.query_params.get("clear_auth") == "1":
+        st.session_state.pop('credentials', None)
+        st.session_state.pop('oauth_state', None)
+        try:
+            user_id = get_firebase_user_id()
+            if user_id:
+                db = firestore.client()
+                db.collection('google_tokens').document(user_id).delete()
+        except:
+            pass
+        st.query_params.clear()
+        st.rerun()
     creds = None
     user_id = get_firebase_user_id()
 
