@@ -28,18 +28,20 @@ SCOPES = [
 # Google 認証（Webリダイレクト型 + トークン自動削除）
 # ==============================
 def authenticate_google():
-     if st.query_params.get("clear_auth") == "1":
+    # ✅ ?clear_auth=1 で強制リセット → 再認証（サポート用）
+    # 使い方: アプリURL/?clear_auth=1 にアクセスするだけ
+    if st.query_params.get("clear_auth") == "1":
         st.session_state.pop('credentials', None)
         st.session_state.pop('oauth_state', None)
         try:
-            user_id = get_firebase_user_id()
-            if user_id:
-                db = firestore.client()
-                db.collection('google_tokens').document(user_id).delete()
-        except:
+            _user_id = get_firebase_user_id()
+            if _user_id:
+                firestore.client().collection('google_tokens').document(_user_id).delete()
+        except Exception:
             pass
         st.query_params.clear()
         st.rerun()
+
     creds = None
     user_id = get_firebase_user_id()
 
@@ -52,9 +54,13 @@ def authenticate_google():
     # --- セッションから ---
     if 'credentials' in st.session_state and st.session_state['credentials']:
         creds = st.session_state['credentials']
-        if creds.valid:
+        # refresh_token がない場合はセッションを破棄して再認証
+        if not creds.refresh_token:
+            st.session_state.pop('credentials', None)
+            doc_ref.delete()
+        elif creds.valid:
             return creds
-        elif creds.expired and creds.refresh_token:
+        elif creds.expired:
             try:
                 creds.refresh(Request())
                 st.session_state['credentials'] = creds
@@ -97,7 +103,6 @@ def authenticate_google():
                     _clear_and_reauth(f"トークンのリフレッシュに失敗しました。再認証します。({e})")
                     return authenticate_google()
 
-            # 有効に見えても念のため refresh_token の存在を確認
             # refresh_token がない場合は再認証（古いセッションの残骸）
             if not creds.refresh_token:
                 _clear_and_reauth("リフレッシュトークンがありません。再認証します。")
@@ -157,7 +162,7 @@ def authenticate_google():
                 scope=SCOPES,
                 state=state,
             )
-            # authorization_response を手動組み立て（HTTPS強制）
+            # authorization_response を手動組み立て
             current_url = redirect_uri + "?" + "&".join(
                 f"{k}={v}" for k, v in params.items()
             )
