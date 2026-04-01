@@ -62,6 +62,7 @@ def apply_custom_styles():
         }
     }
     </style>
+    <div class="main-header">📅 Googleカレンダー一括管理システム</div>
     """, unsafe_allow_html=True)
 
 apply_custom_styles()
@@ -70,13 +71,12 @@ apply_custom_styles()
 # メインアプリケーションロジック
 # ==================================================
 def main():
-    # AuthManagerの取得
+    # AuthManagerの取得 (シングルトン)
     manager: AuthManager = get_auth_manager()
     
     # 1. Firebase 認証チェック
     user_id = manager.sync_with_session()
     if not user_id:
-        st.title("G-Cal Pro ログイン")
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
             st.info("利用を開始するにはログインしてください")
@@ -101,8 +101,6 @@ def main():
     )
 
     # 5. メインコンテンツ (タブ構成)
-    st.markdown('<div class="main-header">📅 Googleカレンダー一括管理システム</div>', unsafe_allow_html=True)
-
     tab_labels = ["1. ファイル取込", "2. 登録・削除", "3. 出力", "4. 物件マスタ"]
     if is_admin:
         tab_labels.append("5. 管理者")
@@ -112,7 +110,6 @@ def main():
     # --- Tab 1: Upload ---
     with tabs[0]:
         with st.container(border=True):
-            st.caption("ExcelまたはCSVファイルをアップロードしてください")
             render_tab1_upload()
 
     # --- Tab 2: Operations ---
@@ -123,11 +120,19 @@ def main():
 
         with sub_tab_reg:
             with st.container(border=True):
-                render_tab2_register(user_id, manager.editable_calendar_options, manager.calendar_service)
+                # 修正ポイント: 引数を manager に集約
+                render_tab2_register(user_id, manager)
 
         with sub_tab_del:
             with st.container(border=True):
-                render_tab3_delete(manager.editable_calendar_options, manager.calendar_service, manager.tasks_service, manager.default_task_list_id)
+                # 他のタブも順次 manager 1つに修正することを想定。
+                # 現時点では互換性のために manager から個別に取り出して渡す。
+                render_tab3_delete(
+                    manager.editable_calendar_options, 
+                    manager.calendar_service, 
+                    manager.tasks_service, 
+                    manager.default_task_list_id
+                )
 
         with sub_tab_todo:
             with st.container(border=True):
