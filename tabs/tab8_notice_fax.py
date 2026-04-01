@@ -233,7 +233,25 @@ def render_tab8_notice_fax(manager, current_user_email: str) -> None:
         c1, c2, c3 = st.columns([2, 2, 2])
 
         calendar_options = manager.editable_calendar_options
-        calendar_name = c1.selectbox("対象カレンダー", list(calendar_options.keys()), key="fax_cal_select")
+        calendar_names = list(calendar_options.keys())
+
+        base_calendar = (
+            st.session_state.get("base_calendar_name")
+            or st.session_state.get("selected_calendar_name")
+            or (calendar_names[0] if calendar_names else "")
+        )
+        if calendar_names and base_calendar not in calendar_names:
+            base_calendar = calendar_names[0]
+
+        select_key = "fax_cal_select"
+        share_calendar = st.session_state.get("share_calendar_selection_across_tabs", True)
+
+        if share_calendar:
+            st.session_state[select_key] = base_calendar
+        elif (select_key not in st.session_state) or (st.session_state.get(select_key) not in calendar_names):
+            st.session_state[select_key] = base_calendar
+
+        calendar_name = c1.selectbox("対象カレンダー", calendar_names, key=select_key)
         calendar_id = calendar_options[calendar_name]
 
         start_date = c2.date_input("開始日", value=date.today(), key="fax_start_date")
