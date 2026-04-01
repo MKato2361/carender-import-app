@@ -158,7 +158,7 @@ def main():
     with tabs[2]:
         with st.container(border=True):
             from calendar_utils import fetch_all_events
-            render_tab5_export(manager.editable_calendar_options, manager.calendar_service, fetch_all_events)
+            render_tab5_export(manager)
 
     # --- Tab 4: Property Master ---
     with tabs[3]:
