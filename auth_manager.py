@@ -102,10 +102,13 @@ class AuthManager:
         except Exception as e:
             st.warning(f"Sheets API 初期化エラー: {e}")
 
-    def save_user_setting(self, key: str, value):
-        """設定を Firestore とセッションに保存"""
-        if self.firebase_user_id:
-            set_user_setting(self.firebase_user_id, key, value)
+    def save_user_setting(self, user_id: str, key: str, value):
+        """
+        設定を Firestore とセッションに保存 (既存の引数形式と互換性を維持)
+        """
+        target_id = user_id or self.firebase_user_id
+        if target_id:
+            set_user_setting(target_id, key, value)
 
     @property
     def is_authenticated(self) -> bool:
