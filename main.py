@@ -1,184 +1,297 @@
-from __future__ import annotations
-import streamlit as st
-import pandas as pd
+import re
+import logging
+import unicodedata
+import calendar as cal_mod
 from datetime import datetime, date, timedelta, timezone
+from typing import List, Callable
+from io import BytesIO
 
-# ---- 認証・サービス管理 (AuthManager導入) ----
-from auth_manager import get_auth_manager, AuthManager
+import pandas as pd
+import streamlit as st
 
-# ---- Utils & Helpers ----
-from utils.user_roles import get_or_create_user, ROLE_ADMIN
-from sidebar import render_sidebar
-from firebase_auth import firebase_auth_form
+# 認証・カレンダー関連のユーティリティ
+from calendar_utils import fetch_all_events
 
-# ---- Tab Modules ----
-from tabs.tab1_upload import render_tab1_upload
-from tabs.tab2_register import render_tab2_register
-from tabs.tab3_delete import render_tab3_delete
-from tabs.tab5_export import render_tab5_export
-from tabs.tab_admin import render_tab_admin
-from tabs.tab6_property_master import render_tab6_property_master
-from tabs.tab7_inspection_todo import render_tab7_inspection_todo
-from tabs.tab8_notice_fax import render_tab8_notice_fax
-
-# ==================================================
-# 0) ページ設定 & スタイル
-# ==================================================
-st.set_page_config(
-    page_title="G-Cal Pro | Googleカレンダー一括管理",
-    page_icon="📅",
-    layout="wide",
-    initial_sidebar_state="expanded"
+# ==============================
+# 正規表現（全角/半角/表記ゆれ対応）
+# ==============================
+WONUM_PATTERN = re.compile(
+    r"[［\[]?\s*作業指示書(?:番号)?[：:]\s*([0-9A-Za-z\-]+)\s*[］\]]?",
+    flags=re.IGNORECASE
 )
 
-def apply_custom_styles():
-    """
-    UIの最適化: Stickyヘッダーの改善と階層の整理
-    """
-    st.markdown("""
-    <style>
-    /* メインヘッダーの装飾 */
-    .main-header {
-        font-size: 24px;
-        font-weight: 700;
-        color: #1E88E5;
-        margin-bottom: 10px;
-        padding: 10px 0;
-        border-bottom: 2px solid #f0f2f6;
-    }
-    /* タブの余白調整 */
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 24px;
-        position: sticky;
-        top: 0px;
-        background-color: white;
-        z-index: 1000;
-        padding: 5px 0;
-    }
-    /* ダークモード対応 */
-    @media (prefers-color-scheme: dark) {
-        .stTabs [data-baseweb="tab-list"] {
-            background-color: #0e1117;
-        }
-    }
-    </style>
-    <div class="main-header">📅 Googleカレンダー一括管理システム</div>
-    """, unsafe_allow_html=True)
+ASSETNUM_PATTERN = re.compile(
+    r"[［\[]?\s*管理番号[：:]\s*([0-9A-Za-z\-]+)\s*[］\]]?",
+    flags=re.IGNORECASE
+)
 
-apply_custom_styles()
+WORKTYPE_PATTERN = re.compile(r"\[作業タイプ[：:]\s*(.*?)\]")
+TITLE_PATTERN = re.compile(r"\[タイトル[：:]\s*(.*?)\]")
 
-# ==================================================
-# メインアプリケーションロジック
-# ==================================================
-def main():
-    # AuthManagerの取得 (シングルトン)
-    manager: AuthManager = get_auth_manager()
-    
-    # 1. Firebase 認証チェック
-    user_id = manager.sync_with_session()
-    if not user_id:
-        col1, col2, col3 = st.columns([1, 2, 1])
-        with col2:
-            st.info("利用を開始するにはログインしてください")
-            firebase_auth_form()
-        st.stop()
+JST = timezone(timedelta(hours=9))
 
-    # 2. Google 認証 & サービス初期化
-    if not manager.ensure_google_services():
-        # authenticate_google() が内部で URL を表示し st.stop() するため、ここでの明示的な stop は不要な場合が多い
-        st.stop()
+DEFAULT_SITE_ID = "JES"
 
-    # 3. ユーザー情報 / 権限
-    current_user_email = st.session_state.get("user_email") or user_id
-    user_doc = get_or_create_user(current_user_email, None)
-    is_admin = user_doc.get("role") == ROLE_ADMIN
 
-    # 4. サイドバー
-    render_sidebar(
-        user_id=user_id,
-        editable_calendar_options=manager.editable_calendar_options,
-        save_user_setting_to_firestore=manager.save_user_setting,
+# ==============================
+# 抽出 & クリーニング関数
+# ==============================
+def extract_wonum(description_text: str) -> str:
+    """Descriptionから作業指示書番号を抽出（全角→半角、表記ゆれ吸収）"""
+    if not description_text:
+        return ""
+    s = unicodedata.normalize("NFKC", description_text)
+    m = WONUM_PATTERN.search(s)
+    return (m.group(1).strip() if m else "")
+
+
+def extract_assetnum(description_text: str) -> str:
+    """Descriptionから管理番号を抽出（全角→半角、表記ゆれ吸収）"""
+    if not description_text:
+        return ""
+    s = unicodedata.normalize("NFKC", description_text)
+    m = ASSETNUM_PATTERN.search(s)
+    return (m.group(1).strip() if m else "")
+
+
+def _clean(val) -> str:
+    """"実質空"を厳密判定するためのクリーナー（WONUM/ASSETNUM共通）"""
+    if val is None:
+        return ""
+    s = str(val)
+    s = unicodedata.normalize("NFKC", s)
+    if s.lower() in ("nan", "none"):
+        return ""
+    s = "".join(ch for ch in s if unicodedata.category(ch) != "Cf")
+    s = s.replace("\ufeff", "").replace("\u00A0", " ").replace("\u3000", " ")
+    return s.strip()
+
+
+# ==============================
+# 日付処理
+# ==============================
+def to_utc_range(d1: date, d2: date):
+    start_dt_utc = datetime.combine(d1, datetime.min.time(), tzinfo=JST).astimezone(timezone.utc)
+    end_dt_utc = datetime.combine(d2, datetime.max.time(), tzinfo=JST).astimezone(timezone.utc)
+    return (
+        start_dt_utc.isoformat(timespec="microseconds").replace("+00:00", "Z"),
+        end_dt_utc.isoformat(timespec="microseconds").replace("+00:00", "Z"),
     )
 
-    # 5. メインコンテンツ (タブ構成)
-    tab_labels = ["1. ファイル取込", "2. 登録・削除", "3. 出力", "4. 物件マスタ"]
-    if is_admin:
-        tab_labels.append("5. 管理者")
 
-    tabs = st.tabs(tab_labels)
+def to_jst_iso(s: str) -> str:
+    """UTC/オフセット付きISO文字列をJSTのISO文字列に変換する。"""
+    try:
+        if "T" in s and ("+" in s or s.endswith("Z")):
+            dt = datetime.fromisoformat(s.replace("Z", "+00:00")).astimezone(JST)
+            return dt.isoformat(timespec="seconds")
+    except ValueError as e:
+        logging.warning(f"日時パース失敗: {s!r} → {e}")
+    return s
 
-    # --- Tab 1: Upload ---
-    with tabs[0]:
-        with st.container(border=True):
-            render_tab1_upload()
 
-    # --- Tab 2: Operations ---
-    with tabs[1]:
-        sub_tab_reg, sub_tab_del, sub_tab_todo, sub_tab_notice_fax = st.tabs(
-            ["📥 イベント登録", "🗑 イベント削除", "✅ 点検連絡ToDo", "📄 貼り紙・FAX"]
+def safe_filename(name: str) -> str:
+    """ファイル名に使用できない文字を除去・変換する。"""
+    name = unicodedata.normalize("NFKC", name)
+    name = re.sub(r'[\/\\\:\*\?\"\<\>\|]', "", name)
+    name = re.sub(r'[@.]', "_", name)
+    name = name.strip("_ ")
+    return name or "output"
+
+
+# ==============================
+# ロジック分離
+# ==============================
+def _fetch_and_extract(
+    service,
+    calendar_id: str,
+    start_date: date,
+    end_date: date,
+) -> tuple[pd.DataFrame, int]:
+    """イベント取得・抽出・除外を担当"""
+    time_min_utc, time_max_utc = to_utc_range(start_date, end_date)
+    events = fetch_all_events(service, calendar_id, time_min_utc, time_max_utc)
+
+    extracted_data: List[dict] = []
+    excluded_count = 0
+
+    for event in events:
+        description_text = event.get("description", "") or ""
+        normalized_desc = unicodedata.normalize("NFKC", description_text)
+
+        wonum = _clean(extract_wonum(description_text))
+        assetnum = _clean(extract_assetnum(description_text))
+
+        if not wonum or not assetnum:
+            excluded_count += 1
+            continue
+
+        worktype_match = WORKTYPE_PATTERN.search(normalized_desc)
+        title_match = TITLE_PATTERN.search(normalized_desc)
+        worktype = (worktype_match.group(1).strip() if worktype_match else "") or ""
+        description_val = title_match.group(1).strip() if title_match else ""
+
+        start_time = event["start"].get("dateTime") or event["start"].get("date") or ""
+        end_time = event["end"].get("dateTime") or event["end"].get("date") or ""
+
+        extracted_data.append({
+            "WONUM": wonum,
+            "ASSETNUM": assetnum,
+            "DESCRIPTION": description_val,
+            "WORKTYPE": worktype,
+            "SCHEDSTART": to_jst_iso(start_time),
+            "SCHEDFINISH": to_jst_iso(end_time),
+            "LEAD": "",
+            "JESSCHEDFIXED": "",
+            "SITEID": DEFAULT_SITE_ID,
+        })
+
+    return pd.DataFrame(extracted_data), excluded_count
+
+
+def _build_download_section(df: pd.DataFrame, file_base_name: str, export_format: str) -> None:
+    """ダウンロードボタン描画"""
+    if export_format == "CSV":
+        csv_buffer = df.to_csv(index=False).encode("utf-8-sig")
+        st.download_button(
+            label="✅ CSVファイルとしてダウンロード",
+            data=csv_buffer,
+            file_name=f"{file_base_name}.csv",
+            mime="text/csv",
+            use_container_width=True,
+        )
+    else:
+        buffer = BytesIO()
+        with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
+            df.to_excel(writer, index=False, sheet_name="カレンダーイベント")
+        buffer.seek(0)
+        st.download_button(
+            label="✅ Excelファイルとしてダウンロード",
+            data=buffer,
+            file_name=f"{file_base_name}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
         )
 
-        with sub_tab_reg:
-            with st.container(border=True):
-                # 修正ポイント: 引数を manager に集約
-                render_tab2_register(user_id, manager)
 
-        with sub_tab_del:
-            with st.container(border=True):
-                # 他のタブも順次 manager 1つに修正することを想定。
-                # 現時点では互換性のために manager から個別に取り出して渡す。
-                render_tab3_delete(
-                    manager.editable_calendar_options, 
-                    manager.calendar_service, 
-                    manager.tasks_service, 
-                    manager.default_task_list_id
-                )
+# ==============================
+# メインタブ描画 (AuthManager対応版)
+# ==============================
+def render_tab5_export(manager) -> None:
+    """タブ5: カレンダーイベントをExcel/CSVへ出力"""
+    st.subheader("📊 カレンダーイベントのエクスポート")
 
-        with sub_tab_todo:
-            with st.container(border=True):
-                render_tab7_inspection_todo(
-                    service=manager.calendar_service,
-                    editable_calendar_options=manager.editable_calendar_options,
-                    tasks_service=manager.tasks_service,
-                    default_task_list_id=manager.default_task_list_id,
-                    sheets_service=manager.sheets_service,
-                    current_user_email=current_user_email,
-                )
+    # manager から必要なサービスとオプションを取得
+    service = manager.calendar_service
+    editable_calendar_options = manager.editable_calendar_options
 
-        with sub_tab_notice_fax:
-            with st.container(border=True):
-                render_tab8_notice_fax(
-                    service=manager.calendar_service,
-                    editable_calendar_options=manager.editable_calendar_options,
-                    sheets_service=manager.sheets_service,
-                    current_user_email=current_user_email,
-                )
+    if not editable_calendar_options:
+        st.error("利用可能なカレンダーが見つかりません。Google認証を確認してください。")
+        return
 
-    # --- Tab 3: Export ---
-    with tabs[2]:
-        with st.container(border=True):
-            from calendar_utils import fetch_all_events
-            render_tab5_export(manager)
+    with st.container(border=True):
+        st.markdown("**1. 出力設定**")
+        calendar_options = list(editable_calendar_options.keys())
+        base_calendar = (
+            st.session_state.get("base_calendar_name")
+            or st.session_state.get("selected_calendar_name")
+            or calendar_options[0]
+        )
+        if base_calendar not in calendar_options:
+            base_calendar = calendar_options[0]
 
-    # --- Tab 4: Property Master ---
-    with tabs[3]:
-        with st.container(border=True):
-            render_tab6_property_master(
-                sheets_service=manager.sheets_service,
-                default_spreadsheet_id=st.secrets.get("PROPERTY_MASTER_SHEET_ID", ""),
-                basic_sheet_title="物件基本情報",
-                master_sheet_title="物件マスタ",
-                current_user_email=current_user_email,
+        select_key = "export_calendar_select"
+        if (select_key not in st.session_state) or (st.session_state.get(select_key) not in calendar_options):
+            st.session_state[select_key] = base_calendar
+
+        selected_calendar_name_export = st.selectbox(
+            "出力対象カレンダーを選択",
+            calendar_options,
+            key=select_key,
+        )
+        calendar_id_export = editable_calendar_options[selected_calendar_name_export]
+
+        export_format = st.radio("出力形式", ("CSV", "Excel"), index=0, horizontal=True)
+
+    with st.container(border=True):
+        st.markdown("**2. 出力期間の選択**")
+        today_date = date.today()
+
+        # セッション状態の初期化
+        if "export_start_date" not in st.session_state:
+            st.session_state["export_start_date"] = today_date - timedelta(days=30)
+        if "export_end_date" not in st.session_state:
+            st.session_state["export_end_date"] = today_date
+
+        # コールバック関数: 開始日が変更されたら終了日を1ヶ月後にセット
+        def _on_start_date_change():
+            new_start = st.session_state["export_start_date"]
+            # 翌月を計算
+            month = new_start.month + 1
+            year = new_start.year + (1 if month > 12 else 0)
+            month = month if month <= 12 else 1
+            # 翌月の末日を取得して、日が範囲外にならないように調整
+            last_day = cal_mod.monthrange(year, month)[1]
+            auto_end = new_start.replace(year=year, month=month, day=min(new_start.day, last_day))
+            st.session_state["export_end_date"] = auto_end
+
+        col1, col2 = st.columns(2)
+        with col1:
+            st.date_input(
+                "📅 開始日",
+                key="export_start_date",
+                on_change=_on_start_date_change,
+                help="開始日を変更すると、終了日が自動的に1ヶ月後にセットされます。"
+            )
+        with col2:
+            st.date_input(
+                "📅 終了日",
+                key="export_end_date",
+                min_value=st.session_state["export_start_date"],
             )
 
-    # --- Tab 5: Admin ---
-    if is_admin:
-        with tabs[4]:
-            with st.container(border=True):
-                render_tab_admin(
-                    current_user_email=current_user_email,
-                    current_user_name=None,
-                )
+    export_start_date: date = st.session_state["export_start_date"]
+    export_end_date: date = st.session_state["export_end_date"]
 
-if __name__ == "__main__":
-    main()
+    if export_start_date > export_end_date:
+        st.error("⚠️ 終了日は開始日以降に設定してください。")
+        return
+
+    st.divider()
+
+    # 実行ボタン
+    if st.button(f"🚀 {export_format} データを生成する", type="primary", use_container_width=True):
+        progress = st.progress(0, text="📡 カレンダーからデータを取得中...")
+        try:
+            df_filtered, excluded_count = _fetch_and_extract(
+                service,
+                calendar_id_export,
+                export_start_date,
+                export_end_date
+            )
+
+            if df_filtered.empty:
+                progress.empty()
+                st.info("条件に一致するイベントが見つかりませんでした。")
+                return
+
+            progress.progress(80, text="📄 ダウンロード準備中...")
+            
+            start_str = export_start_date.strftime("%Y%m%d")
+            end_str = export_end_date.strftime("%m%d")
+            file_base_name = f"{safe_filename(selected_calendar_name_export)}_{start_str}_{end_str}"
+
+            st.success(f"✅ {len(df_filtered)} 件のデータを抽出しました。")
+            if excluded_count > 0:
+                st.caption(f"※ 作業指示書番号がないイベント {excluded_count} 件を除外しました。")
+            
+            _build_download_section(df_filtered, file_base_name, export_format)
+            
+            with st.expander("🔍 抽出データプレビュー", expanded=True):
+                st.dataframe(df_filtered, use_container_width=True)
+            
+            progress.progress(100, text="✅ 完了")
+
+        except Exception as e:
+            progress.empty()
+            st.error(f"エラーが発生しました: {e}")
