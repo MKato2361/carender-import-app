@@ -297,207 +297,82 @@ def _build_calendar_df_from_outside(df_raw: pd.DataFrame, private_event: bool, a
 
 
 # ============================================================
-# 設定保存コールバック
+# UI 補助
 # ============================================================
 
-def _save_calendar_selection(user_id: str, outside_mode: bool):
-    key = "reg_calendar_select_outside" if outside_mode else "reg_calendar_select"
-    setting_key = "selected_calendar_name_outside" if outside_mode else "selected_calendar_name"
-    if key in st.session_state:
-        set_user_setting(user_id, setting_key, st.session_state[key])
-        st.toast("✅ カレンダー選択を保存しました", icon="📅")
-
-
-def _save_description_settings(user_id: str):
-    desc_key = f"description_selector_register_{user_id}"
-    desc_order_key = f"description_order_register_{user_id}"
-
-    if desc_key not in st.session_state:
-        return
-
-    description_columns_pool = st.session_state.get("description_columns_pool", [])
-    # valid_selected を以降の処理の基準として使用
-    valid_selected = [col for col in st.session_state[desc_key] if col in description_columns_pool]
-
-    current_order = st.session_state.get(desc_order_key, [])
-    current_order = [c for c in current_order if c in valid_selected]
-    for c in valid_selected:
-        if c not in current_order:
-            current_order.append(c)
-    st.session_state[desc_order_key] = current_order
-
-    set_user_setting(user_id, "description_columns_selected", current_order)
-    st.toast("✅ 説明欄の設定を保存しました", icon="💾")
-
-
-def _save_event_name_settings(user_id: str):
-    chk_key = f"add_task_type_checkbox_{user_id}"
-    if chk_key in st.session_state:
-        set_user_setting(user_id, "add_task_type_to_event_name", st.session_state[chk_key])
-
-    sel_key = f"event_name_selector_register_{user_id}"
-    if sel_key in st.session_state:
-        selected = st.session_state[sel_key]
-        set_user_setting(user_id, "event_name_col_selected", None if selected == "選択しない" else selected)
-
-    st.toast("✅ イベント名の生成設定を保存しました", icon="💾")
-
-
-# ============================================================
-# UI サブコンポーネント
-# ============================================================
-
-def _render_calendar_selector(
-    user_id: str,
-    calendar_options: list,
-    base_calendar: str,
-    outside_mode: bool,
-) -> str:
-    """登録先カレンダー選択UIを描画し、選択されたカレンダー名を返す"""
-    select_key = "reg_calendar_select_outside" if outside_mode else "reg_calendar_select"
-    setting_key = "selected_calendar_name_outside" if outside_mode else "selected_calendar_name"
-
-    if (select_key not in st.session_state) or (st.session_state.get(select_key) not in calendar_options):
-        saved = get_user_setting(user_id, setting_key)
-        st.session_state[select_key] = saved if saved in calendar_options else base_calendar
-
-    col_select, col_info = st.columns([3, 1])
-    with col_select:
-        st.selectbox(
-            "登録先カレンダーを選択" + ("（作業外予定）" if outside_mode else "（作業指示書）"),
-            calendar_options,
-            key=select_key,
-            on_change=_save_calendar_selection,
-            args=(user_id, outside_mode),
-        )
-    with col_info:
-        st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)  # ラベル分の余白
-        selected = st.session_state[select_key]
-        is_base = selected == base_calendar
-        badge_color = "#2563eb" if is_base else "#6b7280"
-        badge_label = "基準" if is_base else "変更中"
-        st.markdown(
-            f"<span style='background:{badge_color};color:#fff;padding:3px 10px;"
-            f"border-radius:12px;font-size:0.75rem;white-space:nowrap'>{badge_label}</span>",
-            unsafe_allow_html=True,
-        )
-
-    return st.session_state[select_key]
-
-
-def _render_event_settings(user_id: str, outside_mode: bool) -> tuple:
-    """イベント設定 Expander を描画し (all_day_override, private_event, description_columns) を返す"""
-    with st.expander("📝 イベント設定", expanded=not outside_mode):
-        all_day_override = st.checkbox(
-            "終日イベントとして登録",
-            value=False,
-            key=f"all_day_override_{'outside' if outside_mode else 'work'}",
-        )
-        private_event = st.checkbox(
-            "非公開イベントとして登録",
-            value=True,
-            key=f"private_event_{'outside' if outside_mode else 'work'}",
-        )
-
+def _render_calendar_selector(user_id, calendar_options, base_calendar, outside_mode):
+    with st.container(border=True):
+        st.markdown("**1. 登録先カレンダー**")
         if outside_mode:
-            return all_day_override, private_event, []
-
-        description_columns_pool = st.session_state.get("description_columns_pool", [])
-        saved_cols = get_user_setting(user_id, "description_columns_selected") or []
-        default_selection = [c for c in saved_cols if c in description_columns_pool]
-
-        desc_key = f"description_selector_register_{user_id}"
-        desc_order_key = f"description_order_register_{user_id}"
-
-        if desc_key not in st.session_state:
-            st.session_state[desc_key] = list(default_selection)
-        else:
-            st.session_state[desc_key] = [c for c in st.session_state[desc_key] if c in description_columns_pool]
-
-        st.multiselect(
-            "説明欄に含める列（複数選択可）",
-            description_columns_pool,
-            key=desc_key,
-            on_change=_save_description_settings,
-            args=(user_id,),
+            st.caption("※ 作業外予定の登録先を選択してください。")
+        
+        sel_key = "selected_calendar_name_register"
+        if sel_key not in st.session_state:
+            st.session_state[sel_key] = base_calendar
+        
+        selected = st.selectbox(
+            "カレンダーを選択",
+            calendar_options,
+            key=sel_key,
         )
-        selected_cols = st.session_state.get(desc_key, [])
-
-        if not selected_cols:
-            st.session_state.pop(desc_order_key, None)
-            return all_day_override, private_event, []
-
-        st.caption("↕️ ドラッグして説明欄の列の順番を変更できます")
-        current_order = st.session_state.get(desc_order_key, [])
-        current_order = [c for c in current_order if c in selected_cols]
-        for c in selected_cols:
-            if c not in current_order:
-                current_order.append(c)
-
-        edited_df = st.data_editor(
-            pd.DataFrame({"列名（説明欄への出力順）": current_order}),
-            num_rows="fixed",
-            hide_index=False,
-            use_container_width=True,
-            column_config={
-                "列名（説明欄への出力順）": st.column_config.SelectboxColumn(
-                    "列名（説明欄への出力順）",
-                    options=selected_cols,
-                    required=True,
-                )
-            },
-            key=f"{desc_order_key}_editor",
-        )
-
-        new_order = list(dict.fromkeys(
-            c for c in edited_df["列名（説明欄への出力順）"].tolist() if c in selected_cols
-        ))
-        st.session_state[desc_order_key] = new_order
-        return all_day_override, private_event, new_order
+        return selected
 
 
-def _render_event_name_settings(user_id: str) -> tuple:
-    """イベント名生成設定 Expander を描画し (add_task_type, fallback_col) を返す"""
-    with st.expander("🧱 イベント名の生成設定", expanded=True):
-        has_mng_data, has_name_data = check_event_name_columns(st.session_state["merged_df_for_selector"])
-        saved_col = get_user_setting(user_id, "event_name_col_selected")
-        saved_flag = get_user_setting(user_id, "add_task_type_to_event_name")
-
-        st.checkbox(
-            "イベント名の先頭に作業タイプを追加する",
-            value=bool(saved_flag),
-            key=f"add_task_type_checkbox_{user_id}",
-            on_change=_save_event_name_settings,
-            args=(user_id,),
-        )
-        add_task_type = st.session_state[f"add_task_type_checkbox_{user_id}"]
-
-        fallback_col = None
-        if not (has_mng_data and has_name_data):
-            available_cols = get_available_columns_for_event_name(st.session_state["merged_df_for_selector"])
-            options = ["選択しない"] + available_cols
-            idx = options.index(saved_col) if saved_col in options else 0
-
-            st.selectbox(
-                "イベント名として使用する代替列を選択してください:",
-                options=options,
-                index=idx,
-                key=f"event_name_selector_register_{user_id}",
-                on_change=_save_event_name_settings,
-                args=(user_id,),
+def _render_event_settings(user_id, outside_mode):
+    with st.container(border=True):
+        st.markdown("**2. イベント基本設定**")
+        col1, col2 = st.columns(2)
+        with col1:
+            all_day = st.checkbox(
+                "すべてのイベントを「終日」として扱う",
+                value=get_user_setting(user_id, "default_allday_event"),
             )
-            sel = st.session_state[f"event_name_selector_register_{user_id}"]
-            if sel != "選択しない":
-                fallback_col = sel
-        else:
-            st.info("「管理番号」と「物件名」のデータが両方存在するため、それらがイベント名として使用されます。")
+        with col2:
+            private = st.checkbox(
+                "すべてのイベントを「非公開」として登録する",
+                value=get_user_setting(user_id, "default_private_event"),
+            )
+        
+        desc_cols = []
+        if not outside_mode:
+            pool = st.session_state.get("description_columns_pool") or []
+            saved = get_user_setting(user_id, "description_columns_selected") or ["内容", "詳細"]
+            desc_cols = st.multiselect(
+                "説明文（詳細）に含める列",
+                pool,
+                default=[c for c in saved if c in pool],
+            )
+            if desc_cols:
+                set_user_setting(user_id, "description_columns_selected", desc_cols)
+        
+        return all_day, private, desc_cols
 
-        return add_task_type, fallback_col
 
+def _render_event_name_settings(user_id):
+    with st.container(border=True):
+        st.markdown("**3. イベント名の構成**")
+        col1, col2 = st.columns(2)
+        with col1:
+            add_type = st.checkbox(
+                "イベント名の先頭に作業種別を付与する",
+                value=get_user_setting(user_id, "add_task_type_to_event_name"),
+            )
+            set_user_setting(user_id, "add_task_type_to_event_name", add_type)
+        
+        with col2:
+            pool = st.session_state.get("description_columns_pool") or []
+            options = ["選択しない"] + pool
+            saved = get_user_setting(user_id, "event_name_col_selected") or "選択しない"
+            fallback = st.selectbox(
+                "特定の列をイベント名にする（任意）",
+                options,
+                index=options.index(saved) if saved in options else 0,
+            )
+            set_user_setting(user_id, "event_name_col_selected", fallback)
+            fallback_val = None if fallback == "選択しない" else fallback
+            
+        return add_type, fallback_val
 
-# ============================================================
-# 登録・更新ループ
-# ============================================================
 
 def _execute_registration(
     service,
@@ -622,12 +497,16 @@ def _execute_registration(
 
 
 # ============================================================
-# メインタブ描画
+# メインタブ描画 (AuthManager対応版)
 # ============================================================
 
-def render_tab2_register(user_id: str, editable_calendar_options: dict, service):
+def render_tab2_register(user_id: str, manager):
     """タブ2: イベント登録・更新"""
     st.subheader("イベントを登録・更新")
+    
+    # manager から必要なサービスとオプションを取得
+    service = manager.calendar_service
+    editable_calendar_options = manager.editable_calendar_options
 
     work_files = st.session_state.get("uploaded_files") or []
     has_work = (
