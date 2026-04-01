@@ -147,12 +147,7 @@ def main():
 
         with sub_tab_notice_fax:
             with st.container(border=True):
-                render_tab8_notice_fax(
-                    service=manager.calendar_service,
-                    editable_calendar_options=manager.editable_calendar_options,
-                    sheets_service=manager.sheets_service,
-                    current_user_email=current_user_email,
-                )
+                render_tab8_notice_fax(manager, current_user_email)
 
     # --- Tab 3: Export ---
     with tabs[2]:
