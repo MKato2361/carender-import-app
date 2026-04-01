@@ -310,9 +310,52 @@ def render_tab8_notice_fax(manager, current_user_email: str) -> None:
         with st.container(border=True):
             st.markdown(f"**② 作成対象の確認 ({len(cand_df)} 件)**")
 
-            # 保存ボタンはここにだけ出す
+            edited_df_preview = st.session_state.get("notice_fax_candidates_df", cand_df)
+            target_count = int(edited_df_preview["作成"].sum()) if "作成" in edited_df_preview.columns else 0
+
+            # 生成ボタンも上に表示
+            if target_count > 0:
+                if st.button(
+                    f"🖨️ {target_count} 件の貼り紙を生成",
+                    type="primary",
+                    use_container_width=True,
+                    key="fax_generate_button_top",
+                ):
+                    with st.status("貼り紙を生成中...") as status:
+                        pm_idx = _pm_index(st.session_state["notice_fax_pm_view_df"])
+                        events_by_id = st.session_state["notice_fax_events_by_id"]
+                        current_df = st.session_state["notice_fax_candidates_df"]
+                        outputs = []
+                        errors = []
+
+                        for _, row in current_df[current_df["作成"]].iterrows():
+                            ev = events_by_id.get(row["event_id"])
+                            if not ev:
+                                continue
+                            try:
+                                out_name, content = _generate_single_docx(ev, row, pm_idx)
+                                outputs.append((out_name, content))
+                            except Exception as e:
+                                errors.append(f"{row['管理番号']}: {e}")
+
+                        if outputs:
+                            zip_data = _pack_zip(outputs)
+                            st.session_state["fax_zip_ready"] = {
+                                "data": zip_data,
+                                "name": f"harigami_{datetime.now().strftime('%Y%m%d_%H%M')}.zip"
+                            }
+                            status.update(label=f"生成完了: {len(outputs)} 件", state="complete")
+                            st.rerun()
+                        else:
+                            status.update(label="生成に失敗しました", state="error")
+
+                    if errors:
+                        with st.expander("エラー詳細"):
+                            for e in errors:
+                                st.error(e)
+
+            # 保存ボタンも上に表示
             if "fax_zip_ready" in st.session_state:
-                st.caption("保存ファイル")
                 st.download_button(
                     label="📦 ZIPファイルを保存",
                     data=st.session_state["fax_zip_ready"]["data"],
@@ -351,49 +394,9 @@ def render_tab8_notice_fax(manager, current_user_email: str) -> None:
             )
             st.session_state["notice_fax_candidates_df"] = edited_df
 
-        # STEP 4
         st.divider()
         _render_step_indicator(3)
-
-        target_count = int(edited_df["作成"].sum())
-        if target_count > 0:
-            if st.button(
-                f"🖨️ {target_count} 件の貼り紙を生成",
-                type="primary",
-                use_container_width=True,
-                key="fax_generate_button_only",
-            ):
-                with st.status("貼り紙を生成中...") as status:
-                    pm_idx = _pm_index(st.session_state["notice_fax_pm_view_df"])
-                    events_by_id = st.session_state["notice_fax_events_by_id"]
-                    outputs = []
-                    errors = []
-
-                    for _, row in edited_df[edited_df["作成"]].iterrows():
-                        ev = events_by_id.get(row["event_id"])
-                        if not ev:
-                            continue
-                        try:
-                            out_name, content = _generate_single_docx(ev, row, pm_idx)
-                            outputs.append((out_name, content))
-                        except Exception as e:
-                            errors.append(f"{row['管理番号']}: {e}")
-
-                    if outputs:
-                        zip_data = _pack_zip(outputs)
-                        st.session_state["fax_zip_ready"] = {
-                            "data": zip_data,
-                            "name": f"harigami_{datetime.now().strftime('%Y%m%d_%H%M')}.zip"
-                        }
-                        status.update(label=f"生成完了: {len(outputs)} 件", state="complete")
-                        st.rerun()
-                    else:
-                        status.update(label="生成に失敗しました", state="error")
-
-                if errors:
-                    with st.expander("エラー詳細"):
-                        for e in errors:
-                            st.error(e)
+        st.info("作成対象を変更したら、上の「貼り紙を生成」を押してください。")
     else:
         st.info("条件を設定してイベントを取得してください。")
 
