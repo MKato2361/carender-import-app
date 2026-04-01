@@ -62,6 +62,7 @@ except Exception as e:
     HARIGAMI_AVAILABLE = False
     HARIGAMI_IMPORT_ERROR = e
 
+
 # ─────────────────────────────────────────────────────────
 # ユーティリティ関数
 # ─────────────────────────────────────────────────────────
@@ -72,16 +73,19 @@ def extract_assetnum(text: str) -> str:
     m = ASSETNUM_PATTERN.search(unicodedata.normalize("NFKC", str(text)))
     return m.group(1).strip() if m else ""
 
+
 def extract_worktype(text: str) -> str:
     if not text:
         return ""
     m = WORKTYPE_PATTERN.search(unicodedata.normalize("NFKC", str(text)))
     return (m.group(1) or "").strip() if m else ""
 
+
 def to_utc_range_from_dates(d1: date, d2: date) -> tuple[str, str]:
     start = datetime.combine(d1, time.min, tzinfo=JST).astimezone(timezone.utc)
     end = datetime.combine(d2, time.max, tzinfo=JST).astimezone(timezone.utc)
     return start.isoformat(), end.isoformat()
+
 
 def get_event_start_datetime(event: Dict[str, Any]) -> Optional[datetime]:
     start = event.get("start", {})
@@ -99,6 +103,7 @@ def get_event_start_datetime(event: Dict[str, Any]) -> Optional[datetime]:
         except Exception:
             return None
     return None
+
 
 def fetch_events_in_range(service: Any, calendar_id: str, start_date: date, end_date: date) -> List[Dict[str, Any]]:
     if not service:
@@ -122,6 +127,7 @@ def fetch_events_in_range(service: Any, calendar_id: str, start_date: date, end_
             break
     return events
 
+
 def get_property_master_spreadsheet_id(current_user_email: Optional[str]) -> str:
     if not current_user_email:
         return ""
@@ -131,6 +137,7 @@ def get_property_master_spreadsheet_id(current_user_email: Optional[str]) -> str
         return (doc.to_dict() or {}).get("property_master_spreadsheet_id") or ""
     except Exception:
         return ""
+
 
 def load_property_master_view(sheets_service: Any, spreadsheet_id: str) -> pd.DataFrame:
     if not sheets_service or not spreadsheet_id:
@@ -149,15 +156,17 @@ def load_property_master_view(sheets_service: Any, spreadsheet_id: str) -> pd.Da
         return master_df.merge(
             basic_df[["管理番号", "物件名", "住所", "窓口会社"]],
             on="管理番号",
-            how="left"
+            how="left",
         )
     except Exception as e:
         raise RuntimeError(f"物件マスタの読み込みに失敗しました: {e}") from e
+
 
 def _pm_index(pm_view_df: pd.DataFrame) -> Optional[pd.DataFrame]:
     if isinstance(pm_view_df, pd.DataFrame) and not pm_view_df.empty and "管理番号" in pm_view_df.columns:
         return pm_view_df.set_index("管理番号")
     return None
+
 
 def _clear_candidates() -> None:
     for k in (
@@ -167,6 +176,7 @@ def _clear_candidates() -> None:
         "fax_zip_ready",
     ):
         st.session_state.pop(k, None)
+
 
 # ─────────────────────────────────────────────────────────
 # UI コンポーネント
@@ -190,6 +200,7 @@ def _render_step_indicator(current: int) -> None:
             unsafe_allow_html=True,
         )
     st.write("")
+
 
 # ─────────────────────────────────────────────────────────
 # メイン関数 (AuthManager対応版)
@@ -229,7 +240,6 @@ def render_tab8_notice_fax(manager, current_user_email: str) -> None:
         calendar_name = c1.selectbox("対象カレンダー", list(calendar_options.keys()), key="fax_cal_select")
         calendar_id = calendar_options[calendar_name]
 
-        # 日付自動連動
         start_date = c2.date_input("開始日", value=date.today(), key="fax_start_date")
         if "fax_end_date" not in st.session_state:
             st.session_state.fax_end_date = start_date + timedelta(days=7)
@@ -238,28 +248,23 @@ def render_tab8_notice_fax(manager, current_user_email: str) -> None:
         st.markdown("---")
         c_mode, c_btn = st.columns([3, 1])
         use_master_filter = c_mode.toggle("物件マスタの『貼り紙テンプレ種別=自社』のみを対象にする", value=True)
-
         fetch_clicked = c_btn.button("🔍 イベントを取得", type="primary", use_container_width=True)
 
     # ── STEP 2: イベント取得処理 ──────────────────────────
     if fetch_clicked:
-        # 再取得時は古いZIPを消す
         st.session_state.pop("fax_zip_ready", None)
 
         with st.status("イベントを取得中...", expanded=True) as status:
             try:
-                # 物件マスタ読み込み
                 spreadsheet_id = get_property_master_spreadsheet_id(current_user_email)
                 pm_view_df = load_property_master_view(manager.sheets_service, spreadsheet_id)
 
-                # イベント取得
                 events = fetch_events_in_range(manager.calendar_service, calendar_id, start_date, end_date)
 
                 if not events:
                     status.update(label="イベントが見つかりませんでした", state="error")
                     st.warning("指定された期間にイベントがありません。")
                 else:
-                    # 候補の抽出ロジック
                     candidates = []
                     events_by_id = {}
                     pm_idx = _pm_index(pm_view_df)
@@ -270,7 +275,6 @@ def render_tab8_notice_fax(manager, current_user_email: str) -> None:
                         if not mgmt:
                             continue
 
-                        # フィルタリング
                         if use_master_filter and pm_idx is not None:
                             if mgmt not in pm_idx.index:
                                 continue
@@ -308,23 +312,25 @@ def render_tab8_notice_fax(manager, current_user_email: str) -> None:
         st.divider()
         _render_step_indicator(2)
 
+        # ここで位置固定用プレースホルダを先に作る
+        download_area = st.empty()
+
         with st.container(border=True):
             st.markdown(f"**② 作成対象の確認 ({len(cand_df)} 件)**")
 
-            # 生成済みZIPがあれば、確認リストの上に表示
-            if "fax_zip_ready" in st.session_state:
-                st.download_button(
-                    label="📦 ZIPファイルを保存",
-                    data=st.session_state["fax_zip_ready"]["data"],
-                    file_name=st.session_state["fax_zip_ready"]["name"],
-                    mime="application/zip",
-                    use_container_width=True,
-                    type="primary",
-                    key="fax_zip_download_top",
-                )
-                st.markdown("")
+            # ここで必ず確認リストより上に描画
+            with download_area.container():
+                if "fax_zip_ready" in st.session_state:
+                    st.download_button(
+                        label="📦 ZIPファイルを保存",
+                        data=st.session_state["fax_zip_ready"]["data"],
+                        file_name=st.session_state["fax_zip_ready"]["name"],
+                        mime="application/zip",
+                        use_container_width=True,
+                        type="primary",
+                        key="fax_zip_download_top",
+                    )
 
-            # 一括操作
             col_op1, col_op2, _ = st.columns([1, 1, 3])
             if col_op1.button("✅ 全選択", key="fax_all_on"):
                 cand_df["作成"] = True
@@ -335,12 +341,11 @@ def render_tab8_notice_fax(manager, current_user_email: str) -> None:
                 st.session_state["notice_fax_candidates_df"] = cand_df
                 st.rerun()
 
-            # データエディタ
             edited_df = st.data_editor(
                 cand_df,
                 column_config={
                     "作成": st.column_config.CheckboxColumn(width="small"),
-                    "event_id": None,  # 非表示
+                    "event_id": None,
                     "管理番号": st.column_config.TextColumn(disabled=True),
                     "物件名": st.column_config.TextColumn(disabled=True),
                     "予定日": st.column_config.TextColumn(disabled=True),
@@ -348,7 +353,7 @@ def render_tab8_notice_fax(manager, current_user_email: str) -> None:
                 },
                 hide_index=True,
                 use_container_width=True,
-                key="fax_editor"
+                key="fax_editor",
             )
             st.session_state["notice_fax_candidates_df"] = edited_df
 
@@ -361,7 +366,7 @@ def render_tab8_notice_fax(manager, current_user_email: str) -> None:
             if st.button(
                 f"🖨️ {target_count} 件の貼り紙を生成してダウンロード",
                 type="primary",
-                use_container_width=True
+                use_container_width=True,
             ):
                 with st.status("貼り紙を生成中...") as status:
                     pm_idx = _pm_index(st.session_state.notice_fax_pm_view_df)
@@ -383,7 +388,7 @@ def render_tab8_notice_fax(manager, current_user_email: str) -> None:
                         zip_data = _pack_zip(outputs)
                         st.session_state["fax_zip_ready"] = {
                             "data": zip_data,
-                            "name": f"harigami_{datetime.now().strftime('%Y%m%d_%H%M')}.zip"
+                            "name": f"harigami_{datetime.now().strftime('%Y%m%d_%H%M')}.zip",
                         }
                         status.update(label=f"生成完了: {len(outputs)} 件", state="complete")
                         st.rerun()
@@ -396,6 +401,7 @@ def render_tab8_notice_fax(manager, current_user_email: str) -> None:
                             st.error(e)
     else:
         st.info("条件を設定してイベントを取得してください。")
+
 
 # 内部補助関数
 def _generate_single_docx(ev, row, pm_idx):
@@ -418,6 +424,7 @@ def _generate_single_docx(ev, row, pm_idx):
     replacements = build_replacements_from_event(ev, name_for_doc, tags)
     safe_title = f"{when_str}_{mgmt}_{name_for_doc}"
     return generate_docx_from_template_like(template_path, replacements, safe_title)
+
 
 def _pack_zip(outputs):
     buf = io.BytesIO()
