@@ -43,7 +43,9 @@ def render_tab3_delete(editable_calendar_options, service, tasks_service, defaul
         base_calendar = calendar_names[0]
 
     select_key = "del_calendar_select"
-    if (select_key not in st.session_state) or (st.session_state.get(select_key) not in calendar_names):
+    if share_on:
+        st.session_state[select_key] = base_calendar
+    elif (select_key not in st.session_state) or (st.session_state.get(select_key) not in calendar_names):
         st.session_state[select_key] = base_calendar
 
     selected_calendar_name_del = st.selectbox(
