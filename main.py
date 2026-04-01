@@ -175,10 +175,7 @@ def main():
     if is_admin:
         with tabs[4]:
             with st.container(border=True):
-                render_tab_admin(
-                    current_user_email=current_user_email,
-                    current_user_name=None,
-                )
+                render_tab_admin(manager, current_user_email)
 
 if __name__ == "__main__":
     main()
