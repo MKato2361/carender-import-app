@@ -43,7 +43,6 @@ DISPLAY_COLS = [
     "備考",
 ]
 
-# ウィザードステップ定義
 STEPS = ["① 設定", "② 取得", "③ 確認", "④ 生成"]
 
 # ─────────────────────────────────────────────────────────
@@ -147,16 +146,18 @@ def load_property_master_view(sheets_service: Any, spreadsheet_id: str) -> pd.Da
         master_df = load_sheet_as_df(sheets_service, spreadsheet_id, "物件マスタ", MASTER_COLUMNS)
         basic_df = _normalize_df(basic_df, BASIC_COLUMNS)
         master_df = _normalize_df(master_df, MASTER_COLUMNS)
+
         if master_df.empty:
             merged = basic_df.copy()
             for col in MASTER_COLUMNS:
                 if col not in merged.columns:
                     merged[col] = ""
             return merged
+
         return master_df.merge(
             basic_df[["管理番号", "物件名", "住所", "窓口会社"]],
             on="管理番号",
-            how="left",
+            how="left"
         )
     except Exception as e:
         raise RuntimeError(f"物件マスタの読み込みに失敗しました: {e}") from e
@@ -183,7 +184,6 @@ def _clear_candidates() -> None:
 # ─────────────────────────────────────────────────────────
 
 def _render_step_indicator(current: int) -> None:
-    """上部に進行状況バーを表示"""
     cols = st.columns(len(STEPS))
     for i, (col, label) in enumerate(zip(cols, STEPS)):
         is_done = i < current
@@ -203,13 +203,10 @@ def _render_step_indicator(current: int) -> None:
 
 
 # ─────────────────────────────────────────────────────────
-# メイン関数 (AuthManager対応版)
+# メイン関数
 # ─────────────────────────────────────────────────────────
 
 def render_tab8_notice_fax(manager, current_user_email: str) -> None:
-    """貼り紙自動生成タブ (AuthManager対応)"""
-
-    # ── 前提チェック ──────────────────────────────────────
     if not HARIGAMI_AVAILABLE:
         st.error(f"貼り紙生成モジュールが読み込めませんでした: {HARIGAMI_IMPORT_ERROR}")
         return
@@ -218,7 +215,6 @@ def render_tab8_notice_fax(manager, current_user_email: str) -> None:
         st.warning("⚠️ カレンダーサービスが初期化されていません。")
         return
 
-    # ── ヘッダー ──────────────────────────────────────────
     col_title, col_reset = st.columns([5, 1])
     with col_title:
         st.markdown("### 📄 貼り紙自動作成 (FAX・メール通知)")
@@ -229,7 +225,7 @@ def render_tab8_notice_fax(manager, current_user_email: str) -> None:
 
     st.divider()
 
-    # ── STEP 1: 設定 ──────────────────────────────────────
+    # STEP 1
     _render_step_indicator(0)
 
     with st.container(border=True):
@@ -242,7 +238,7 @@ def render_tab8_notice_fax(manager, current_user_email: str) -> None:
 
         start_date = c2.date_input("開始日", value=date.today(), key="fax_start_date")
         if "fax_end_date" not in st.session_state:
-            st.session_state.fax_end_date = start_date + timedelta(days=7)
+            st.session_state["fax_end_date"] = start_date + timedelta(days=7)
         end_date = c3.date_input("終了日", key="fax_end_date")
 
         st.markdown("---")
@@ -250,7 +246,7 @@ def render_tab8_notice_fax(manager, current_user_email: str) -> None:
         use_master_filter = c_mode.toggle("物件マスタの『貼り紙テンプレ種別=自社』のみを対象にする", value=True)
         fetch_clicked = c_btn.button("🔍 イベントを取得", type="primary", use_container_width=True)
 
-    # ── STEP 2: イベント取得処理 ──────────────────────────
+    # STEP 2
     if fetch_clicked:
         st.session_state.pop("fax_zip_ready", None)
 
@@ -258,7 +254,6 @@ def render_tab8_notice_fax(manager, current_user_email: str) -> None:
             try:
                 spreadsheet_id = get_property_master_spreadsheet_id(current_user_email)
                 pm_view_df = load_property_master_view(manager.sheets_service, spreadsheet_id)
-
                 events = fetch_events_in_range(manager.calendar_service, calendar_id, start_date, end_date)
 
                 if not events:
@@ -306,36 +301,35 @@ def render_tab8_notice_fax(manager, current_user_email: str) -> None:
             except Exception as e:
                 status.update(label=f"エラーが発生しました: {e}", state="error")
 
-    # ── STEP 3: 候補確認 ──────────────────────────────────
+    # STEP 3
     cand_df = st.session_state.get("notice_fax_candidates_df")
     if cand_df is not None and not cand_df.empty:
         st.divider()
         _render_step_indicator(2)
 
-        # ここで位置固定用プレースホルダを先に作る
-        download_area = st.empty()
-
         with st.container(border=True):
             st.markdown(f"**② 作成対象の確認 ({len(cand_df)} 件)**")
 
-            # ここで必ず確認リストより上に描画
-            with download_area.container():
-                if "fax_zip_ready" in st.session_state:
-                    st.download_button(
-                        label="📦 ZIPファイルを保存",
-                        data=st.session_state["fax_zip_ready"]["data"],
-                        file_name=st.session_state["fax_zip_ready"]["name"],
-                        mime="application/zip",
-                        use_container_width=True,
-                        type="primary",
-                        key="fax_zip_download_top",
-                    )
+            # 保存ボタンはここにだけ出す
+            if "fax_zip_ready" in st.session_state:
+                st.caption("保存ファイル")
+                st.download_button(
+                    label="📦 ZIPファイルを保存",
+                    data=st.session_state["fax_zip_ready"]["data"],
+                    file_name=st.session_state["fax_zip_ready"]["name"],
+                    mime="application/zip",
+                    use_container_width=True,
+                    type="primary",
+                    key="fax_zip_download_top_only",
+                )
+                st.markdown("---")
 
             col_op1, col_op2, _ = st.columns([1, 1, 3])
             if col_op1.button("✅ 全選択", key="fax_all_on"):
                 cand_df["作成"] = True
                 st.session_state["notice_fax_candidates_df"] = cand_df
                 st.rerun()
+
             if col_op2.button("☐ 全解除", key="fax_all_off"):
                 cand_df["作成"] = False
                 st.session_state["notice_fax_candidates_df"] = cand_df
@@ -357,20 +351,21 @@ def render_tab8_notice_fax(manager, current_user_email: str) -> None:
             )
             st.session_state["notice_fax_candidates_df"] = edited_df
 
-        # ── STEP 4: 生成・ダウンロード ────────────────────
+        # STEP 4
         st.divider()
         _render_step_indicator(3)
 
         target_count = int(edited_df["作成"].sum())
         if target_count > 0:
             if st.button(
-                f"🖨️ {target_count} 件の貼り紙を生成してダウンロード",
+                f"🖨️ {target_count} 件の貼り紙を生成",
                 type="primary",
                 use_container_width=True,
+                key="fax_generate_button_only",
             ):
                 with st.status("貼り紙を生成中...") as status:
-                    pm_idx = _pm_index(st.session_state.notice_fax_pm_view_df)
-                    events_by_id = st.session_state.notice_fax_events_by_id
+                    pm_idx = _pm_index(st.session_state["notice_fax_pm_view_df"])
+                    events_by_id = st.session_state["notice_fax_events_by_id"]
                     outputs = []
                     errors = []
 
@@ -388,7 +383,7 @@ def render_tab8_notice_fax(manager, current_user_email: str) -> None:
                         zip_data = _pack_zip(outputs)
                         st.session_state["fax_zip_ready"] = {
                             "data": zip_data,
-                            "name": f"harigami_{datetime.now().strftime('%Y%m%d_%H%M')}.zip",
+                            "name": f"harigami_{datetime.now().strftime('%Y%m%d_%H%M')}.zip"
                         }
                         status.update(label=f"生成完了: {len(outputs)} 件", state="complete")
                         st.rerun()
@@ -403,7 +398,10 @@ def render_tab8_notice_fax(manager, current_user_email: str) -> None:
         st.info("条件を設定してイベントを取得してください。")
 
 
+# ─────────────────────────────────────────────────────────
 # 内部補助関数
+# ─────────────────────────────────────────────────────────
+
 def _generate_single_docx(ev, row, pm_idx):
     mgmt = row["管理番号"]
     desc = safe_get(ev, "description") or ""
@@ -411,16 +409,19 @@ def _generate_single_docx(ev, row, pm_idx):
     tags = extract_tags_from_description(desc)
     if "ASSETNUM" not in tags and mgmt:
         tags["ASSETNUM"] = mgmt
+
     work_type = extract_worktype(desc) or "default"
     template_file = DEFAULT_TEMPLATE_MAP.get(work_type, DEFAULT_TEMPLATE_MAP.get("default"))
     template_path = os.path.join("templates", template_file)
     start_dt = get_event_start_datetime(ev)
     when_str = start_dt.date().strftime("%Y-%m-%d") if start_dt else ""
+
     name_for_doc = (
         str(pm_idx.loc[mgmt].get("物件名") or summary or mgmt).strip()
         if pm_idx is not None and mgmt in pm_idx.index
         else str(summary or mgmt).strip()
     )
+
     replacements = build_replacements_from_event(ev, name_for_doc, tags)
     safe_title = f"{when_str}_{mgmt}_{name_for_doc}"
     return generate_docx_from_template_like(template_path, replacements, safe_title)
