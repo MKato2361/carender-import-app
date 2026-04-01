@@ -201,7 +201,11 @@ def render_tab5_export(manager) -> None:
             base_calendar = calendar_options[0]
 
         select_key = "export_calendar_select"
-        if (select_key not in st.session_state) or (st.session_state.get(select_key) not in calendar_options):
+        share_calendar = st.session_state.get("share_calendar_selection_across_tabs", True)
+
+        if share_calendar:
+            st.session_state[select_key] = base_calendar
+        elif (select_key not in st.session_state) or (st.session_state.get(select_key) not in calendar_options):
             st.session_state[select_key] = base_calendar
 
         selected_calendar_name_export = st.selectbox(
