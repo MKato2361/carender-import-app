@@ -134,22 +134,64 @@ def render_sidebar(
             if st.session_state.get("sidebar_default_calendar") not in calendar_options:
                 st.session_state["sidebar_default_calendar"] = effective
 
-            default_calendar = st.selectbox(
+                        default_calendar = st.selectbox(
                 "基準カレンダー",
                 calendar_options,
                 key="sidebar_default_calendar",
                 label_visibility="collapsed"
             )
+
             st.session_state["selected_calendar_name"] = default_calendar
             st.session_state["base_calendar_name"] = default_calendar
+
+            share_prev = _resolve(
+                user_id,
+                "share_calendar_selection_across_tabs",
+                True,
+                "share_calendar_selection_across_tabs"
+            )
+            st.session_state.setdefault("share_calendar_selection_across_tabs", share_prev)
+            share_calendar = st.toggle(
+                "全タブで選択を共有",
+                key="share_calendar_selection_across_tabs"
+            )
+
+            # 共有ONのときは、サイドバー変更を各タブへ即時反映
+            if share_calendar:
+                for key in [
+                    "selected_calendar_name_register",
+                    "del_calendar_select",
+                    "export_calendar_select",
+                    "ins_todo_calendar",
+                ]:
+                    st.session_state[key] = default_calendar
 
             if stored != default_calendar:
                 set_user_setting(user_id, "selected_calendar_name", default_calendar)
                 save_user_setting_to_firestore(user_id, "selected_calendar_name", default_calendar)
 
-            share_prev = _resolve(user_id, "share_calendar_selection_across_tabs", True, "share_calendar_selection_across_tabs")
-            st.session_state.setdefault("share_calendar_selection_across_tabs", share_prev)
-            share_calendar = st.toggle("全タブで選択を共有", key="share_calendar_selection_across_tabs")
+            if share_calendar != share_prev:
+                set_user_setting(
+                    user_id,
+                    "share_calendar_selection_across_tabs",
+                    share_calendar
+                )
+                save_user_setting_to_firestore(
+                    user_id,
+                    "share_calendar_selection_across_tabs",
+                    share_calendar
+                )
+
+                if share_calendar:
+                    for key in [
+                        "selected_calendar_name_register",
+                        "del_calendar_select",
+                        "export_calendar_select",
+                        "ins_todo_calendar",
+                    ]:
+                        st.session_state[key] = default_calendar
+
+                st.rerun()
             if share_calendar != share_prev:
                 set_user_setting(user_id, "share_calendar_selection_across_tabs", share_calendar)
                 save_user_setting_to_firestore(user_id, "share_calendar_selection_across_tabs", share_calendar)
