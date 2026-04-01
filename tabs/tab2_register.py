@@ -307,9 +307,13 @@ def _render_calendar_selector(user_id, calendar_options, base_calendar, outside_
             st.caption("※ 作業外予定の登録先を選択してください。")
         
         sel_key = "selected_calendar_name_register"
-        if sel_key not in st.session_state:
+        share_calendar = st.session_state.get("share_calendar_selection_across_tabs", True)
+
+        if share_calendar:
             st.session_state[sel_key] = base_calendar
-        
+        elif (sel_key not in st.session_state) or (st.session_state.get(sel_key) not in calendar_options):
+            st.session_state[sel_key] = base_calendar
+
         selected = st.selectbox(
             "カレンダーを選択",
             calendar_options,
