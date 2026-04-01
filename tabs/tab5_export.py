@@ -1,6 +1,7 @@
 import re
 import logging
 import unicodedata
+import calendar as cal_mod
 from datetime import datetime, date, timedelta, timezone
 from typing import List, Callable
 from io import BytesIO
@@ -216,17 +217,20 @@ def render_tab5_export(manager) -> None:
         st.markdown("**2. 出力期間の選択**")
         today_date = date.today()
 
+        # セッション状態の初期化
         if "export_start_date" not in st.session_state:
             st.session_state["export_start_date"] = today_date - timedelta(days=30)
         if "export_end_date" not in st.session_state:
             st.session_state["export_end_date"] = today_date
 
+        # コールバック関数: 開始日が変更されたら終了日を1ヶ月後にセット
         def _on_start_date_change():
-            import calendar as cal_mod
             new_start = st.session_state["export_start_date"]
+            # 翌月を計算
             month = new_start.month + 1
             year = new_start.year + (1 if month > 12 else 0)
             month = month if month <= 12 else 1
+            # 翌月の末日を取得して、日が範囲外にならないように調整
             last_day = cal_mod.monthrange(year, month)[1]
             auto_end = new_start.replace(year=year, month=month, day=min(new_start.day, last_day))
             st.session_state["export_end_date"] = auto_end
@@ -237,6 +241,7 @@ def render_tab5_export(manager) -> None:
                 "📅 開始日",
                 key="export_start_date",
                 on_change=_on_start_date_change,
+                help="開始日を変更すると、終了日が自動的に1ヶ月後にセットされます。"
             )
         with col2:
             st.date_input(
