@@ -102,13 +102,29 @@ class AuthManager:
         except Exception as e:
             st.warning(f"Sheets API 初期化エラー: {e}")
 
-    def save_user_setting(self, user_id: str, key: str, value):
+    def save_user_setting(self, *args, **kwargs):
         """
-        設定を Firestore とセッションに保存 (既存の引数形式と互換性を維持)
+        設定を保存。引数の数が2つ(key, value)でも3つ(user_id, key, value)でも柔軟に対応。
+        これにより呼び出し側の古いコードとの互換性を保ち、TypeErrorを防止します。
         """
-        target_id = user_id or self.firebase_user_id
-        if target_id:
-            set_user_setting(target_id, key, value)
+        user_id = self.firebase_user_id
+        key = None
+        value = None
+
+        if len(args) == 3:
+            # (user_id, key, value) 形式
+            user_id, key, value = args
+        elif len(args) == 2:
+            # (key, value) 形式
+            key, value = args
+        else:
+            # キーワード引数からの取得
+            key = kwargs.get("key")
+            value = kwargs.get("value")
+            user_id = kwargs.get("user_id") or self.firebase_user_id
+
+        if user_id and key is not None:
+            set_user_setting(user_id, key, value)
 
     @property
     def is_authenticated(self) -> bool:
