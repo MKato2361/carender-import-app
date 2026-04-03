@@ -269,8 +269,11 @@ def process_excel_data_for_calendar(
 
     output_records = []
 
-    # 一括日時で生成した件数
+    # 一括日時で生成した「ユニーク作業指示書」の件数
     bulk_generated_count = 0
+
+    # 作業指示書ごとの割り当て開始時刻を保持
+    worksheet_time_map = {}
 
     for _, row in merged_df.iterrows():
         subj_parts = []
@@ -311,6 +314,7 @@ def process_excel_data_for_calendar(
 
         worksheet_value = row.get(worksheet_col, "") if worksheet_col else ""
         has_worksheet_value = _has_valid_worksheet_value(row, worksheet_col)
+        formatted_ws = format_worksheet_value(worksheet_value) if has_worksheet_value else ""
 
         # -------------------------
         # 日時処理
@@ -330,10 +334,16 @@ def process_excel_data_for_calendar(
 
         # 開始が無い行だけ一括日時を適用
         if start is None and bulk_start_dt is not None:
-            shifted_start = _calc_shifted_bulk_start(bulk_start_dt, bulk_generated_count)
+            # 同じ作業指示書なら同じ開始時刻を使い回す
+            if formatted_ws in worksheet_time_map:
+                shifted_start = worksheet_time_map[formatted_ws]
+            else:
+                shifted_start = _calc_shifted_bulk_start(bulk_start_dt, bulk_generated_count)
+                worksheet_time_map[formatted_ws] = shifted_start
+                bulk_generated_count += 1
+
             start = shifted_start
             end = shifted_start + datetime.timedelta(hours=1)
-            bulk_generated_count += 1
             used_bulk_datetime = True
 
         # bulkを使っていない通常行の終了補完
@@ -353,7 +363,7 @@ def process_excel_data_for_calendar(
             else:
                 continue
 
-        # 今回の要件: 終日イベントにはしない
+        # 終日イベントにはしない
         is_all_day = False
 
         end_display = end
@@ -378,7 +388,6 @@ def process_excel_data_for_calendar(
                 required_items.append(f"[タイトル: {title_value}]")
 
         if worksheet_col and pd.notna(worksheet_value):
-            formatted_ws = format_worksheet_value(worksheet_value)
             if formatted_ws:
                 required_items.append(f"[作業指示書: {formatted_ws}]")
 
