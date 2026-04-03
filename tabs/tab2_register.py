@@ -52,7 +52,6 @@ def is_event_changed(existing_event: dict, new_event_data: dict) -> bool:
     for field in ("summary", "description", "location", "visibility", "transparency"):
         if nz(existing_event.get(field)) != nz(new_event_data.get(field)):
             return True
-    # 正規化して比較（タイムゾーン表記のゆらぎを吸収）
     if _normalize_time_dict(existing_event.get("start") or {}) != _normalize_time_dict(new_event_data.get("start") or {}):
         return True
     if _normalize_time_dict(existing_event.get("end") or {}) != _normalize_time_dict(new_event_data.get("end") or {}):
@@ -212,9 +211,7 @@ def _count_missing_datetime_rows(df: pd.DataFrame, all_day_override: bool) -> in
     count = 0
     for _, row in df.iterrows():
         sd = safe_get(row, "Start Date", "")
-        ed = safe_get(row, "End Date", "")
         stime = safe_get(row, "Start Time", "")
-        etime = safe_get(row, "End Time", "")
 
         if all_day_override:
             if _is_blank(sd):
@@ -222,8 +219,6 @@ def _count_missing_datetime_rows(df: pd.DataFrame, all_day_override: bool) -> in
         else:
             if _is_blank(sd) or _is_blank(stime):
                 count += 1
-            elif _is_blank(ed) and _is_blank(etime):
-                pass
 
     return count
 
@@ -384,7 +379,7 @@ def _render_event_settings(user_id, outside_mode):
 def _render_bulk_datetime_settings(all_day_override: bool):
     with st.container(border=True):
         st.markdown("**3. 日時一括設定（日時未入力ファイル用）**")
-        st.caption("アップロードファイルに予定開始・予定終了が入っていない場合、ここで指定した日時を使ってイベント登録します。")
+        st.caption("作業指示書がある行で日時が空のものだけに適用されます。終了は開始の1時間後で自動設定され、6件目以降は5件ごとに開始時刻を1時間ずつ後ろへずらして登録します。")
 
         enabled = st.checkbox(
             "日時が空のイベントに一括日時を設定する",
@@ -394,7 +389,6 @@ def _render_bulk_datetime_settings(all_day_override: bool):
 
         today = date.today()
         default_start_time = time(9, 0)
-        default_end_time = time(10, 0)
 
         c1, c2 = st.columns(2)
         with c1:
@@ -415,26 +409,9 @@ def _render_bulk_datetime_settings(all_day_override: bool):
                     step=300,
                 )
 
-        c3, c4 = st.columns(2)
-        with c3:
-            bulk_end_date = st.date_input(
-                "予定終了日（一括）",
-                value=st.session_state.get("bulk_end_date", today),
-                key="bulk_end_date",
-            )
-        with c4:
-            if all_day_override:
-                st.text_input("予定終了時刻（一括）", value="終日登録のため未使用", disabled=True)
-                bulk_end_time = None
-            else:
-                bulk_end_time = st.time_input(
-                    "予定終了時刻（一括）",
-                    value=st.session_state.get("bulk_end_time", default_end_time),
-                    key="bulk_end_time",
-                    step=300,
-                )
+        st.info("終了日・終了時刻は入力不要です。時刻付きイベントは開始の1時間後、終日イベントは開始日と同日で自動設定されます。")
 
-        return enabled, bulk_start_date, bulk_start_time, bulk_end_date, bulk_end_time
+        return enabled, bulk_start_date, bulk_start_time
 
 
 def _render_event_name_settings(user_id):
@@ -632,12 +609,8 @@ def render_tab2_register(user_id: str, manager):
         bulk_enabled = False
         bulk_start_date = None
         bulk_start_time = None
-        bulk_end_date = None
-        bulk_end_time = None
     else:
-        bulk_enabled, bulk_start_date, bulk_start_time, bulk_end_date, bulk_end_time = _render_bulk_datetime_settings(
-            all_day_override
-        )
+        bulk_enabled, bulk_start_date, bulk_start_time = _render_bulk_datetime_settings(all_day_override)
         add_task_type, fallback_col = _render_event_name_settings(user_id)
 
     st.subheader("➡️ イベント登録・更新実行")
@@ -661,8 +634,8 @@ def render_tab2_register(user_id: str, manager):
                     add_task_type,
                     bulk_start_date=bulk_start_date,
                     bulk_start_time=bulk_start_time,
-                    bulk_end_date=bulk_end_date,
-                    bulk_end_time=bulk_end_time,
+                    bulk_end_date=None,
+                    bulk_end_time=None,
                 )
             else:
                 df = process_excel_data_for_calendar(
