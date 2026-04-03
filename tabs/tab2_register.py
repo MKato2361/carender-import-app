@@ -379,7 +379,7 @@ def _render_event_settings(user_id, outside_mode):
 def _render_bulk_datetime_settings(all_day_override: bool):
     with st.container(border=True):
         st.markdown("**3. 日時一括設定（日時未入力ファイル用）**")
-        st.caption("作業指示書がある行で日時が空のものだけに適用されます。終了は開始の1時間後で自動設定され、1件ごとに開始時刻を1時間ずつ後ろへずらし1日最大15件で登録します。")
+        st.caption("作業指示書がある行で日時が空のものだけに適用されます。1件ごとに開始時刻を1時間ずつ後ろへずらして登録し、1日15件まで、16件目以降は翌日に繰り越します。終了は開始の1時間後で自動設定されます。")
 
         enabled = st.checkbox(
             "日時が空のイベントに一括日時を設定する",
@@ -398,19 +398,14 @@ def _render_bulk_datetime_settings(all_day_override: bool):
                 key="bulk_start_date",
             )
         with c2:
-            if all_day_override:
-                st.text_input("予定開始時刻（一括）", value="終日登録のため未使用", disabled=True)
-                bulk_start_time = None
-            else:
-                bulk_start_time = st.time_input(
-                    "予定開始時刻（一括）",
-                    value=st.session_state.get("bulk_start_time", default_start_time),
-                    key="bulk_start_time",
-                    step=300,
-                )
+            bulk_start_time = st.time_input(
+                "予定開始時刻（一括）",
+                value=st.session_state.get("bulk_start_time", default_start_time),
+                key="bulk_start_time",
+                step=300,
+            )
 
-        st.info("終了日・終了時刻は入力不要です。時刻付きイベントは開始の1時間後、終日イベントは開始日と同日で自動設定されます。")
-
+        st.info("終了日・終了時刻は入力不要です。すべて時刻付きイベントとして、開始の1時間後を自動設定します。")
         return enabled, bulk_start_date, bulk_start_time
 
 
@@ -449,7 +444,11 @@ def _execute_registration(
     """Googleカレンダーへのイベント登録・更新を実行する"""
     progress = st.progress(0)
     status_text = st.empty()
-    added_count = updated_count = skipped_count = 0
+    added_count = 0
+    updated_count = 0
+    skipped_count = 0
+    failed_count = 0
+    failed_items = []
     total = len(df)
 
     window = compute_fetch_window_from_df(df, buffer_days=30)
@@ -506,7 +505,13 @@ def _execute_registration(
                 event_data["start"] = {"dateTime": sdt.isoformat(), "timeZone": "Asia/Tokyo"}
                 event_data["end"] = {"dateTime": edt.isoformat(), "timeZone": "Asia/Tokyo"}
         except Exception as e:
-            st.error(f"行 {i} の日時パースに失敗しました: {e}")
+            failed_count += 1
+            failed_items.append({
+                "row_index": i,
+                "subject": subject or "(無題)",
+                "worksheet_id": extract_worksheet_id_from_text(desc_text) or "",
+                "error": f"日時パース失敗: {e}",
+            })
             progress.progress((i + 1) / total)
             continue
 
@@ -525,7 +530,7 @@ def _execute_registration(
         try:
             if existing:
                 if is_event_changed(existing, event_data):
-                    update_event_if_needed(service, calendar_id, existing["id"], event_data)
+                    result = update_event_if_needed(service, calendar_id, existing["id"], event_data)
                     updated_count += 1
                 else:
                     skipped_count += 1
@@ -542,20 +547,46 @@ def _execute_registration(
                         wid = extract_worksheet_id_from_text(desc_text)
                         if wid:
                             worksheet_to_event[wid] = added_event
+                else:
+                    failed_count += 1
+                    failed_items.append({
+                        "row_index": i,
+                        "subject": event_data.get("summary", "(無題)"),
+                        "worksheet_id": extract_worksheet_id_from_text(desc_text) or "",
+                        "error": "add_event_to_calendar が None を返しました",
+                    })
         except Exception as e:
-            st.error(f"イベント '{event_data.get('summary', '(無題)')}' の登録/更新に失敗しました: {e}")
+            failed_count += 1
+            failed_items.append({
+                "row_index": i,
+                "subject": event_data.get("summary", "(無題)"),
+                "worksheet_id": extract_worksheet_id_from_text(desc_text) or "",
+                "error": str(e),
+            })
 
         done = i + 1
         progress.progress(done / total)
         status_text.caption(
             f"処理中 ({done}/{total})：{subject or '(無題)'}　"
-            f"✅ {added_count}件登録　🔧 {updated_count}件更新　↪ {skipped_count}件スキップ"
+            f"✅ {added_count}件登録　🔧 {updated_count}件更新　↪ {skipped_count}件スキップ　❌ {failed_count}件失敗"
         )
 
     status_text.empty()
+
     st.success(
-        f"✅ 登録: {added_count} 件 / 🔧 更新: {updated_count} 件 / ↪ スキップ: {skipped_count} 件 処理完了！"
+        f"✅ 登録: {added_count} 件 / 🔧 更新: {updated_count} 件 / ↪ スキップ: {skipped_count} 件 / ❌ 失敗: {failed_count} 件"
     )
+
+    accounted = added_count + updated_count + skipped_count + failed_count
+    if accounted != total:
+        st.warning(f"集計不一致: プレビュー {total} 件に対し、結果集計は {accounted} 件です。処理漏れの可能性があります。")
+    else:
+        st.caption(f"集計確認: プレビュー {total} 件 = 結果集計 {accounted} 件")
+
+    if failed_items:
+        with st.expander("登録失敗一覧", expanded=True):
+            st.dataframe(pd.DataFrame(failed_items), use_container_width=True)
+
     st.caption("※ スキップ = カレンダー上の既存イベントと内容が同一のため更新不要だったもの")
 
 
