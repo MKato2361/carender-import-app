@@ -223,74 +223,9 @@ def _count_missing_datetime_rows(df: pd.DataFrame, all_day_override: bool) -> in
             if _is_blank(sd) or _is_blank(stime):
                 count += 1
             elif _is_blank(ed) and _is_blank(etime):
-                # 終了未設定は開始を流用できるので欠損扱いしない
                 pass
 
     return count
-
-
-def _apply_bulk_datetime_defaults(
-    df: pd.DataFrame,
-    enabled: bool,
-    all_day_override: bool,
-    bulk_start_date: Optional[date],
-    bulk_start_time: Optional[time],
-    bulk_end_date: Optional[date],
-    bulk_end_time: Optional[time],
-) -> pd.DataFrame:
-    if df is None or df.empty or not enabled:
-        return df
-
-    out = df.copy()
-
-    start_date_str = bulk_start_date.strftime("%Y/%m/%d") if bulk_start_date else ""
-    end_date_str = bulk_end_date.strftime("%Y/%m/%d") if bulk_end_date else ""
-    start_time_str = bulk_start_time.strftime("%H:%M") if bulk_start_time else ""
-    end_time_str = bulk_end_time.strftime("%H:%M") if bulk_end_time else ""
-
-    if all_day_override:
-        if not start_date_str:
-            raise ValueError("終日登録では、一括設定用の開始日が必要です。")
-        if not end_date_str:
-            end_date_str = start_date_str
-    else:
-        if not start_date_str or not start_time_str:
-            raise ValueError("時刻付き登録では、一括設定用の開始日と開始時刻が必要です。")
-        if not end_date_str:
-            end_date_str = start_date_str
-        if not end_time_str:
-            end_time_str = start_time_str
-
-        try:
-            sdt = datetime.strptime(f"{start_date_str} {start_time_str}", "%Y/%m/%d %H:%M")
-            edt = datetime.strptime(f"{end_date_str} {end_time_str}", "%Y/%m/%d %H:%M")
-            if edt < sdt:
-                raise ValueError("一括設定の終了日時は開始日時以降にしてください。")
-        except Exception as e:
-            raise ValueError(f"一括設定の日時が不正です: {e}")
-
-    for idx, row in out.iterrows():
-        row_all_day = str(safe_get(row, "All Day Event", _ALL_DAY_TRUE)).strip() == _ALL_DAY_TRUE
-        use_all_day = all_day_override or row_all_day
-
-        if use_all_day:
-            if _is_blank(safe_get(row, "Start Date", "")):
-                out.at[idx, "Start Date"] = start_date_str
-            if _is_blank(safe_get(row, "End Date", "")):
-                out.at[idx, "End Date"] = end_date_str or start_date_str
-            out.at[idx, "Start Time"] = ""
-            out.at[idx, "End Time"] = ""
-        else:
-            if _is_blank(safe_get(row, "Start Date", "")):
-                out.at[idx, "Start Date"] = start_date_str
-            if _is_blank(safe_get(row, "End Date", "")):
-                out.at[idx, "End Date"] = end_date_str or start_date_str
-            if _is_blank(safe_get(row, "Start Time", "")):
-                out.at[idx, "Start Time"] = start_time_str
-            if _is_blank(safe_get(row, "End Time", "")):
-                out.at[idx, "End Time"] = end_time_str or start_time_str
-
-    return out
 
 
 # ============================================================
@@ -337,7 +272,6 @@ def _build_calendar_df_from_outside(df_raw: pd.DataFrame, private_event: bool, a
     c_et = _pick_column(df_raw, ["終了時刻", "終了時間", "End Time"])
 
     def fix_hhmm(t: str) -> str:
-        """'900' → '09:00' のような数字のみ時刻文字列を HH:MM 形式に変換する"""
         t = (t or "").strip().replace(".", ":")
         if t.isdigit() and len(t) in (3, 4):
             t = t.zfill(4)
@@ -447,14 +381,14 @@ def _render_event_settings(user_id, outside_mode):
         return all_day, private, desc_cols
 
 
-def _render_bulk_datetime_settings(all_day_override: bool, missing_count: int):
+def _render_bulk_datetime_settings(all_day_override: bool):
     with st.container(border=True):
         st.markdown("**3. 日時一括設定（日時未入力ファイル用）**")
-        st.caption("アップロードファイルに予定開始・予定終了が入っていない場合、ここで指定した日時を空欄行に補完して登録します。")
+        st.caption("アップロードファイルに予定開始・予定終了が入っていない場合、ここで指定した日時を使ってイベント登録します。")
 
         enabled = st.checkbox(
-            f"日時が空のイベントに一括日時を設定する（対象見込み: {missing_count} 件）",
-            value=missing_count > 0,
+            "日時が空のイベントに一括日時を設定する",
+            value=False,
             key="bulk_datetime_enabled",
         )
 
@@ -547,7 +481,6 @@ def _execute_registration(
     with st.spinner("既存イベントを取得中..."):
         events = fetch_all_events(service, calendar_id, time_min, time_max) or []
 
-    # ---- インデックス構築 ----
     worksheet_to_event: Dict[str, dict] = {}
     outside_key_to_event: Dict[str, dict] = {}
 
@@ -564,7 +497,6 @@ def _execute_registration(
             if wid:
                 worksheet_to_event[wid] = ev
 
-    # ---- 行ごとの処理 ----
     for i, row in df.iterrows():
         desc_text = safe_get(row, "Description", "")
         subject = safe_get(row, "Subject", "")
@@ -601,7 +533,6 @@ def _execute_registration(
             progress.progress((i + 1) / total)
             continue
 
-        # 既存イベント検索
         if outside_mode:
             core = _strip_outside_suffix(subject)
             row_s, row_e = _normalize_row_times_to_key(
@@ -659,7 +590,6 @@ def render_tab2_register(user_id: str, manager):
     """タブ2: イベント登録・更新"""
     st.subheader("イベントを登録・更新")
     
-    # manager から必要なサービスとオプションを取得
     service = manager.calendar_service
     editable_calendar_options = manager.editable_calendar_options
 
@@ -690,7 +620,6 @@ def render_tab2_register(user_id: str, manager):
     if base_calendar not in calendar_options:
         base_calendar = calendar_options[0]
 
-    # --- UI ---
     selected_calendar_name = _render_calendar_selector(user_id, calendar_options, base_calendar, outside_mode)
     calendar_id = editable_calendar_options[selected_calendar_name]
 
@@ -706,54 +635,44 @@ def render_tab2_register(user_id: str, manager):
         bulk_end_date = None
         bulk_end_time = None
     else:
+        bulk_enabled, bulk_start_date, bulk_start_time, bulk_end_date, bulk_end_time = _render_bulk_datetime_settings(
+            all_day_override
+        )
         add_task_type, fallback_col = _render_event_name_settings(user_id)
 
-        # 事前プレビュー用に一度データを作成して、日時欠損件数を表示
-        try:
-            preview_df = process_excel_data_for_calendar(
-                st.session_state["uploaded_files"],
-                description_columns,
-                all_day_override,
-                private_event,
-                fallback_col,
-                add_task_type,
-            )
-            missing_count = _count_missing_datetime_rows(preview_df, all_day_override)
-        except Exception:
-            missing_count = 0
-
-        bulk_enabled, bulk_start_date, bulk_start_time, bulk_end_date, bulk_end_time = _render_bulk_datetime_settings(
-            all_day_override,
-            missing_count,
-        )
-
-    # --- 実行 ---
     st.subheader("➡️ イベント登録・更新実行")
 
-    # ボタン表示前にデータを処理して件数を取得
     try:
         if outside_mode:
             raw_df = _read_outside_file_to_df(outside_file)
-            df = _build_calendar_df_from_outside(raw_df, private_event=private_event, all_day_override=all_day_override)
+            df = _build_calendar_df_from_outside(
+                raw_df,
+                private_event=private_event,
+                all_day_override=all_day_override
+            )
         else:
-            df = process_excel_data_for_calendar(
-                st.session_state["uploaded_files"],
-                description_columns,
-                all_day_override,
-                private_event,
-                fallback_col,
-                add_task_type,
-            )
-
-            df = _apply_bulk_datetime_defaults(
-                df=df,
-                enabled=bulk_enabled,
-                all_day_override=all_day_override,
-                bulk_start_date=bulk_start_date,
-                bulk_start_time=bulk_start_time,
-                bulk_end_date=bulk_end_date,
-                bulk_end_time=bulk_end_time,
-            )
+            if bulk_enabled:
+                df = process_excel_data_for_calendar(
+                    st.session_state["uploaded_files"],
+                    description_columns,
+                    all_day_override,
+                    private_event,
+                    fallback_col,
+                    add_task_type,
+                    bulk_start_date=bulk_start_date,
+                    bulk_start_time=bulk_start_time,
+                    bulk_end_date=bulk_end_date,
+                    bulk_end_time=bulk_end_time,
+                )
+            else:
+                df = process_excel_data_for_calendar(
+                    st.session_state["uploaded_files"],
+                    description_columns,
+                    all_day_override,
+                    private_event,
+                    fallback_col,
+                    add_task_type,
+                )
     except Exception as e:
         st.error(f"Excelデータ処理中にエラーが発生しました: {e}")
         return
@@ -762,7 +681,6 @@ def render_tab2_register(user_id: str, manager):
         st.warning("有効なイベントデータがありません。処理を中断しました。")
         return
 
-    # 補完後も必須日時が欠けている行がないか確認
     if not outside_mode:
         remain_missing = _count_missing_datetime_rows(df, all_day_override)
         if remain_missing > 0:
@@ -770,6 +688,9 @@ def render_tab2_register(user_id: str, manager):
             with st.expander("確認用プレビュー", expanded=True):
                 st.dataframe(df, use_container_width=True)
             return
+
+    with st.expander("登録前プレビュー", expanded=False):
+        st.dataframe(df, use_container_width=True)
 
     event_count = len(df)
     if not st.button(f"▶ Googleカレンダーに登録・更新する（{event_count} 件）"):
