@@ -243,7 +243,6 @@ def process_excel_data_for_calendar(
     worksheet_col = find_closest_column(merged_df.columns, ["作業指示書"])
     task_type_col = find_closest_column(merged_df.columns, ["作業タイプ"])
 
-    # 開始列が無くても bulk 指定があれば通す
     if not start_col and bulk_start_date is None:
         raise ValueError("必須の時刻列が見つかりません。一括設定の開始日を指定してください。")
 
@@ -287,32 +286,45 @@ def process_excel_data_for_calendar(
                 subj = fallback_name
 
         # -------------------------
+        # 一括日時を適用してよい行か判定
+        # 作業指示書列があり、その行に値があるものだけ対象
+        # -------------------------
+        worksheet_value = row.get(worksheet_col, "") if worksheet_col else ""
+        has_worksheet_value = (
+            worksheet_col is not None
+            and pd.notna(worksheet_value)
+            and str(worksheet_value).strip() != ""
+            and str(worksheet_value).strip().lower() != "nan"
+        )
+
+        # -------------------------
         # 日時処理
         # -------------------------
         start = _safe_to_datetime(row.get(start_col)) if start_col else None
         end = _safe_to_datetime(row.get(end_col)) if end_col and pd.notna(row.get(end_col)) else None
 
-        # bulk日時を datetime に変換
         bulk_start_dt = None
         bulk_end_dt = None
 
-        if bulk_start_date is not None:
-            if all_day_event_override:
-                bulk_start_dt = pd.to_datetime(bulk_start_date)
-            else:
-                if bulk_start_time is not None:
-                    bulk_start_dt = pd.to_datetime(
-                        datetime.datetime.combine(bulk_start_date, bulk_start_time)
-                    )
+        # 作業指示書がある行にだけ bulk を使う
+        if has_worksheet_value:
+            if bulk_start_date is not None:
+                if all_day_event_override:
+                    bulk_start_dt = pd.to_datetime(bulk_start_date)
+                else:
+                    if bulk_start_time is not None:
+                        bulk_start_dt = pd.to_datetime(
+                            datetime.datetime.combine(bulk_start_date, bulk_start_time)
+                        )
 
-        if bulk_end_date is not None:
-            if all_day_event_override:
-                bulk_end_dt = pd.to_datetime(bulk_end_date)
-            else:
-                if bulk_end_time is not None:
-                    bulk_end_dt = pd.to_datetime(
-                        datetime.datetime.combine(bulk_end_date, bulk_end_time)
-                    )
+            if bulk_end_date is not None:
+                if all_day_event_override:
+                    bulk_end_dt = pd.to_datetime(bulk_end_date)
+                else:
+                    if bulk_end_time is not None:
+                        bulk_end_dt = pd.to_datetime(
+                            datetime.datetime.combine(bulk_end_date, bulk_end_time)
+                        )
 
         # 開始が無い場合は bulk 補完
         if start is None and bulk_start_dt is not None:
@@ -375,7 +387,6 @@ def process_excel_data_for_calendar(
             if title_value:
                 required_items.append(f"[タイトル: {title_value}]")
 
-        worksheet_value = row.get(worksheet_col, "") if worksheet_col else ""
         if worksheet_col and pd.notna(worksheet_value):
             formatted_ws = format_worksheet_value(worksheet_value)
             if formatted_ws:
@@ -425,7 +436,6 @@ def process_excel_data_for_calendar(
         description = " / ".join(filter(None, description_parts))
 
         if is_all_day:
-            # Google Calendarの終日イベントは、表示終了日そのまま入れる
             end_date_str = _to_date_str(end_display)
         else:
             end_date_str = _to_date_str(end_display)
