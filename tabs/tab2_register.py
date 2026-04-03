@@ -1,7 +1,7 @@
 import re
 import streamlit as st
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date, time
 from zoneinfo import ZoneInfo
 from typing import Dict, Optional
 
@@ -198,6 +198,101 @@ def _strip_outside_suffix(subject: str) -> str:
     return s[: -len(suf)].rstrip() if s.endswith(suf) else s
 
 
+def _is_blank(v) -> bool:
+    if v is None:
+        return True
+    s = str(v).strip()
+    return s == "" or s.lower() in ("nan", "none")
+
+
+def _count_missing_datetime_rows(df: pd.DataFrame, all_day_override: bool) -> int:
+    if df is None or df.empty:
+        return 0
+
+    count = 0
+    for _, row in df.iterrows():
+        sd = safe_get(row, "Start Date", "")
+        ed = safe_get(row, "End Date", "")
+        stime = safe_get(row, "Start Time", "")
+        etime = safe_get(row, "End Time", "")
+
+        if all_day_override:
+            if _is_blank(sd):
+                count += 1
+        else:
+            if _is_blank(sd) or _is_blank(stime):
+                count += 1
+            elif _is_blank(ed) and _is_blank(etime):
+                # 終了未設定は開始を流用できるので欠損扱いしない
+                pass
+
+    return count
+
+
+def _apply_bulk_datetime_defaults(
+    df: pd.DataFrame,
+    enabled: bool,
+    all_day_override: bool,
+    bulk_start_date: Optional[date],
+    bulk_start_time: Optional[time],
+    bulk_end_date: Optional[date],
+    bulk_end_time: Optional[time],
+) -> pd.DataFrame:
+    if df is None or df.empty or not enabled:
+        return df
+
+    out = df.copy()
+
+    start_date_str = bulk_start_date.strftime("%Y/%m/%d") if bulk_start_date else ""
+    end_date_str = bulk_end_date.strftime("%Y/%m/%d") if bulk_end_date else ""
+    start_time_str = bulk_start_time.strftime("%H:%M") if bulk_start_time else ""
+    end_time_str = bulk_end_time.strftime("%H:%M") if bulk_end_time else ""
+
+    if all_day_override:
+        if not start_date_str:
+            raise ValueError("終日登録では、一括設定用の開始日が必要です。")
+        if not end_date_str:
+            end_date_str = start_date_str
+    else:
+        if not start_date_str or not start_time_str:
+            raise ValueError("時刻付き登録では、一括設定用の開始日と開始時刻が必要です。")
+        if not end_date_str:
+            end_date_str = start_date_str
+        if not end_time_str:
+            end_time_str = start_time_str
+
+        try:
+            sdt = datetime.strptime(f"{start_date_str} {start_time_str}", "%Y/%m/%d %H:%M")
+            edt = datetime.strptime(f"{end_date_str} {end_time_str}", "%Y/%m/%d %H:%M")
+            if edt < sdt:
+                raise ValueError("一括設定の終了日時は開始日時以降にしてください。")
+        except Exception as e:
+            raise ValueError(f"一括設定の日時が不正です: {e}")
+
+    for idx, row in out.iterrows():
+        row_all_day = str(safe_get(row, "All Day Event", _ALL_DAY_TRUE)).strip() == _ALL_DAY_TRUE
+        use_all_day = all_day_override or row_all_day
+
+        if use_all_day:
+            if _is_blank(safe_get(row, "Start Date", "")):
+                out.at[idx, "Start Date"] = start_date_str
+            if _is_blank(safe_get(row, "End Date", "")):
+                out.at[idx, "End Date"] = end_date_str or start_date_str
+            out.at[idx, "Start Time"] = ""
+            out.at[idx, "End Time"] = ""
+        else:
+            if _is_blank(safe_get(row, "Start Date", "")):
+                out.at[idx, "Start Date"] = start_date_str
+            if _is_blank(safe_get(row, "End Date", "")):
+                out.at[idx, "End Date"] = end_date_str or start_date_str
+            if _is_blank(safe_get(row, "Start Time", "")):
+                out.at[idx, "Start Time"] = start_time_str
+            if _is_blank(safe_get(row, "End Time", "")):
+                out.at[idx, "End Time"] = end_time_str or start_time_str
+
+    return out
+
+
 # ============================================================
 # 作業外予定ファイル読み込み
 # ============================================================
@@ -352,9 +447,65 @@ def _render_event_settings(user_id, outside_mode):
         return all_day, private, desc_cols
 
 
+def _render_bulk_datetime_settings(all_day_override: bool, missing_count: int):
+    with st.container(border=True):
+        st.markdown("**3. 日時一括設定（日時未入力ファイル用）**")
+        st.caption("アップロードファイルに予定開始・予定終了が入っていない場合、ここで指定した日時を空欄行に補完して登録します。")
+
+        enabled = st.checkbox(
+            f"日時が空のイベントに一括日時を設定する（対象見込み: {missing_count} 件）",
+            value=missing_count > 0,
+            key="bulk_datetime_enabled",
+        )
+
+        today = date.today()
+        default_start_time = time(9, 0)
+        default_end_time = time(10, 0)
+
+        c1, c2 = st.columns(2)
+        with c1:
+            bulk_start_date = st.date_input(
+                "予定開始日（一括）",
+                value=st.session_state.get("bulk_start_date", today),
+                key="bulk_start_date",
+            )
+        with c2:
+            if all_day_override:
+                st.text_input("予定開始時刻（一括）", value="終日登録のため未使用", disabled=True)
+                bulk_start_time = None
+            else:
+                bulk_start_time = st.time_input(
+                    "予定開始時刻（一括）",
+                    value=st.session_state.get("bulk_start_time", default_start_time),
+                    key="bulk_start_time",
+                    step=300,
+                )
+
+        c3, c4 = st.columns(2)
+        with c3:
+            bulk_end_date = st.date_input(
+                "予定終了日（一括）",
+                value=st.session_state.get("bulk_end_date", today),
+                key="bulk_end_date",
+            )
+        with c4:
+            if all_day_override:
+                st.text_input("予定終了時刻（一括）", value="終日登録のため未使用", disabled=True)
+                bulk_end_time = None
+            else:
+                bulk_end_time = st.time_input(
+                    "予定終了時刻（一括）",
+                    value=st.session_state.get("bulk_end_time", default_end_time),
+                    key="bulk_end_time",
+                    step=300,
+                )
+
+        return enabled, bulk_start_date, bulk_start_time, bulk_end_date, bulk_end_time
+
+
 def _render_event_name_settings(user_id):
     with st.container(border=True):
-        st.markdown("**3. イベント名の構成**")
+        st.markdown("**4. イベント名の構成**")
         col1, col2 = st.columns(2)
         with col1:
             add_type = st.checkbox(
@@ -549,8 +700,32 @@ def render_tab2_register(user_id: str, manager):
         st.info("イベント名は『備考 + [作業外予定]』で登録します。")
         add_task_type = False
         fallback_col = None
+        bulk_enabled = False
+        bulk_start_date = None
+        bulk_start_time = None
+        bulk_end_date = None
+        bulk_end_time = None
     else:
         add_task_type, fallback_col = _render_event_name_settings(user_id)
+
+        # 事前プレビュー用に一度データを作成して、日時欠損件数を表示
+        try:
+            preview_df = process_excel_data_for_calendar(
+                st.session_state["uploaded_files"],
+                description_columns,
+                all_day_override,
+                private_event,
+                fallback_col,
+                add_task_type,
+            )
+            missing_count = _count_missing_datetime_rows(preview_df, all_day_override)
+        except Exception:
+            missing_count = 0
+
+        bulk_enabled, bulk_start_date, bulk_start_time, bulk_end_date, bulk_end_time = _render_bulk_datetime_settings(
+            all_day_override,
+            missing_count,
+        )
 
     # --- 実行 ---
     st.subheader("➡️ イベント登録・更新実行")
@@ -569,6 +744,16 @@ def render_tab2_register(user_id: str, manager):
                 fallback_col,
                 add_task_type,
             )
+
+            df = _apply_bulk_datetime_defaults(
+                df=df,
+                enabled=bulk_enabled,
+                all_day_override=all_day_override,
+                bulk_start_date=bulk_start_date,
+                bulk_start_time=bulk_start_time,
+                bulk_end_date=bulk_end_date,
+                bulk_end_time=bulk_end_time,
+            )
     except Exception as e:
         st.error(f"Excelデータ処理中にエラーが発生しました: {e}")
         return
@@ -576,6 +761,15 @@ def render_tab2_register(user_id: str, manager):
     if df.empty:
         st.warning("有効なイベントデータがありません。処理を中断しました。")
         return
+
+    # 補完後も必須日時が欠けている行がないか確認
+    if not outside_mode:
+        remain_missing = _count_missing_datetime_rows(df, all_day_override)
+        if remain_missing > 0:
+            st.error(f"日時が未設定のイベントが {remain_missing} 件残っています。必要に応じて『日時一括設定』を入力してください。")
+            with st.expander("確認用プレビュー", expanded=True):
+                st.dataframe(df, use_container_width=True)
+            return
 
     event_count = len(df)
     if not st.button(f"▶ Googleカレンダーに登録・更新する（{event_count} 件）"):
