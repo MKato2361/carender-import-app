@@ -217,6 +217,17 @@ def _to_time_str(dt):
     return dt.strftime("%H:%M")
 
 
+def _has_valid_worksheet_value(row, worksheet_col):
+    if worksheet_col is None:
+        return False
+    worksheet_value = row.get(worksheet_col, "")
+    return (
+        pd.notna(worksheet_value)
+        and str(worksheet_value).strip() != ""
+        and str(worksheet_value).strip().lower() != "nan"
+    )
+
+
 def process_excel_data_for_calendar(
     uploaded_files,
     description_columns,
@@ -247,6 +258,9 @@ def process_excel_data_for_calendar(
         raise ValueError("必須の時刻列が見つかりません。一括設定の開始日を指定してください。")
 
     output_records = []
+
+    # 一括日時で生成した件数を数える
+    bulk_generated_count = 0
 
     for _, row in merged_df.iterrows():
         subj_parts = []
@@ -285,17 +299,8 @@ def process_excel_data_for_calendar(
             if fallback_name:
                 subj = fallback_name
 
-        # -------------------------
-        # 一括日時を適用してよい行か判定
-        # 作業指示書列があり、その行に値があるものだけ対象
-        # -------------------------
         worksheet_value = row.get(worksheet_col, "") if worksheet_col else ""
-        has_worksheet_value = (
-            worksheet_col is not None
-            and pd.notna(worksheet_value)
-            and str(worksheet_value).strip() != ""
-            and str(worksheet_value).strip().lower() != "nan"
-        )
+        has_worksheet_value = _has_valid_worksheet_value(row, worksheet_col)
 
         # -------------------------
         # 日時処理
@@ -303,38 +308,38 @@ def process_excel_data_for_calendar(
         start = _safe_to_datetime(row.get(start_col)) if start_col else None
         end = _safe_to_datetime(row.get(end_col)) if end_col and pd.notna(row.get(end_col)) else None
 
+        original_start_missing = start is None
+
         bulk_start_dt = None
-        bulk_end_dt = None
 
-        # 作業指示書がある行にだけ bulk を使う
-        if has_worksheet_value:
-            if bulk_start_date is not None:
-                if all_day_event_override:
-                    bulk_start_dt = pd.to_datetime(bulk_start_date)
-                else:
-                    if bulk_start_time is not None:
-                        bulk_start_dt = pd.to_datetime(
-                            datetime.datetime.combine(bulk_start_date, bulk_start_time)
-                        )
+        # 一括日時は「作業指示書がある行」だけ対象
+        if has_worksheet_value and bulk_start_date is not None:
+            if all_day_event_override:
+                bulk_start_dt = pd.to_datetime(bulk_start_date)
+            else:
+                if bulk_start_time is not None:
+                    bulk_start_dt = pd.to_datetime(
+                        datetime.datetime.combine(bulk_start_date, bulk_start_time)
+                    )
 
-            if bulk_end_date is not None:
-                if all_day_event_override:
-                    bulk_end_dt = pd.to_datetime(bulk_end_date)
-                else:
-                    if bulk_end_time is not None:
-                        bulk_end_dt = pd.to_datetime(
-                            datetime.datetime.combine(bulk_end_date, bulk_end_time)
-                        )
+        used_bulk_datetime = False
 
-        # 開始が無い場合は bulk 補完
+        # 開始が無い行だけ一括日時を適用
         if start is None and bulk_start_dt is not None:
-            start = bulk_start_dt
+            shift_hours = bulk_generated_count // 5 if bulk_generated_count >= 5 else 0
+            shifted_start = bulk_start_dt + datetime.timedelta(hours=shift_hours)
+            start = shifted_start
 
-        # 終了が無い場合は bulk 補完
-        if end is None and bulk_end_dt is not None:
-            end = bulk_end_dt
+            if all_day_event_override:
+                end = shifted_start
+            else:
+                # 要件: 予定開始を入れたら終了は1時間後
+                end = shifted_start + datetime.timedelta(hours=1)
 
-        # なお終了が無ければ開始から自動補完
+            bulk_generated_count += 1
+            used_bulk_datetime = True
+
+        # bulkを使っていない通常行の終了補完
         if start is not None and end is None:
             if all_day_event_override:
                 end = start
@@ -344,14 +349,14 @@ def process_excel_data_for_calendar(
                 else:
                     end = start + datetime.timedelta(hours=1)
 
-        # それでも開始が無いなら、その行は作れない
+        # それでも開始が無いならイベント化しない
         if start is None:
             continue
 
-        # 終了が開始より前なら bulk を優先して再評価
         if end is not None and end < start:
-            if bulk_end_dt is not None and bulk_end_dt >= start:
-                end = bulk_end_dt
+            # bulk適用行は常に start+1h に補正
+            if used_bulk_datetime and not all_day_event_override:
+                end = start + datetime.timedelta(hours=1)
             else:
                 continue
 
@@ -435,17 +440,12 @@ def process_excel_data_for_calendar(
 
         description = " / ".join(filter(None, description_parts))
 
-        if is_all_day:
-            end_date_str = _to_date_str(end_display)
-        else:
-            end_date_str = _to_date_str(end_display)
-
         output_records.append(
             {
                 "Subject": subj,
                 "Start Date": _to_date_str(start),
                 "Start Time": start_time_display,
-                "End Date": end_date_str,
+                "End Date": _to_date_str(end_display),
                 "End Time": end_time_display,
                 "All Day Event": "True" if is_all_day else "False",
                 "Description": description,
