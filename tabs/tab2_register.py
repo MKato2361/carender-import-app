@@ -379,7 +379,7 @@ def _render_event_settings(user_id, outside_mode):
 def _render_bulk_datetime_settings(all_day_override: bool):
     with st.container(border=True):
         st.markdown("**3. 日時一括設定（日時未入力ファイル用）**")
-        st.caption("作業指示書がある行で日時が空のものだけに適用されます。終了は開始の1時間後で自動設定され、6件目以降は5件ごとに開始時刻を1時間ずつ後ろへずらして登録します。")
+        st.caption("作業指示書がある行で日時が空のものだけに適用されます。終了は開始の1時間後で自動設定され、1件ごとに開始時刻を1時間ずつ後ろへずらし1日最大15件で登録します。")
 
         enabled = st.checkbox(
             "日時が空のイベントに一括日時を設定する",
