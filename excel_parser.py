@@ -228,6 +228,16 @@ def _has_valid_worksheet_value(row, worksheet_col):
     )
 
 
+def _calc_shifted_bulk_start(base_dt, index_zero_based: int):
+    """
+    1件ごとに1時間ずらし、1日15件まで。
+    16件目以降は翌日に繰り越す。
+    """
+    day_offset = index_zero_based // 15
+    hour_offset = index_zero_based % 15
+    return base_dt + datetime.timedelta(days=day_offset, hours=hour_offset)
+
+
 def process_excel_data_for_calendar(
     uploaded_files,
     description_columns,
@@ -259,7 +269,7 @@ def process_excel_data_for_calendar(
 
     output_records = []
 
-    # 一括日時で生成した件数を数える
+    # 一括日時で生成した件数
     bulk_generated_count = 0
 
     for _, row in merged_df.iterrows():
@@ -308,72 +318,47 @@ def process_excel_data_for_calendar(
         start = _safe_to_datetime(row.get(start_col)) if start_col else None
         end = _safe_to_datetime(row.get(end_col)) if end_col and pd.notna(row.get(end_col)) else None
 
-        original_start_missing = start is None
-
         bulk_start_dt = None
 
         # 一括日時は「作業指示書がある行」だけ対象
-        if has_worksheet_value and bulk_start_date is not None:
-            if all_day_event_override:
-                bulk_start_dt = pd.to_datetime(bulk_start_date)
-            else:
-                if bulk_start_time is not None:
-                    bulk_start_dt = pd.to_datetime(
-                        datetime.datetime.combine(bulk_start_date, bulk_start_time)
-                    )
+        if has_worksheet_value and bulk_start_date is not None and bulk_start_time is not None:
+            bulk_start_dt = pd.to_datetime(
+                datetime.datetime.combine(bulk_start_date, bulk_start_time)
+            )
 
         used_bulk_datetime = False
 
         # 開始が無い行だけ一括日時を適用
         if start is None and bulk_start_dt is not None:
-            shift_hours = bulk_generated_count // 5 if bulk_generated_count >= 5 else 0
-            shifted_start = bulk_start_dt + datetime.timedelta(hours=shift_hours)
+            shifted_start = _calc_shifted_bulk_start(bulk_start_dt, bulk_generated_count)
             start = shifted_start
-
-            if all_day_event_override:
-                end = shifted_start
-            else:
-                # 要件: 予定開始を入れたら終了は1時間後
-                end = shifted_start + datetime.timedelta(hours=1)
-
+            end = shifted_start + datetime.timedelta(hours=1)
             bulk_generated_count += 1
             used_bulk_datetime = True
 
         # bulkを使っていない通常行の終了補完
         if start is not None and end is None:
-            if all_day_event_override:
-                end = start
+            if start.time() == datetime.time(0, 0, 0):
+                end = start + datetime.timedelta(days=1)
             else:
-                if start.time() == datetime.time(0, 0, 0):
-                    end = start + datetime.timedelta(days=1)
-                else:
-                    end = start + datetime.timedelta(hours=1)
+                end = start + datetime.timedelta(hours=1)
 
         # それでも開始が無いならイベント化しない
         if start is None:
             continue
 
         if end is not None and end < start:
-            # bulk適用行は常に start+1h に補正
-            if used_bulk_datetime and not all_day_event_override:
+            if used_bulk_datetime:
                 end = start + datetime.timedelta(hours=1)
             else:
                 continue
 
-        is_all_day = all_day_event_override or (
-            start.time() == datetime.time(0, 0, 0)
-            and end is not None
-            and end.time() == datetime.time(0, 0, 0)
-        )
+        # 今回の要件: 終日イベントにはしない
+        is_all_day = False
 
-        if is_all_day:
-            end_display = end
-            start_time_display = ""
-            end_time_display = ""
-        else:
-            end_display = end
-            start_time_display = _to_time_str(start)
-            end_time_display = _to_time_str(end)
+        end_display = end
+        start_time_display = _to_time_str(start)
+        end_time_display = _to_time_str(end)
 
         location = ""
         if addr_col and addr_col in row:
@@ -447,7 +432,7 @@ def process_excel_data_for_calendar(
                 "Start Time": start_time_display,
                 "End Date": _to_date_str(end_display),
                 "End Time": end_time_display,
-                "All Day Event": "True" if is_all_day else "False",
+                "All Day Event": "False",
                 "Description": description,
                 "Location": location,
                 "Private": "True" if private_event else "False",
