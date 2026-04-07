@@ -97,18 +97,6 @@ def compute_fetch_window_from_df(df: pd.DataFrame, buffer_days: int = 30):
 # 日時ユーティリティ
 # ============================================================
 
-def extract_worksheet_id_from_description(desc: str) -> Optional[str]:
-    import unicodedata
-    RE_WORKSHEET_ID = re.compile(r"\[作業指示書[：:]\s*([0-9A-Za-z_-]+)\]")
-    if not desc:
-        return None
-    s = unicodedata.normalize("NFKC", desc)
-    m = RE_WORKSHEET_ID.search(s)
-    if not m:
-        return None
-    return m.group(1).strip()
-
-
 def _to_dt(val: str) -> Optional[datetime]:
     if val is None:
         return None
@@ -470,7 +458,7 @@ def _execute_registration(
             if s_key and e_key:
                 outside_key_to_event[f"{core}|{s_key}|{e_key}"] = ev
         else:
-            wid = extract_worksheet_id_from_description(ev.get("description") or "")
+            wid = extract_worksheet_id_from_text(ev.get("description") or "")
             if wid:
                 worksheet_to_event[wid] = ev
 
@@ -532,7 +520,16 @@ def _execute_registration(
             if existing:
                 if is_event_changed(existing, event_data):
                     result = update_event_if_needed(service, calendar_id, existing["id"], event_data)
-                    updated_count += 1
+                    if result is None:
+                        failed_count += 1
+                        failed_items.append({
+                            "row_index": i,
+                            "subject": event_data.get("summary", "(無題)"),
+                            "worksheet_id": extract_worksheet_id_from_text(desc_text) or "",
+                            "error": "update_event_if_needed が None を返しました",
+                        })
+                    else:
+                        updated_count += 1
                 else:
                     skipped_count += 1
             else:
