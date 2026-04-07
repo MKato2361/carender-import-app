@@ -99,13 +99,14 @@ def compute_fetch_window_from_df(df: pd.DataFrame, buffer_days: int = 30):
 
 def extract_worksheet_id_from_description(desc: str) -> Optional[str]:
     import unicodedata
-    RE_WORKSHEET_ID = re.compile(r"\[作業指示書[：:]\s*([0-9０-９]+)\]")
+    RE_WORKSHEET_ID = re.compile(r"\[作業指示書[：:]\s*([0-9A-Za-z_-]+)\]")
     if not desc:
         return None
-    m = RE_WORKSHEET_ID.search(desc)
+    s = unicodedata.normalize("NFKC", desc)
+    m = RE_WORKSHEET_ID.search(s)
     if not m:
         return None
-    return unicodedata.normalize("NFKC", m.group(1)).strip()
+    return m.group(1).strip()
 
 
 def _to_dt(val: str) -> Optional[datetime]:
