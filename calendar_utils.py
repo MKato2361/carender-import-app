@@ -176,10 +176,11 @@ def authenticate_google():
         # -------------------------------
         # コールバック処理
         # -------------------------------
-        else:
-            state = st.query_params.get("oauth_state")
+        state = st.query_params.get("oauth_state")
+
         if not state:
-            st.warning("セッションが切れました。再度ログインしてください。")
+            st.warning("認証情報が失われました。再ログインしてください。")
+
             st.session_state.pop("credentials", None)
             st.session_state.pop("credentials_user_id", None)
 
