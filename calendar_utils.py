@@ -51,27 +51,36 @@ def authenticate_google():
     db = firestore.client()
     doc_ref = db.collection('google_tokens').document(user_id)
 
-    # --- セッションから ---
-    if 'credentials' in st.session_state and st.session_state['credentials']:
-        creds = st.session_state['credentials']
-        # refresh_token がない場合はセッションを破棄して再認証
-        if not creds.refresh_token:
-            st.session_state.pop('credentials', None)
-            doc_ref.delete()
-        elif creds.valid:
-            return creds
-        elif creds.expired:
-            try:
-                creds.refresh(Request())
-                st.session_state['credentials'] = creds
-                doc_ref.set(json.loads(creds.to_json()))
-                return creds
-            except Exception as e:
-                st.warning(f"リフレッシュトークンの更新に失敗: {e}")
-                doc_ref.delete()
-                st.session_state.pop('credentials', None)
-                return authenticate_google()
 
+   # --- セッションから（user_id一致チェック付き）---
+    if (
+        'credentials' in st.session_state and
+        st.session_state['credentials'] and
+        st.session_state.get('credentials_user_id') == user_id
+    ):
+        creds = st.session_state['credentials']
+
+    if not creds.refresh_token:
+        st.session_state.pop('credentials', None)
+        st.session_state.pop('credentials_user_id', None)
+        doc_ref.delete()
+
+    elif creds.valid:
+        return creds
+
+    elif creds.expired:
+        try:
+            creds.refresh(Request())
+            st.session_state['credentials'] = creds
+            st.session_state['credentials_user_id'] = user_id
+            doc_ref.set(json.loads(creds.to_json()))
+            return creds
+        except Exception as e:
+            st.warning(f"リフレッシュトークンの更新に失敗: {e}")
+            doc_ref.delete()
+            st.session_state.pop('credentials', None)
+            st.session_state.pop('credentials_user_id', None)
+            return authenticate_google()
     # --- Firestoreから ---
     def _clear_and_reauth(reason=""):
         """Firestoreトークンを削除してOAuthフローへ"""
