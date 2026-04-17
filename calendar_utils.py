@@ -59,9 +59,10 @@ def authenticate_google():
     # ① セッションから取得（user_id一致チェック）
     # ============================================================
     if (
-        'credentials' in st.session_state and
-        st.session_state.get('credentials') and
-        st.session_state.get('credentials_user_id') == user_id
+        hasattr(st, "session_state") and
+        "credentials" in st.session_state and
+        st.session_state["credentials"] and
+        st.session_state.get("credentials_user_id") == user_id
     ):
         creds = st.session_state.get('credentials')
 
