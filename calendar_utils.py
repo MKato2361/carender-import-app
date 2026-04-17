@@ -28,16 +28,18 @@ SCOPES = [
 # Google 認証（Webリダイレクト型 + トークン自動削除）
 # ==============================
 def authenticate_google():
-
+    # ============================================================
+    # セッション初期化（必須）
+    # ============================================================
     if "credentials" not in st.session_state:
         st.session_state["credentials"] = None
 
     if "credentials_user_id" not in st.session_state:
         st.session_state["credentials_user_id"] = None
 
-    # -------------------------------
+    # ============================================================
     # 強制リセット
-    # -------------------------------
+    # ============================================================
     if st.query_params.get("clear_auth") == "1":
         user_id = get_firebase_user_id()
         if user_id:
@@ -48,11 +50,13 @@ def authenticate_google():
 
         st.session_state.pop('credentials', None)
         st.session_state.pop('credentials_user_id', None)
-        st.session_state.pop('oauth_state', None)
 
         st.query_params.clear()
         st.rerun()
 
+    # ============================================================
+    # user_id取得
+    # ============================================================
     user_id = get_firebase_user_id()
     if not user_id:
         return None
@@ -63,15 +67,14 @@ def authenticate_google():
     creds = None
 
     # ============================================================
-    # ① セッションから取得（user_id一致チェック）
+    # ① セッションから取得（user一致チェック）
     # ============================================================
     if (
-        hasattr(st, "session_state") and
         "credentials" in st.session_state and
         st.session_state["credentials"] and
         st.session_state.get("credentials_user_id") == user_id
     ):
-        creds = st.session_state.get('credentials')
+        creds = st.session_state["credentials"]
 
         if creds:
             if not creds.refresh_token:
@@ -89,8 +92,8 @@ def authenticate_google():
             elif creds.expired:
                 try:
                     creds.refresh(Request())
-                    st.session_state['credentials'] = creds
-                    st.session_state['credentials_user_id'] = user_id
+                    st.session_state["credentials"] = creds
+                    st.session_state["credentials_user_id"] = user_id
                     doc_ref.set(json.loads(creds.to_json()))
                     return creds
                 except Exception:
@@ -123,8 +126,8 @@ def authenticate_google():
                 elif creds.expired:
                     try:
                         creds.refresh(Request())
-                        st.session_state['credentials'] = creds
-                        st.session_state['credentials_user_id'] = user_id
+                        st.session_state["credentials"] = creds
+                        st.session_state["credentials_user_id"] = user_id
                         doc_ref.set(json.loads(creds.to_json()))
                         return creds
                     except Exception:
@@ -132,10 +135,9 @@ def authenticate_google():
                         creds = None
 
                 elif creds.valid:
-                    st.session_state['credentials'] = creds
-                    st.session_state['credentials_user_id'] = user_id
+                    st.session_state["credentials"] = creds
+                    st.session_state["credentials_user_id"] = user_id
                     return creds
-
     except Exception:
         pass
 
@@ -153,7 +155,7 @@ def authenticate_google():
         params = st.query_params
 
         # -------------------------------
-        # 認証URL生成
+        # 認証開始
         # -------------------------------
         if "code" not in params:
             oauth = OAuth2Session(
@@ -169,24 +171,27 @@ def authenticate_google():
                 include_granted_scopes="true",
             )
 
+            # ★ここが重要（sessionではなくURLに保持）
             st.query_params["oauth_state"] = state
+
             st.markdown(f"[Googleでログインする]({auth_url})")
             st.stop()
 
         # -------------------------------
         # コールバック処理
         # -------------------------------
-        state = st.query_params.get("oauth_state")
+        else:
+            state = st.query_params.get("oauth_state")
 
-        if not state:
-            st.warning("認証情報が失われました。再ログインしてください。")
+            if not state:
+                st.warning("セッションが切れました。再度ログインしてください。")
 
-            st.session_state.pop("credentials", None)
-            st.session_state.pop("credentials_user_id", None)
+                st.session_state.pop("credentials", None)
+                st.session_state.pop("credentials_user_id", None)
 
-            st.query_params.clear()
-            st.stop()
-            
+                st.query_params.clear()
+                st.stop()
+
             oauth = OAuth2Session(
                 client_id=client_id,
                 redirect_uri=redirect_uri,
@@ -225,8 +230,6 @@ def authenticate_google():
             st.success("Google認証が完了しました！")
 
             st.query_params.clear()
-            st.session_state.pop("oauth_state", None)
-
             st.rerun()
 
     except Exception as e:
