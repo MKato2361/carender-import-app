@@ -28,6 +28,13 @@ SCOPES = [
 # Google 認証（Webリダイレクト型 + トークン自動削除）
 # ==============================
 def authenticate_google():
+
+    if "credentials" not in st.session_state:
+        st.session_state["credentials"] = None
+
+    if "credentials_user_id" not in st.session_state:
+        st.session_state["credentials_user_id"] = None
+
     # -------------------------------
     # 強制リセット
     # -------------------------------
