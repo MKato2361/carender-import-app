@@ -178,12 +178,14 @@ def authenticate_google():
         # -------------------------------
         else:
             state = st.session_state.get("oauth_state")
+        if not state:
+            st.warning("セッションが切れました。再度ログインしてください。")
+            st.session_state.pop("credentials", None)
+            st.session_state.pop("credentials_user_id", None)
 
-            if not state:
-                st.error("認証状態が不正です。再ログインしてください。")
-                st.session_state.clear()
-                st.stop()
-
+            st.query_params.clear()
+            st.stop()
+            
             oauth = OAuth2Session(
                 client_id=client_id,
                 redirect_uri=redirect_uri,
