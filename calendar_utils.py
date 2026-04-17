@@ -169,7 +169,7 @@ def authenticate_google():
                 include_granted_scopes="true",
             )
 
-            st.session_state["oauth_state"] = state
+            st.query_params["oauth_state"] = state
             st.markdown(f"[Googleでログインする]({auth_url})")
             st.stop()
 
@@ -177,7 +177,7 @@ def authenticate_google():
         # コールバック処理
         # -------------------------------
         else:
-            state = st.session_state.get("oauth_state")
+            state = st.query_params.get("oauth_state")
         if not state:
             st.warning("セッションが切れました。再度ログインしてください。")
             st.session_state.pop("credentials", None)
