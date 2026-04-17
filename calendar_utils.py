@@ -217,3 +217,9 @@ def authenticate_google():
         return None
 
     return None
+    
+    from googleapiclient.discovery import build
+
+def build_tasks_service(creds):
+    """Google Tasks API サービスオブジェクトを生成して返す"""
+    return build("tasks", "v1", credentials=creds)
