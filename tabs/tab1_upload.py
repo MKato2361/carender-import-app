@@ -209,6 +209,10 @@ def render_tab1_upload():
             update_uploaded_files(new_files)
             merge_uploaded_files()
 
+    # ファイル処理後に状態を再評価（処理前の値は古いため）
+    has_work_files   = len(st.session_state["uploaded_files"]) > 0
+    has_outside_work = st.session_state["uploaded_outside_work_file"] is not None
+
     # --- 現在の状態表示 ---
     if has_outside_work or has_work_files:
         st.divider()
