@@ -298,4 +298,4 @@ def render_tab5_export(manager) -> None:
 
         except Exception as e:
             progress.empty()
-            st.error(f"エラーが発生しました: {e}")
+            st.error("エクスポート中にエラーが発生しました。しばらく待ってから再試行してください。")

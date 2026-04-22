@@ -143,7 +143,7 @@ def render_tab3_delete(editable_calendar_options, service, tasks_service, defaul
                             service.events().delete(calendarId=calendar_id_del, eventId=event_id).execute()
                             deleted_events_count += 1
                         except Exception as e:
-                            st.error(f"イベント '{event_summary}' (ID: {event_id}) の削除に失敗しました: {e}")
+                            st.warning(f"イベント '{event_summary}' の削除に失敗しました（スキップして続行します）。")
 
                         progress_bar.progress(i / total_events)
 
@@ -294,7 +294,7 @@ def render_tab3_delete(editable_calendar_options, service, tasks_service, defaul
                             ).execute()
                             deleted_tasks_count += 1
                         except Exception as e:
-                            st.error(f"ToDo '{title}' の削除に失敗しました: {e}")
+                            st.warning(f"ToDo '{title}' の削除に失敗しました（スキップして続行します）。")
                         progress_bar.progress(i / total_tasks)
 
                     status_text.empty()

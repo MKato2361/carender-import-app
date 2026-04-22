@@ -245,7 +245,7 @@ def get_property_master_spreadsheet_id(current_user_email: Optional[str]) -> str
         data = doc.to_dict() or {}
         return data.get("property_master_spreadsheet_id") or ""
     except Exception as e:
-        st.warning(f"物件マスタ用スプレッドシートIDの取得に失敗しました: {e}")
+        st.warning("物件マスタの設定情報を取得できませんでした。管理者に連絡してください。")
         return ""
 
 
@@ -276,7 +276,7 @@ def load_property_master_view(
             MASTER_COLUMNS,
         )
     except Exception as e:
-        st.error(f"物件マスタの読み込みに失敗しました: {e}")
+        st.error("物件マスタの読み込みに失敗しました。ネットワーク接続を確認してください。")
         return pd.DataFrame()
 
     basic_df = _normalize_df(basic_df, BASIC_COLUMNS)
