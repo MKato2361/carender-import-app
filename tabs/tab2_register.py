@@ -343,33 +343,32 @@ def _render_calendar_selector(user_id, calendar_options, base_calendar, outside_
 
 
 def _render_event_settings(user_id, outside_mode):
-    with st.container(border=True):
-        st.markdown("**2. イベント基本設定**")
-        col1, col2 = st.columns(2)
-        with col1:
-            all_day = st.checkbox(
-                "すべてのイベントを「終日」として扱う",
-                value=get_user_setting(user_id, "default_allday_event"),
-            )
-        with col2:
-            private = st.checkbox(
-                "すべてのイベントを「非公開」として登録する",
-                value=get_user_setting(user_id, "default_private_event"),
-            )
-        
-        desc_cols = []
-        if not outside_mode:
-            pool = st.session_state.get("description_columns_pool") or []
-            saved = get_user_setting(user_id, "description_columns_selected") or ["内容", "詳細"]
-            desc_cols = st.multiselect(
-                "説明文（詳細）に含める列",
-                pool,
-                default=[c for c in saved if c in pool],
-            )
-            if desc_cols:
-                set_user_setting(user_id, "description_columns_selected", desc_cols)
-        
-        return all_day, private, desc_cols
+    st.markdown("##### イベント基本設定")
+    col1, col2 = st.columns(2)
+    with col1:
+        all_day = st.checkbox(
+            "すべて終日として扱う",
+            value=get_user_setting(user_id, "default_allday_event"),
+        )
+    with col2:
+        private = st.checkbox(
+            "すべて非公開で登録する",
+            value=get_user_setting(user_id, "default_private_event"),
+        )
+
+    desc_cols = []
+    if not outside_mode:
+        pool = st.session_state.get("description_columns_pool") or []
+        saved = get_user_setting(user_id, "description_columns_selected") or ["内容", "詳細"]
+        desc_cols = st.multiselect(
+            "説明文に含める列",
+            pool,
+            default=[c for c in saved if c in pool],
+        )
+        if desc_cols:
+            set_user_setting(user_id, "description_columns_selected", desc_cols)
+
+    return all_day, private, desc_cols
 
 
 def _render_bulk_datetime_settings(all_day_override: bool):
@@ -732,8 +731,8 @@ def render_tab2_register(user_id: str, manager):
             st.session_state[confirm_key] = True
             st.rerun()
     else:
-        st.warning(f"「**{selected_calendar_name}**」に **{event_count}件** を登録します。よろしいですか？")
-        col_ok, col_cancel = st.columns(2)
+        st.warning(f"「{selected_calendar_name}」に {event_count}件 を登録します。よろしいですか？")
+        col_ok, col_cancel = st.columns([3, 1])
         with col_ok:
             if st.button("✅ 登録する", type="primary", use_container_width=True):
                 st.session_state[confirm_key] = False

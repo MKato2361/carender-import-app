@@ -18,6 +18,30 @@ def _get_current_user_key(fallback: str = "") -> str:
 JST = timezone(timedelta(hours=9))
 
 
+def _render_calendar_card(calendar_names, select_key, base_calendar, label="対象カレンダー", share_on=True):
+    """tab1スタイルのカレンダー選択カード"""
+    if share_on:
+        st.session_state[select_key] = base_calendar
+    elif (select_key not in st.session_state) or (st.session_state.get(select_key) not in calendar_names):
+        st.session_state[select_key] = base_calendar
+
+    current = st.session_state.get(select_key, base_calendar)
+    st.markdown(f"""
+<div style="border:2px solid #1E88E5;border-radius:10px;padding:14px 18px;margin-bottom:8px;background:var(--color-background-info);">
+  <div style="font-size:12px;font-weight:600;color:var(--color-text-info);margin-bottom:4px;">📅 {label}（必ず確認）</div>
+  <div style="font-size:20px;font-weight:700;color:var(--color-text-info);">{current}</div>
+</div>
+""", unsafe_allow_html=True)
+
+    if share_on:
+        st.caption("サイドバーの「基準カレンダー」と連動しています。")
+    else:
+        with st.expander("カレンダーを変更する"):
+            st.selectbox("カレンダーを選択", calendar_names, key=select_key, label_visibility="collapsed")
+
+    return st.session_state.get(select_key, base_calendar)
+
+
 def render_tab3_delete(editable_calendar_options, service, tasks_service, default_task_list_id):
     st.subheader("イベントを削除")
 
@@ -48,10 +72,9 @@ def render_tab3_delete(editable_calendar_options, service, tasks_service, defaul
     elif (select_key not in st.session_state) or (st.session_state.get(select_key) not in calendar_names):
         st.session_state[select_key] = base_calendar
 
-    selected_calendar_name_del = st.selectbox(
-        "削除対象カレンダーを選択",
-        calendar_names,
-        key=select_key,
+    selected_calendar_name_del = _render_calendar_card(
+        calendar_names, select_key, base_calendar,
+        label="削除対象カレンダー", share_on=share_on,
     )
 
     calendar_id_del = editable_calendar_options[selected_calendar_name_del]
@@ -59,7 +82,8 @@ def render_tab3_delete(editable_calendar_options, service, tasks_service, defaul
     # -------------------------------
     # イベント削除の期間指定
     # -------------------------------
-    st.subheader("🗓️ 削除期間の選択（イベント）")
+    st.divider()
+    st.markdown("##### 🗓️ 削除期間")
     today_date = date.today()
     delete_start_date = st.date_input("削除開始日", value=today_date - timedelta(days=30))
     delete_end_date = st.date_input("削除終了日", value=today_date)
@@ -84,7 +108,7 @@ def render_tab3_delete(editable_calendar_options, service, tasks_service, defaul
     # -------------------------------
     # イベント削除 実行セクション
     # -------------------------------
-    st.subheader("🗑️ イベント削除の実行")
+    st.markdown("##### 🗑️ 削除の実行")
 
     if "confirm_delete" not in st.session_state:
         st.session_state["confirm_delete"] = False
@@ -94,23 +118,15 @@ def render_tab3_delete(editable_calendar_options, service, tasks_service, defaul
             st.session_state["confirm_delete"] = True
             st.rerun()
     else:
-        st.warning(
-            f"""
-⚠️ **イベント削除の確認**
+        _d1 = delete_start_date.strftime('%Y/%m/%d')
+        _d2 = delete_end_date.strftime('%Y/%m/%d')
+        _todo_txt = "＋関連ToDo" if delete_related_todos else ""
+        st.warning(f"「{selected_calendar_name_del}」 {_d1}〜{_d2} のイベントを削除します{_todo_txt}。この操作は取り消せません。")
 
-以下のイベントを削除します:
-- **カレンダー名**: {selected_calendar_name_del}
-- **期間**: {delete_start_date.strftime('%Y年%m月%d日')} ～ {delete_end_date.strftime('%Y年%m月%d日')}
-- **ToDoリストも削除**: {'はい' if delete_related_todos else 'いいえ'}
-
-この操作は取り消せません。本当に削除しますか？
-"""
-        )
-
-        col1, col2 = st.columns([1, 1])
+        col1, col2 = st.columns([3, 1])
 
         with col1:
-            if st.button("✅ 実行", type="primary", use_container_width=True, key="events_delete_execute"):
+            if st.button("✅ 削除を実行する", type="primary", use_container_width=True, key="events_delete_execute"):
                 st.session_state["confirm_delete"] = False
 
                 time_min_utc, time_max_utc = to_utc_range(delete_start_date, delete_end_date)
@@ -160,14 +176,15 @@ def render_tab3_delete(editable_calendar_options, service, tasks_service, defaul
                         st.info("指定期間内に削除するイベントはありませんでした。")
 
         with col2:
-            if st.button("❌ キャンセル", use_container_width=True, key="events_delete_cancel"):
+            if st.button("キャンセル", use_container_width=True, key="events_delete_cancel"):
                 st.session_state["confirm_delete"] = False
                 st.rerun()
 
     # -------------------------------
     # ToDo一括削除セクション
     # -------------------------------
-    st.subheader("✅ ToDo の一括削除")
+    st.divider()
+    st.markdown("##### ✅ ToDo の一括削除")
 
     if not tasks_service or not default_task_list_id:
         st.info("Google ToDo リストサービスが利用できないため、ToDo一括削除機能は使用できません。")
@@ -213,26 +230,13 @@ def render_tab3_delete(editable_calendar_options, service, tasks_service, defaul
             st.session_state["confirm_delete_todo"] = True
             st.rerun()
     else:
-        target_desc = (
-            "本アプリが作成した ToDo（notes 内に `[EVENT_ID:xxx]` を含むもの）"
-            if "このアプリが作成した" in delete_scope
-            else "指定期間に該当する **すべての ToDo**"
-        )
+        _td1 = todo_delete_start.strftime('%Y/%m/%d')
+        _td2 = todo_delete_end.strftime('%Y/%m/%d')
+        _scope_txt = "本アプリ作成分のみ" if "このアプリが作成した" in delete_scope else "全Todo"
+        _comp_txt = "（完了済み含む）" if delete_completed_todos else ""
+        st.warning(f"期限 {_td1}〜{_td2} の ToDo を削除します。対象：{_scope_txt}{_comp_txt}。この操作は取り消せません。")
 
-        st.warning(
-            f"""
-⚠️ **ToDo一括削除の確認**
-
-以下の条件で ToDo を削除します:
-- **期限日**: {todo_delete_start.strftime('%Y年%m月%d日')} ～ {todo_delete_end.strftime('%Y年%m月%d日')}
-- **完了済みも削除**: {'はい' if delete_completed_todos else 'いいえ'}
-- **対象**: {target_desc}
-
-この操作は取り消せません。本当に削除しますか？
-"""
-        )
-
-        colt1, colt2 = st.columns([1, 1])
+        colt1, colt2 = st.columns([3, 1])
 
         with colt1:
             if st.button("✅ ToDo削除を実行", type="primary", use_container_width=True, key="todo_delete_execute"):
@@ -301,6 +305,6 @@ def render_tab3_delete(editable_calendar_options, service, tasks_service, defaul
                     st.success(f"✅ {deleted_tasks_count} 件のToDoを削除しました。")
 
         with colt2:
-            if st.button("❌ ToDo削除をキャンセル", use_container_width=True, key="todo_delete_cancel"):
+            if st.button("キャンセル", use_container_width=True, key="todo_delete_cancel"):
                 st.session_state["confirm_delete_todo"] = False
                 st.rerun()
