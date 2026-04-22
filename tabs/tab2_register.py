@@ -343,32 +343,20 @@ def _render_calendar_selector(user_id, calendar_options, base_calendar, outside_
 
 
 def _render_event_settings(user_id, outside_mode):
+    """設定ウィジェットを描画する（値はセッション状態に保存済みのものを使う）"""
     st.markdown("##### イベント基本設定")
     col1, col2 = st.columns(2)
     with col1:
-        all_day = st.checkbox(
-            "すべて終日として扱う",
-            value=get_user_setting(user_id, "default_allday_event"),
-        )
+        st.checkbox("すべて終日として扱う", key="reg_all_day")
     with col2:
-        private = st.checkbox(
-            "すべて非公開で登録する",
-            value=get_user_setting(user_id, "default_private_event"),
-        )
+        st.checkbox("すべて非公開で登録する", key="reg_private")
 
-    desc_cols = []
     if not outside_mode:
         pool = st.session_state.get("description_columns_pool") or []
-        saved = get_user_setting(user_id, "description_columns_selected") or ["内容", "詳細"]
-        desc_cols = st.multiselect(
-            "説明文に含める列",
-            pool,
-            default=[c for c in saved if c in pool],
-        )
-        if desc_cols:
-            set_user_setting(user_id, "description_columns_selected", desc_cols)
-
-    return all_day, private, desc_cols
+        new_cols = st.multiselect("説明文に含める列", pool, key="reg_desc_cols")
+        saved = get_user_setting(user_id, "description_columns_selected") or []
+        if sorted(new_cols) != sorted(saved):
+            set_user_setting(user_id, "description_columns_selected", new_cols)
 
 
 def _render_bulk_datetime_settings(all_day_override: bool):
@@ -406,30 +394,25 @@ def _render_bulk_datetime_settings(all_day_override: bool):
 
 
 def _render_event_name_settings(user_id):
+    """イベント名設定ウィジェットを描画する（値はセッション状態に保存済みのものを使う）"""
     pool = st.session_state.get("description_columns_pool") or []
     options = ["選択しない"] + pool
-    saved_fallback = get_user_setting(user_id, "event_name_col_selected") or "選択しない"
-    saved_add_type = get_user_setting(user_id, "add_task_type_to_event_name") or False
-    is_customized = saved_add_type or (saved_fallback != "選択しない")
+    # reg_fallback_col の値がプールに存在しない場合はリセット
+    if st.session_state.get("reg_fallback_col") not in options:
+        st.session_state["reg_fallback_col"] = "選択しない"
 
+    is_customized = (
+        st.session_state.get("reg_add_task_type", False)
+        or st.session_state.get("reg_fallback_col", "選択しない") != "選択しない"
+    )
     with st.expander("✏️ イベント名の構成（カスタマイズ）", expanded=is_customized):
         col1, col2 = st.columns(2)
         with col1:
-            add_type = st.checkbox(
-                "先頭に作業種別を付与する",
-                value=saved_add_type,
-            )
+            add_type = st.checkbox("先頭に作業種別を付与する", key="reg_add_task_type")
             set_user_setting(user_id, "add_task_type_to_event_name", add_type)
         with col2:
-            fallback = st.selectbox(
-                "特定の列をイベント名にする（任意）",
-                options,
-                index=options.index(saved_fallback) if saved_fallback in options else 0,
-            )
+            fallback = st.selectbox("特定の列をイベント名にする（任意）", options, key="reg_fallback_col")
             set_user_setting(user_id, "event_name_col_selected", fallback)
-            fallback_val = None if fallback == "選択しない" else fallback
-
-        return add_type, fallback_val
 
 
 def _execute_registration(
@@ -638,54 +621,66 @@ def render_tab2_register(user_id: str, manager):
     if base_calendar not in calendar_options:
         base_calendar = calendar_options[0]
 
-    selected_calendar_name = _render_calendar_selector(user_id, calendar_options, base_calendar, outside_mode)
-    calendar_id = editable_calendar_options[selected_calendar_name]
+    # ── セッション状態の初期化（ウィジェット描画前に1度だけ） ──
+    pool = st.session_state.get("description_columns_pool") or []
+    if "reg_all_day" not in st.session_state:
+        st.session_state["reg_all_day"] = get_user_setting(user_id, "default_allday_event") or False
+    if "reg_private" not in st.session_state:
+        v = get_user_setting(user_id, "default_private_event")
+        st.session_state["reg_private"] = v if v is not None else True
+    if "reg_desc_cols" not in st.session_state:
+        saved = get_user_setting(user_id, "description_columns_selected") or ["内容", "詳細"]
+        st.session_state["reg_desc_cols"] = [col for col in saved if col in pool]
+    if "reg_add_task_type" not in st.session_state:
+        st.session_state["reg_add_task_type"] = get_user_setting(user_id, "add_task_type_to_event_name") or False
+    if "reg_fallback_col" not in st.session_state:
+        st.session_state["reg_fallback_col"] = get_user_setting(user_id, "event_name_col_selected") or "選択しない"
+    st.session_state.setdefault("bulk_datetime_enabled", False)
+    st.session_state.setdefault("bulk_start_date", date.today())
+    st.session_state.setdefault("bulk_start_time", time(9, 0))
 
-    all_day_override, private_event, description_columns = _render_event_settings(user_id, outside_mode)
+    # ── セッション状態から設定値を読み取る ──
+    all_day_override    = st.session_state["reg_all_day"]
+    private_event       = st.session_state["reg_private"]
+    description_columns = st.session_state["reg_desc_cols"]
+    add_task_type       = st.session_state["reg_add_task_type"]
+    saved_fb            = st.session_state["reg_fallback_col"]
+    fallback_col        = None if saved_fb == "選択しない" else saved_fb
+    bulk_enabled        = st.session_state["bulk_datetime_enabled"]
+    bulk_start_date     = st.session_state["bulk_start_date"]
+    bulk_start_time     = st.session_state["bulk_start_time"]
 
     if outside_mode:
         add_task_type = False
-        fallback_col = None
-        bulk_enabled = False
-        bulk_start_date = None
-        bulk_start_time = None
-    else:
-        bulk_enabled, bulk_start_date, bulk_start_time = _render_bulk_datetime_settings(all_day_override)
-        add_task_type, fallback_col = _render_event_name_settings(user_id)
+        fallback_col  = None
+        bulk_enabled  = False
 
-    # データを処理してプレビュー
+    # ── Step 1: 登録先カレンダー ──
+    selected_calendar_name = _render_calendar_selector(user_id, calendar_options, base_calendar, outside_mode)
+    calendar_id = editable_calendar_options[selected_calendar_name]
+
+    # ── Step 2: df 計算 ──
     try:
         if outside_mode:
             raw_df = _read_outside_file_to_df(outside_file)
             df = _build_calendar_df_from_outside(
-                raw_df,
-                private_event=private_event,
-                all_day_override=all_day_override
+                raw_df, private_event=private_event, all_day_override=all_day_override
+            )
+        elif bulk_enabled:
+            df = process_excel_data_for_calendar(
+                st.session_state["uploaded_files"],
+                description_columns, all_day_override, private_event,
+                fallback_col, add_task_type,
+                bulk_start_date=bulk_start_date, bulk_start_time=bulk_start_time,
+                bulk_end_date=None, bulk_end_time=None,
             )
         else:
-            if bulk_enabled:
-                df = process_excel_data_for_calendar(
-                    st.session_state["uploaded_files"],
-                    description_columns,
-                    all_day_override,
-                    private_event,
-                    fallback_col,
-                    add_task_type,
-                    bulk_start_date=bulk_start_date,
-                    bulk_start_time=bulk_start_time,
-                    bulk_end_date=None,
-                    bulk_end_time=None,
-                )
-            else:
-                df = process_excel_data_for_calendar(
-                    st.session_state["uploaded_files"],
-                    description_columns,
-                    all_day_override,
-                    private_event,
-                    fallback_col,
-                    add_task_type,
-                )
-    except Exception as e:
+            df = process_excel_data_for_calendar(
+                st.session_state["uploaded_files"],
+                description_columns, all_day_override, private_event,
+                fallback_col, add_task_type,
+            )
+    except Exception:
         st.error("ファイルの読み込み中にエラーが発生しました。ファイル形式と内容を確認してください。")
         return
 
@@ -696,31 +691,28 @@ def render_tab2_register(user_id: str, manager):
     if not outside_mode:
         remain_missing = _count_missing_datetime_rows(df, all_day_override)
         if remain_missing > 0:
-            st.error(f"日時が未設定のイベントが {remain_missing} 件残っています。「日時一括設定」を有効にして設定してください。")
+            st.error(f"日時が未設定のイベントが {remain_missing} 件残っています。下の「日時一括設定」を有効にして設定してください。")
             with st.expander("未設定行の確認", expanded=True):
                 st.dataframe(df, use_container_width=True)
-            return
 
     event_count = len(df)
 
+    # ── Step 3: プレビュー + 確認カード + 登録ボタン ──
     st.divider()
 
-    # 登録前プレビュー（折りたたみ）
     with st.expander(f"📋 登録内容プレビュー（{event_count} 件）", expanded=False):
         st.dataframe(df, use_container_width=True)
 
-    # ── 登録確認カード ──
     st.markdown(f"""
-<div style="border:2px solid #1E88E5;border-radius:10px;padding:16px 20px;margin:12px 0;">
-  <div style="font-size:13px;color:var(--color-text-secondary);margin-bottom:6px;">この内容でGoogleカレンダーに登録します</div>
+<div style="border:2px solid #1E88E5;border-radius:10px;padding:14px 18px;margin:8px 0;">
+  <div style="font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">この内容でGoogleカレンダーに登録します</div>
   <div style="display:flex;align-items:baseline;gap:16px;flex-wrap:wrap;">
-    <span style="font-size:15px;">📅 登録先：<strong style="font-size:18px;color:var(--color-text-info);">{selected_calendar_name}</strong></span>
-    <span style="font-size:15px;">件数：<strong>{event_count} 件</strong></span>
+    <span style="font-size:14px;">📅 登録先：<strong style="font-size:17px;color:var(--color-text-info);">{selected_calendar_name}</strong></span>
+    <span style="font-size:14px;">件数：<strong>{event_count} 件</strong></span>
   </div>
 </div>
 """, unsafe_allow_html=True)
 
-    # 2ステップ確認: 1回目クリックで確認フラグ、2回目で実行
     confirm_key = "register_confirm_pending"
     if not st.session_state.get(confirm_key):
         if st.button(
@@ -741,3 +733,11 @@ def render_tab2_register(user_id: str, manager):
             if st.button("キャンセル", use_container_width=True):
                 st.session_state[confirm_key] = False
                 st.rerun()
+
+    # ── Step 4: 設定（変更すると次回rerunでプレビューに反映） ──
+    st.divider()
+    _render_event_settings(user_id, outside_mode)
+
+    if not outside_mode:
+        _render_bulk_datetime_settings(all_day_override)
+        _render_event_name_settings(user_id)
