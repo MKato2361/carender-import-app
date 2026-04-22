@@ -127,7 +127,9 @@ def render_tab1_upload():
     if st.session_state.get("navigate_to_register"):
         st.session_state["navigate_to_register"] = False
         _navigate_to_register_tab()
-        return  # 遷移後はこのタブの残りを描画しない
+        # return しない — tab1のDOMを維持する
+        # （Streamlitのタブ切り替えはPython再実行なしのクライアントサイド操作のため、
+        #   returnするとtab1が空になり、戻ったときに何も表示されなくなる）
 
     # --- アップロード状態の判定（初期値） ---
     has_work_files   = len(st.session_state["uploaded_files"]) > 0
