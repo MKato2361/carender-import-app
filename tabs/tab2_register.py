@@ -314,25 +314,32 @@ def _build_calendar_df_from_outside(df_raw: pd.DataFrame, private_event: bool, a
 # ============================================================
 
 def _render_calendar_selector(user_id, calendar_options, base_calendar, outside_mode):
-    with st.container(border=True):
-        st.markdown("**1. 登録先カレンダー**")
-        if outside_mode:
-            st.caption("※ 作業外予定の登録先を選択してください。")
-        
-        sel_key = "selected_calendar_name_register"
-        share_calendar = st.session_state.get("share_calendar_selection_across_tabs", True)
+    sel_key = "selected_calendar_name_register"
+    share_calendar = st.session_state.get("share_calendar_selection_across_tabs", True)
 
-        if share_calendar:
-            st.session_state[sel_key] = base_calendar
-        elif (sel_key not in st.session_state) or (st.session_state.get(sel_key) not in calendar_options):
-            st.session_state[sel_key] = base_calendar
+    if share_calendar:
+        st.session_state[sel_key] = base_calendar
+    elif (sel_key not in st.session_state) or (st.session_state.get(sel_key) not in calendar_options):
+        st.session_state[sel_key] = base_calendar
 
-        selected = st.selectbox(
-            "カレンダーを選択",
-            calendar_options,
-            key=sel_key,
-        )
-        return selected
+    # 選択中カレンダーを目立つ形で表示
+    current = st.session_state.get(sel_key, base_calendar)
+    st.markdown(f"""
+<div style="border:2px solid #1E88E5;border-radius:10px;padding:14px 18px;margin-bottom:12px;background:var(--color-background-info);">
+  <div style="font-size:12px;font-weight:600;color:var(--color-text-info);margin-bottom:4px;">📅 登録先カレンダー（必ず確認）</div>
+  <div style="font-size:20px;font-weight:700;color:var(--color-text-info);">{current}</div>
+</div>
+""", unsafe_allow_html=True)
+
+    if share_calendar:
+        st.caption("サイドバーの「基準カレンダー」と連動しています。変更はサイドバーから行ってください。")
+    else:
+        with st.expander("カレンダーを変更する"):
+            if outside_mode:
+                st.caption("作業外予定の登録先を選択してください。")
+            st.selectbox("カレンダーを選択", calendar_options, key=sel_key, label_visibility="collapsed")
+
+    return st.session_state.get(sel_key, base_calendar)
 
 
 def _render_event_settings(user_id, outside_mode):
@@ -366,61 +373,63 @@ def _render_event_settings(user_id, outside_mode):
 
 
 def _render_bulk_datetime_settings(all_day_override: bool):
-    with st.container(border=True):
-        st.markdown("**3. 日時一括設定（日時未入力ファイル用）**")
-        st.caption("作業指示書がある行で日時が空のものだけに適用されます。1件ごとに開始時刻を1時間ずつ後ろへずらして登録し、1日15件まで、16件目以降は翌日に繰り越します。終了は開始の1時間後で自動設定されます。")
+    today = date.today()
+    default_start_time = time(9, 0)
+    # デフォルト値をセッションに初期化
+    st.session_state.setdefault("bulk_datetime_enabled", False)
+    st.session_state.setdefault("bulk_start_date", today)
+    st.session_state.setdefault("bulk_start_time", default_start_time)
 
+    with st.expander("⏰ 日時一括設定（日時が空の行に適用）", expanded=st.session_state.get("bulk_datetime_enabled", False)):
+        st.caption("日時が空の行だけに適用されます。1件ごとに1時間ずつずらして登録し、1日15件まで（16件目以降は翌日に繰り越し）。終了時刻は自動で開始の1時間後になります。")
         enabled = st.checkbox(
-            "日時が空のイベントに一括日時を設定する",
-            value=False,
+            "有効にする",
+            value=st.session_state.get("bulk_datetime_enabled", False),
             key="bulk_datetime_enabled",
         )
-
-        today = date.today()
-        default_start_time = time(9, 0)
-
         c1, c2 = st.columns(2)
         with c1:
             bulk_start_date = st.date_input(
-                "予定開始日（一括）",
+                "開始日",
                 value=st.session_state.get("bulk_start_date", today),
                 key="bulk_start_date",
+                disabled=not enabled,
             )
         with c2:
             bulk_start_time = st.time_input(
-                "予定開始時刻（一括）",
+                "開始時刻",
                 value=st.session_state.get("bulk_start_time", default_start_time),
                 key="bulk_start_time",
                 step=300,
+                disabled=not enabled,
             )
-
-        st.info("終了日・終了時刻は入力不要です。すべて時刻付きイベントとして、開始の1時間後を自動設定します。")
         return enabled, bulk_start_date, bulk_start_time
 
 
 def _render_event_name_settings(user_id):
-    with st.container(border=True):
-        st.markdown("**4. イベント名の構成**")
+    pool = st.session_state.get("description_columns_pool") or []
+    options = ["選択しない"] + pool
+    saved_fallback = get_user_setting(user_id, "event_name_col_selected") or "選択しない"
+    saved_add_type = get_user_setting(user_id, "add_task_type_to_event_name") or False
+    is_customized = saved_add_type or (saved_fallback != "選択しない")
+
+    with st.expander("✏️ イベント名の構成（カスタマイズ）", expanded=is_customized):
         col1, col2 = st.columns(2)
         with col1:
             add_type = st.checkbox(
-                "イベント名の先頭に作業種別を付与する",
-                value=get_user_setting(user_id, "add_task_type_to_event_name"),
+                "先頭に作業種別を付与する",
+                value=saved_add_type,
             )
             set_user_setting(user_id, "add_task_type_to_event_name", add_type)
-        
         with col2:
-            pool = st.session_state.get("description_columns_pool") or []
-            options = ["選択しない"] + pool
-            saved = get_user_setting(user_id, "event_name_col_selected") or "選択しない"
             fallback = st.selectbox(
                 "特定の列をイベント名にする（任意）",
                 options,
-                index=options.index(saved) if saved in options else 0,
+                index=options.index(saved_fallback) if saved_fallback in options else 0,
             )
             set_user_setting(user_id, "event_name_col_selected", fallback)
             fallback_val = None if fallback == "選択しない" else fallback
-            
+
         return add_type, fallback_val
 
 
@@ -594,8 +603,6 @@ def _execute_registration(
 
 def render_tab2_register(user_id: str, manager):
     """タブ2: イベント登録・更新"""
-    st.subheader("イベントを登録・更新")
-    
     service = manager.calendar_service
     editable_calendar_options = manager.editable_calendar_options
 
@@ -609,7 +616,13 @@ def render_tab2_register(user_id: str, manager):
     outside_mode = bool(outside_file) and not has_work
 
     if not has_work and not outside_mode:
-        st.info("先に「1. ファイルのアップロード」タブでファイルをアップロードしてください。")
+        st.markdown("""
+<div style="border:1.5px dashed var(--color-border-secondary);border-radius:10px;padding:24px;text-align:center;color:var(--color-text-secondary);">
+  <div style="font-size:32px;margin-bottom:8px;">📂</div>
+  <div style="font-size:15px;font-weight:500;margin-bottom:4px;">ファイルがアップロードされていません</div>
+  <div style="font-size:13px;">「1. ファイル取込」タブでExcel / CSVをアップロードしてから戻ってきてください。</div>
+</div>
+""", unsafe_allow_html=True)
         return
 
     if not editable_calendar_options:
@@ -632,7 +645,6 @@ def render_tab2_register(user_id: str, manager):
     all_day_override, private_event, description_columns = _render_event_settings(user_id, outside_mode)
 
     if outside_mode:
-        st.info("イベント名は『備考 + [作業外予定]』で登録します。")
         add_task_type = False
         fallback_col = None
         bulk_enabled = False
@@ -642,8 +654,7 @@ def render_tab2_register(user_id: str, manager):
         bulk_enabled, bulk_start_date, bulk_start_time = _render_bulk_datetime_settings(all_day_override)
         add_task_type, fallback_col = _render_event_name_settings(user_id)
 
-    st.subheader("➡️ イベント登録・更新実行")
-
+    # データを処理してプレビュー
     try:
         if outside_mode:
             raw_df = _read_outside_file_to_df(outside_file)
@@ -676,7 +687,7 @@ def render_tab2_register(user_id: str, manager):
                     add_task_type,
                 )
     except Exception as e:
-        st.error(f"Excelデータ処理中にエラーが発生しました: {e}")
+        st.error("ファイルの読み込み中にエラーが発生しました。ファイル形式と内容を確認してください。")
         return
 
     if df.empty:
@@ -686,16 +697,48 @@ def render_tab2_register(user_id: str, manager):
     if not outside_mode:
         remain_missing = _count_missing_datetime_rows(df, all_day_override)
         if remain_missing > 0:
-            st.error(f"日時が未設定のイベントが {remain_missing} 件残っています。必要に応じて『日時一括設定』を入力してください。")
-            with st.expander("確認用プレビュー", expanded=True):
+            st.error(f"日時が未設定のイベントが {remain_missing} 件残っています。「日時一括設定」を有効にして設定してください。")
+            with st.expander("未設定行の確認", expanded=True):
                 st.dataframe(df, use_container_width=True)
             return
 
-    with st.expander("登録前プレビュー", expanded=False):
+    event_count = len(df)
+
+    st.divider()
+
+    # 登録前プレビュー（折りたたみ）
+    with st.expander(f"📋 登録内容プレビュー（{event_count} 件）", expanded=False):
         st.dataframe(df, use_container_width=True)
 
-    event_count = len(df)
-    if not st.button(f"▶ Googleカレンダーに登録・更新する（{event_count} 件）"):
-        return
+    # ── 登録確認カード ──
+    st.markdown(f"""
+<div style="border:2px solid #1E88E5;border-radius:10px;padding:16px 20px;margin:12px 0;">
+  <div style="font-size:13px;color:var(--color-text-secondary);margin-bottom:6px;">この内容でGoogleカレンダーに登録します</div>
+  <div style="display:flex;align-items:baseline;gap:16px;flex-wrap:wrap;">
+    <span style="font-size:15px;">📅 登録先：<strong style="font-size:18px;color:var(--color-text-info);">{selected_calendar_name}</strong></span>
+    <span style="font-size:15px;">件数：<strong>{event_count} 件</strong></span>
+  </div>
+</div>
+""", unsafe_allow_html=True)
 
-    _execute_registration(service, df, calendar_id, outside_mode)
+    # 2ステップ確認: 1回目クリックで確認フラグ、2回目で実行
+    confirm_key = "register_confirm_pending"
+    if not st.session_state.get(confirm_key):
+        if st.button(
+            f"「{selected_calendar_name}」に {event_count}件 登録する",
+            type="primary",
+            use_container_width=True,
+        ):
+            st.session_state[confirm_key] = True
+            st.rerun()
+    else:
+        st.warning(f"「**{selected_calendar_name}**」に **{event_count}件** を登録します。よろしいですか？")
+        col_ok, col_cancel = st.columns(2)
+        with col_ok:
+            if st.button("✅ 登録する", type="primary", use_container_width=True):
+                st.session_state[confirm_key] = False
+                _execute_registration(service, df, calendar_id, outside_mode)
+        with col_cancel:
+            if st.button("キャンセル", use_container_width=True):
+                st.session_state[confirm_key] = False
+                st.rerun()

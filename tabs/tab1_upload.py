@@ -31,6 +31,32 @@ def _clear_github_cache():
     list_dir.clear()
     walk_repo_tree_with_dates.clear()
 
+def _inject_navigate_js():
+    """「2. 登録・削除」タブをJSで自動クリックする"""
+    st.markdown("""
+<script>
+(function() {
+    function tryClick() {
+        var tabs = window.parent.document.querySelectorAll('[data-baseweb="tab"]');
+        for (var i = 0; i < tabs.length; i++) {
+            if (tabs[i].innerText.indexOf('登録・削除') !== -1) {
+                tabs[i].click();
+                return true;
+            }
+        }
+        return false;
+    }
+    if (!tryClick()) {
+        var n = 0;
+        var timer = setInterval(function() {
+            if (tryClick() || ++n > 20) clearInterval(timer);
+        }, 80);
+    }
+})();
+</script>
+""", unsafe_allow_html=True)
+
+
 def render_tab1_upload():
     """
     タブ1: ファイルのアップロードと管理
@@ -39,7 +65,6 @@ def render_tab1_upload():
     st.subheader("📁 ファイルをアップロード")
 
     # --- session_state 初期化 ---
-    # AuthManager側でも初期化されるが、タブ固有の変数をここで担保
     defaults = {
         "uploaded_files": [],
         "uploaded_outside_work_file": None,
@@ -49,10 +74,16 @@ def render_tab1_upload():
         "upload_version": 0,
         "gh_version": 0,
         "gh_defaults_applied": False,
+        "navigate_to_register": False,
     }
     for key, val in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = val
+
+    # --- タブ自動遷移（確定ボタン押下後） ---
+    if st.session_state.get("navigate_to_register"):
+        st.session_state["navigate_to_register"] = False
+        _inject_navigate_js()
 
     # --- ヘルプ・ガイド ---
     with st.expander("💡 ファイル形式とアップロードのヒント", expanded=False):
@@ -195,6 +226,50 @@ def render_tab1_upload():
             if has_merged_data():
                 df = st.session_state["merged_df_for_selector"]
                 st.info(f"📊 統合データ: {len(df)} 行 / {len(df.columns)} 列")
+
+        # --- 確定セクション ---
+        st.divider()
+        st.markdown("#### 📋 読み込み内容の確認")
+
+        # 読み込んだファイルのサマリーを表示
+        if has_work_files:
+            file_names = [getattr(f, "name", "Unknown") for f in st.session_state["uploaded_files"]]
+            df_preview = st.session_state.get("merged_df_for_selector")
+            row_count = len(df_preview) if df_preview is not None else "—"
+            col_count = len(df_preview.columns) if df_preview is not None else "—"
+
+            st.markdown(f"""
+<div style="background:var(--color-background-secondary);border:0.5px solid var(--color-border-tertiary);border-radius:10px;padding:14px 18px;margin-bottom:14px;">
+  <div style="font-size:12px;color:var(--color-text-secondary);margin-bottom:8px;font-weight:500;">作業指示書 {len(file_names)} ファイル</div>
+  {''.join(f'<div style="font-size:13px;color:var(--color-text-primary);padding:2px 0;">• {n}</div>' for n in file_names)}
+  <div style="margin-top:10px;padding-top:10px;border-top:0.5px solid var(--color-border-tertiary);font-size:13px;color:var(--color-text-secondary);">
+    統合データ：<strong style="color:var(--color-text-primary);">{row_count} 行 / {col_count} 列</strong>
+  </div>
+</div>
+""", unsafe_allow_html=True)
+
+        if has_outside_work:
+            f = st.session_state["uploaded_outside_work_file"]
+            st.markdown(f"""
+<div style="background:var(--color-background-secondary);border:0.5px solid var(--color-border-tertiary);border-radius:10px;padding:14px 18px;margin-bottom:14px;">
+  <div style="font-size:12px;color:var(--color-text-secondary);margin-bottom:6px;font-weight:500;">作業外予定</div>
+  <div style="font-size:13px;color:var(--color-text-primary);">• {f.name}</div>
+</div>
+""", unsafe_allow_html=True)
+
+        confirm_col, clear_col = st.columns([3, 1])
+        with confirm_col:
+            if st.button(
+                "✅ この内容で確定してカレンダー登録へ進む →",
+                type="primary",
+                use_container_width=True,
+            ):
+                st.session_state["navigate_to_register"] = True
+                st.rerun()
+        with clear_col:
+            pass  # クリアボタンは下に配置
+
+        st.markdown("<div style='margin-top:6px;'></div>", unsafe_allow_html=True)
 
         # --- クリアボタン ---
         if st.button("🗑️ すべてのアップロードをクリア", type="secondary", use_container_width=True):
