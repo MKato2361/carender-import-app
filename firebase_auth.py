@@ -106,63 +106,85 @@ def create_user_account(email, password):
             "error": str(e)
         }
 
+_FIREBASE_ERROR_MAP = {
+    "EMAIL_NOT_FOUND":             "メールアドレスが登録されていません。",
+    "INVALID_PASSWORD":            "パスワードが正しくありません。",
+    "INVALID_LOGIN_CREDENTIALS":   "メールアドレスまたはパスワードが正しくありません。",
+    "USER_DISABLED":               "このアカウントは無効化されています。管理者にお問い合わせください。",
+    "TOO_MANY_ATTEMPTS_TRY_LATER": "ログイン試行が多すぎます。しばらく待ってから再試行してください。",
+    "EMAIL_EXISTS":                "このメールアドレスはすでに登録されています。",
+    "WEAK_PASSWORD":               "パスワードは6文字以上で設定してください。",
+    "INVALID_EMAIL":               "メールアドレスの形式が正しくありません。",
+}
+
+def _localize_firebase_error(raw: str) -> str:
+    for code, msg in _FIREBASE_ERROR_MAP.items():
+        if code in raw:
+            return msg
+    return "エラーが発生しました。しばらく待ってから再試行してください。"
+
+
 def firebase_auth_form():
     """ログイン/サインアップのUIを表示し、認証状態を管理する"""
-    st.title("Firebase認証")
-    
-    # 認証情報をセッションステートで管理
+    st.subheader("ログイン")
+
     if "user_info" not in st.session_state:
         st.session_state.user_info = None
     if "user_email" not in st.session_state:
         st.session_state.user_email = None
-    
+
     if st.session_state.user_info is None:
-        choice = st.selectbox("選択してください", ["ログイン", "新規登録"])
-        
-        if choice == "新規登録":
-            new_email = st.text_input("新しいメールアドレス", key="signup_email")
-            new_password = st.text_input("新しいパスワード", type="password", key="signup_password")
-            
-            if st.button("新規登録"):
-                if new_email and new_password:
-                    result = create_user_account(new_email, new_password)
-                    if result["success"]:
-                        st.success(f"ユーザー {result['user_id']} の新規登録が完了しました。ログインしてください。")
-                    else:
-                        st.error(f"新規登録に失敗しました: {result['error']}")
-                else:
-                    st.warning("メールアドレスとパスワードを入力してください。")
-        
-        else:  # ログイン
-            email = st.text_input("メールアドレス", key="login_email")
+        tab_login, tab_signup = st.tabs(["ログイン", "新規登録"])
+
+        with tab_login:
+            email = st.text_input("メールアドレス", key="login_email", placeholder="example@mail.com")
             password = st.text_input("パスワード", type="password", key="login_password")
-            
-            if st.button("ログイン"):
+
+            if st.button("ログイン", use_container_width=True, type="primary"):
                 if email and password:
-                    result = authenticate_user(email, password)
+                    with st.spinner("ログイン中..."):
+                        result = authenticate_user(email, password)
                     if result["success"]:
                         st.session_state.user_info = result["user_id"]
                         st.session_state.user_email = result["email"]
                         st.session_state.id_token = result["id_token"]
-                        st.success("ログインしました！")
                         st.rerun()
                     else:
-                        st.error(f"ログインに失敗しました: {result['error']}")
+                        st.error(_localize_firebase_error(result["error"]))
                 else:
                     st.warning("メールアドレスとパスワードを入力してください。")
-    
+
+        with tab_signup:
+            new_email = st.text_input("メールアドレス", key="signup_email", placeholder="example@mail.com")
+            new_password = st.text_input("パスワード（6文字以上）", type="password", key="signup_password")
+
+            if st.button("アカウントを作成", use_container_width=True, type="primary"):
+                if new_email and new_password:
+                    with st.spinner("アカウントを作成中..."):
+                        result = create_user_account(new_email, new_password)
+                    if result["success"]:
+                        # 登録後にそのままログイン
+                        login_result = authenticate_user(new_email, new_password)
+                        if login_result["success"]:
+                            st.session_state.user_info = login_result["user_id"]
+                            st.session_state.user_email = login_result["email"]
+                            st.session_state.id_token = login_result["id_token"]
+                            st.rerun()
+                        else:
+                            st.success("登録が完了しました。ログインタブからサインインしてください。")
+                    else:
+                        st.error(_localize_firebase_error(result["error"]))
+                else:
+                    st.warning("メールアドレスとパスワードを入力してください。")
+
     else:
-        st.success(f"ログイン済みユーザー: {st.session_state.user_email}")
+        st.success(f"ログイン済み: {st.session_state.user_email}")
         if st.button("ログアウト"):
             st.session_state.user_info = None
             st.session_state.user_email = None
-            if 'id_token' in st.session_state:
-                del st.session_state.id_token
-            if 'credentials' in st.session_state:
-                del st.session_state.credentials
-            st.info("ログアウトしました。")
+            for key in ("id_token", "credentials"):
+                st.session_state.pop(key, None)
             st.rerun()
-
 def get_firebase_user_id():
     """現在の認証済みユーザーIDを返す"""
     return st.session_state.get("user_info")
@@ -186,52 +208,28 @@ def safe_load_tokens_from_firestore(user_id):
         db = firestore.client()
         doc_ref = db.collection('users').document(user_id)
         doc = doc_ref.get()
-        
+
         if not doc.exists:
-            st.warning("ユーザードキュメントが見つかりません。")
             return {}
-        
-        # トークンデータを取得
+
         token_data = doc.get('tokens') or doc.get('token') or doc.get('credentials')
-        
         if token_data is None:
-            st.info("トークンデータがありません。")
             return {}
-        
-        # デバッグ情報を表示
-        st.write(f"トークンデータの型: {type(token_data)}")
-        
-        # 型に応じて処理を分岐
+
         if isinstance(token_data, dict):
-            # 既に辞書の場合はそのまま返す
             return token_data
-        
         elif isinstance(token_data, str):
-            # 文字列の場合はJSONとしてパースを試行
             try:
-                parsed_data = json.loads(token_data)
-                if isinstance(parsed_data, dict):
-                    return parsed_data
-                else:
-                    st.error("パースされたデータが辞書ではありません。")
-                    return {}
-            except json.JSONDecodeError as e:
-                st.error(f"JSONパースエラー: {e}")
-                # JSONパースに失敗した場合、文字列をそのまま返す
-                return {"raw_token": token_data}
-        
+                parsed = json.loads(token_data)
+                return parsed if isinstance(parsed, dict) else {}
+            except json.JSONDecodeError:
+                return {}
         elif isinstance(token_data, list):
-            # リストの場合（複数のトークンがある場合）
             return {"tokens": token_data}
-        
-        else:
-            st.error(f"未対応のデータ型: {type(token_data)}")
-            return {}
-            
-    except Exception as e:
-        st.error(f"Firestoreからのトークン読み込みに失敗しました: {e}")
         return {}
 
+    except Exception as e:
+        return {}
 def save_tokens_to_firestore(user_id, tokens):
     """トークンをFirestoreに保存する"""
     try:

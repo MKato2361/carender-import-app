@@ -147,7 +147,7 @@ def render_sidebar(
 ) -> None:
     """サイドバー全体をモダンに描画する"""
     with st.sidebar:
-        st.title("⚙️ App Settings")
+        st.title("⚙️ 設定")
 
         # ════════════════════════════════
         # メイン設定: カレンダー選択 (常に表示)
@@ -225,7 +225,8 @@ def render_sidebar(
 
                 st.rerun()
         else:
-            st.warning("カレンダーが取得できません")
+            st.warning("カレンダーを取得できませんでした。")
+            st.caption("ページを再読み込みしてGoogleアカウントを再連携してください。")
 
         st.divider()
 
@@ -271,12 +272,15 @@ def render_sidebar(
 
             def _status_badge(ok: bool, label: str):
                 icon = "🟢" if ok else "🔴"
-                st.markdown(f"{icon} **{label}**")
+                st.markdown(f"{icon} {label}")
 
-            _status_badge(firebase_ok, "Firebase")
+            _status_badge(firebase_ok, "アカウント認証")
             _status_badge(calendar_ok, "Google Calendar")
             _status_badge(tasks_ok, "Google Tasks")
             _status_badge(sheets_ok, "Google Sheets")
+
+            if not calendar_ok:
+                st.caption("接続エラーはページを再読み込みすると解消する場合があります。")
 
         # ════════════════════════════════
         # 保存・リセット (下部に固定的な配置)

@@ -12,6 +12,25 @@ import streamlit as st
 
 # requests_oauthlib の PKCE を強制無効化
 os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
+
+
+def _handle_http_error(e, action: str = "操作") -> None:
+    """HttpError をユーザー向けメッセージに変換して表示する"""
+    try:
+        status = e.resp.status
+    except Exception:
+        status = None
+    if status == 401:
+        st.error(f"{action}に失敗しました。Googleセッションが切れています。ページを再読み込みして再連携してください。")
+    elif status == 403:
+        st.error(f"{action}に失敗しました。このカレンダーへの書き込み権限がありません。")
+    elif status == 404:
+        st.error(f"{action}に失敗しました。対象のイベントが見つかりません（すでに削除済みの可能性があります）。")
+    elif status == 429:
+        st.error(f"{action}に失敗しました。APIのリクエスト上限に達しました。しばらく待ってから再試行してください。")
+    else:
+        st.error(f"{action}に失敗しました（エラーコード: {status}）。しばらく待ってから再試行してください。")
+
 os.environ["OAUTHLIB_RELAX_TOKEN_SCOPE"] = "1"
 
 # Google API スコープ
@@ -163,7 +182,8 @@ def authenticate_google():
                 include_granted_scopes="true",
             )
             # ✅ stateはGoogleがコールバック時に返してくれるので保存不要
-            st.markdown(f"[Googleでログインする]({auth_url})")
+            st.info("Googleカレンダーへのアクセス許可が必要です。下のボタンからGoogleアカウントで連携してください。")
+            st.link_button("Googleアカウントで連携する", auth_url, use_container_width=True, type="primary")
             st.stop()
 
         # -------------------------------
@@ -235,7 +255,7 @@ def add_event_to_calendar(service, calendar_id, event_data):
     try:
         return service.events().insert(calendarId=calendar_id, body=event_data).execute()
     except HttpError as e:
-        st.error(f"イベント追加失敗 (HTTPエラー): {e}")
+        _handle_http_error(e, "イベントの追加")
     except Exception as e:
         st.error(f"イベント追加失敗: {e}")
     return None
@@ -261,7 +281,7 @@ def fetch_all_events(service, calendar_id, time_min=None, time_max=None):
                 break
         return events
     except HttpError as e:
-        st.error(f"イベント取得失敗 (HTTPエラー): {e}")
+        _handle_http_error(e, "イベントの取得")
     except Exception as e:
         st.error(f"イベント取得失敗: {e}")
     return []
@@ -315,7 +335,7 @@ def update_event_if_needed(service, calendar_id, event_id, new_event_data):
         return existing_event
 
     except HttpError as e:
-        st.error(f"イベント更新失敗 (HTTPエラー): {e}")
+        _handle_http_error(e, "イベントの更新")
     except Exception as e:
         st.error(f"イベント更新失敗: {e}")
     return None
@@ -326,7 +346,7 @@ def delete_event_from_calendar(service, calendar_id, event_id):
         service.events().delete(calendarId=calendar_id, eventId=event_id).execute()
         return True
     except HttpError as e:
-        st.error(f"イベント削除失敗 (HTTPエラー): {e}")
+        _handle_http_error(e, "イベントの削除")
     except Exception as e:
         st.error(f"イベント削除失敗: {e}")
     return False
@@ -350,7 +370,7 @@ def add_task_to_todo_list(tasks_service, task_list_id, task_data):
     try:
         return tasks_service.tasks().insert(tasklist=task_list_id, body=task_data).execute()
     except HttpError as e:
-        st.error(f"タスク追加失敗 (HTTPエラー): {e}")
+        _handle_http_error(e, "タスクの追加")
     except Exception as e:
         st.error(f"タスク追加失敗: {e}")
     return None
@@ -367,7 +387,7 @@ def find_and_delete_tasks_by_event_id(tasks_service, task_list_id, event_id):
                 deleted_count += 1
         return deleted_count
     except HttpError as e:
-        st.error(f"タスク検索・削除失敗 (HTTPエラー): {e}")
+        _handle_http_error(e, "タスクの検索・削除")
     except Exception as e:
         st.error(f"タスク検索・削除失敗: {e}")
     return 0

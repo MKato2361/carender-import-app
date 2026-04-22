@@ -79,12 +79,32 @@ def main():
     if not user_id:
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
-            st.info("利用を開始するにはログインしてください")
+            # ステップ進捗表示
+            st.markdown("""
+<div style="display:flex;gap:8px;align-items:center;margin-bottom:16px">
+  <span style="background:#1E88E5;color:white;border-radius:50%;width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:600">1</span>
+  <span style="font-weight:600;color:#1E88E5">アカウントにログイン</span>
+  <span style="color:#ccc;margin:0 4px">→</span>
+  <span style="background:#e0e0e0;color:#999;border-radius:50%;width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:600">2</span>
+  <span style="color:#999">Googleカレンダーと連携</span>
+</div>
+""", unsafe_allow_html=True)
             firebase_auth_form()
         st.stop()
 
     # 2. Google 認証 & サービス初期化
     if not manager.ensure_google_services():
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            st.markdown("""
+<div style="display:flex;gap:8px;align-items:center;margin-bottom:16px">
+  <span style="background:#4caf50;color:white;border-radius:50%;width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:600">✓</span>
+  <span style="color:#4caf50">ログイン済み</span>
+  <span style="color:#ccc;margin:0 4px">→</span>
+  <span style="background:#1E88E5;color:white;border-radius:50%;width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:600">2</span>
+  <span style="font-weight:600;color:#1E88E5">Googleカレンダーと連携</span>
+</div>
+""", unsafe_allow_html=True)
         # authenticate_google() が内部で URL を表示し st.stop() するため、ここでの明示的な stop は不要な場合が多い
         st.stop()
 
