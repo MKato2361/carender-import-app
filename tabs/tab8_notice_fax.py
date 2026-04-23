@@ -1,5 +1,3 @@
-from core.utils.datetime_utils import to_utc_range
-from services.settings_service import get_setting as get_user_setting, set_setting as set_user_setting
 from __future__ import annotations
 
 from datetime import datetime, date, time, timedelta, timezone
@@ -21,6 +19,7 @@ from tabs.tab6_property_master import (
     _normalize_df,
 )
 from utils.helpers import safe_get
+from session_utils import get_user_setting, set_user_setting
 
 # ─────────────────────────────────────────────────────────
 # 定数
@@ -81,6 +80,12 @@ def extract_worktype(text: str) -> str:
     return (m.group(1) or "").strip() if m else ""
 
 
+def to_utc_range_from_dates(d1: date, d2: date) -> tuple[str, str]:
+    start = datetime.combine(d1, time.min, tzinfo=JST).astimezone(timezone.utc)
+    end = datetime.combine(d2, time.max, tzinfo=JST).astimezone(timezone.utc)
+    return start.isoformat(), end.isoformat()
+
+
 def get_event_start_datetime(event: Dict[str, Any]) -> Optional[datetime]:
     start = event.get("start", {})
     if "dateTime" in start:
@@ -102,7 +107,7 @@ def get_event_start_datetime(event: Dict[str, Any]) -> Optional[datetime]:
 def fetch_events_in_range(service: Any, calendar_id: str, start_date: date, end_date: date) -> List[Dict[str, Any]]:
     if not service:
         return []
-    time_min, time_max = to_utc_range(start_date, end_date)
+    time_min, time_max = to_utc_range_from_dates(start_date, end_date)
     events: List[Dict[str, Any]] = []
     page_token: Optional[str] = None
     while True:

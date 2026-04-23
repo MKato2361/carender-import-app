@@ -1,8 +1,7 @@
-from core.utils.datetime_utils import to_utc_range
-from services.settings_service import get_setting as get_user_setting, set_setting as set_user_setting
 import streamlit as st
 from calendar_utils import fetch_all_events
 from datetime import datetime, date, timedelta, timezone
+from session_utils import get_user_setting, set_user_setting
 
 def _get_current_user_key(fallback: str = "") -> str:
     """設定保存用のユーザーキーを取得（優先: uid -> email）。"""
@@ -97,6 +96,14 @@ def render_tab3_delete(editable_calendar_options, service, tasks_service, defaul
         st.error("削除開始日は終了日より前に設定してください。")
         return
 
+    # UTC 変換ヘルパー（イベント・ToDo共通で使用）
+    def to_utc_range(d1: date, d2: date):
+        sdt = datetime.combine(d1, datetime.min.time(), tzinfo=JST).astimezone(timezone.utc)
+        edt = datetime.combine(d2, datetime.max.time(), tzinfo=JST).astimezone(timezone.utc)
+        return (
+            sdt.isoformat(timespec="microseconds").replace("+00:00", "Z"),
+            edt.isoformat(timespec="microseconds").replace("+00:00", "Z"),
+        )
 
     # -------------------------------
     # イベント削除 実行セクション

@@ -1,5 +1,3 @@
-from core.utils.datetime_utils import to_utc_range
-from services.settings_service import get_setting as get_user_setting, set_setting as set_user_setting
 from __future__ import annotations
 
 from datetime import datetime, date, time, timedelta, timezone
@@ -19,6 +17,7 @@ from tabs.tab6_property_master import (
     _normalize_df,
 )
 from utils.helpers import safe_get  # 既存ヘルパー
+from session_utils import get_user_setting, set_user_setting
 
 def _get_current_user_key(fallback: str = "") -> str:
     """設定保存用のユーザーキーを取得（優先: uid -> email）。"""
@@ -82,6 +81,13 @@ def display_value(val: Any) -> str:
 # イベント関連ヘルパー
 # ==========================
 
+def to_utc_range_from_dates(d1: date, d2: date) -> tuple[str, str]:
+    """JSTの date 範囲 → Calendar API 用の UTC ISO文字列範囲"""
+    start_dt_utc = datetime.combine(d1, time.min, tzinfo=JST).astimezone(timezone.utc)
+    end_dt_utc = datetime.combine(d2, time.max, tzinfo=JST).astimezone(timezone.utc)
+    return start_dt_utc.isoformat(), end_dt_utc.isoformat()
+
+
 def get_event_start_datetime(event: Dict[str, Any]) -> Optional[datetime]:
     """Googleカレンダーイベントから開始日時（JST）を取得"""
     start = event.get("start", {})
@@ -123,7 +129,7 @@ def fetch_events_in_range(
     if not service:
         return []
 
-    time_min, time_max = to_utc_range(start_date, end_date)
+    time_min, time_max = to_utc_range_from_dates(start_date, end_date)
 
     events: List[Dict[str, Any]] = []
     page_token: Optional[str] = None
