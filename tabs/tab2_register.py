@@ -1,3 +1,5 @@
+from core.utils.datetime_utils import default_fetch_window
+from services.settings_service import get_setting as get_user_setting, set_setting as set_user_setting
 import re
 import streamlit as st
 import pandas as pd
@@ -6,7 +8,7 @@ from zoneinfo import ZoneInfo
 from typing import Dict, Optional
 
 from utils.helpers import safe_get
-from utils.parsers import extract_worksheet_id_from_text
+from core.parsers.description import extract_worksheet_id as extract_worksheet_id_from_text, is_event_changed
 from excel_parser import (
     process_excel_data_for_calendar,
     get_available_columns_for_event_name,
@@ -16,10 +18,6 @@ from calendar_utils import (
     fetch_all_events,
     add_event_to_calendar,
     update_event_if_needed,
-)
-from session_utils import (
-    get_user_setting,
-    set_user_setting,
 )
 
 JST = ZoneInfo("Asia/Tokyo")
@@ -47,29 +45,9 @@ def _normalize_time_dict(d: dict) -> str:
     return ""
 
 
-def is_event_changed(existing_event: dict, new_event_data: dict) -> bool:
-    nz = lambda v: (v or "")
-    for field in ("summary", "description", "location", "visibility", "transparency"):
-        if nz(existing_event.get(field)) != nz(new_event_data.get(field)):
-            return True
-    if _normalize_time_dict(existing_event.get("start") or {}) != _normalize_time_dict(new_event_data.get("start") or {}):
-        return True
-    if _normalize_time_dict(existing_event.get("end") or {}) != _normalize_time_dict(new_event_data.get("end") or {}):
-        return True
-    return False
-
-
 # ============================================================
 # フェッチ期間計算
 # ============================================================
-
-def default_fetch_window_years(years: int = 2):
-    now_utc = datetime.now(tz=ZoneInfo("UTC"))
-    return (
-        (now_utc - timedelta(days=365 * years)).isoformat(),
-        (now_utc + timedelta(days=365 * years)).isoformat(),
-    )
-
 
 def compute_fetch_window_from_df(df: pd.DataFrame, buffer_days: int = 30):
     """DFのStart/End Date列からイベント取得範囲を最小化する。"""
@@ -432,7 +410,7 @@ def _execute_registration(
     total = len(df)
 
     window = compute_fetch_window_from_df(df, buffer_days=30)
-    time_min, time_max = window if window else default_fetch_window_years(2)
+    time_min, time_max = window if window else default_fetch_window(2)
 
     with st.spinner("既存イベントを取得中..."):
         events = fetch_all_events(service, calendar_id, time_min, time_max) or []
