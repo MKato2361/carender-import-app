@@ -281,4 +281,8 @@ def render_tab5_export(manager) -> None:
 
         except Exception as e:
             progress.empty()
-            st.error(f"エラーが発生しました: {e}")
+            _msg = str(e).lower()
+            if "invalid_grant" in _msg or "token has been expired" in _msg:
+                st.error("Googleアカウントの連携が切れています。ページを再読み込みして再連携してください。")
+            else:
+                st.error("エクスポート中にエラーが発生しました。しばらく待ってから再試行してください。")

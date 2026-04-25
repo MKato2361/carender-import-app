@@ -194,7 +194,6 @@ def _render_step_indicator(current: int) -> None:
             f"{icon} {label}</div>",
             unsafe_allow_html=True,
         )
-    st.write("")
 
 
 # ─────────────────────────────────────────────────────────

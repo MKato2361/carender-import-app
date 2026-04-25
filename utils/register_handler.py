@@ -111,7 +111,7 @@ def render_tab2_register(service, editable_calendar_options):
                     add_task_type_to_event_name,
                 )
             except Exception as e:
-                st.error(f"Excelデータ処理中にエラーが発生しました: {e}")
+                st.error("ファイルの読み込みに失敗しました。ファイル形式と内容を確認してください。")
                 return
 
         prep = prepare_events(df_processed, description_columns, fallback_event_name_column, add_task_type_to_event_name)
@@ -120,13 +120,13 @@ def render_tab2_register(service, editable_calendar_options):
             st.error(f"❌ {len(prep['errors'])}件の行でエラーがあり、スキップされます。")
             with st.expander("エラー詳細を表示"):
                 for err in prep["errors"]:
-                    st.write(f"- {err}")
+                    st.caption(f"• {err}")
 
         if prep["warnings"]:
             st.warning(f"⚠️ {len(prep['warnings'])}件の警告があります。")
             with st.expander("警告の詳細を見る"):
                 for warn in prep["warnings"]:
-                    st.write(f"- {warn}")
+                    st.caption(f"• {warn}")
 
         event_candidates = prep["events"]
         if not event_candidates:

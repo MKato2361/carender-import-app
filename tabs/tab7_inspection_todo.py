@@ -652,8 +652,6 @@ def render_tab7_inspection_todo(
         with st.spinner("カレンダーイベントを取得中..."):
             events = fetch_events_in_range(service, calendar_id, start_date, end_date)
 
-        st.write(f"取得したイベント件数: {len(events)} 件")
-
         with st.spinner("物件マスタとの照合＆ToDo候補の作成中..."):
             candidates_df = build_task_candidates(events, pm_view_df)
 

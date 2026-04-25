@@ -1,5 +1,5 @@
-# tabs/tab6_property_master.py
 from __future__ import annotations
+# tabs/tab6_property_master.py
 
 from datetime import datetime
 from typing import Optional, Any
@@ -636,7 +636,6 @@ def render_tab6_property_master(
 
         # 1) 先に「新規作成ボタン」を処理し、必要なら session_state に ID をセット
         with col2:
-            st.write("　")
             if st.button("🆕 新規スプレッドシート作成", use_container_width=True):
                 if not sheets_service:
                     st.error("Sheets API のサービスが初期化されていません。")
@@ -764,17 +763,17 @@ def render_tab6_property_master(
         deleted_rows = st.session_state.get("pm_basic_deleted_rows")
 
         if isinstance(new_rows, pd.DataFrame):
-            st.write(f"✅ 新規追加候補: {len(new_rows)} 件")
+            st.success(f"✅ 新規追加候補: {len(new_rows)} 件")
             if len(new_rows) > 0:
                 st.dataframe(new_rows, use_container_width=True, height=200)
 
         if isinstance(updated_rows, pd.DataFrame):
-            st.write(f"✅ 更新候補: {len(updated_rows)} 件")
+            st.success(f"✅ 更新候補: {len(updated_rows)} 件")
             if len(updated_rows) > 0:
                 st.dataframe(updated_rows, use_container_width=True, height=200)
 
         if isinstance(deleted_rows, pd.DataFrame):
-            st.write(f"⚠️ 削除候補: {len(deleted_rows)} 件（※反映時は新しいファイルの内容でシート全体を置き換えます）")
+            st.warning(f"⚠️ 削除候補: {len(deleted_rows)} 件（反映時はシート全体を新しいファイルの内容で置き換えます）")
             if len(deleted_rows) > 0:
                 st.dataframe(deleted_rows, use_container_width=True, height=200)
 

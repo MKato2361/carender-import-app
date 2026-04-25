@@ -214,7 +214,7 @@ def render_tab4_duplicates(service, editable_calendar_options, fetch_all_events)
                 st.info("削除対象のイベントが見つかりませんでした。")
             else:
                 st.warning(f"以下のモードで {len(auto_delete_ids)} 件のイベントを自動削除します: **{current_mode}**")
-                st.write(auto_delete_ids)
+                st.dataframe({"削除対象イベントID": auto_delete_ids}, use_container_width=True)
 
                 confirm = st.checkbox("削除操作を確認しました", value=False, key="auto_del_confirm_final")
 

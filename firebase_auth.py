@@ -257,20 +257,11 @@ def process_tokens_safely(user_id):
         st.info("利用可能なトークンがありません。")
         return
     
-    # トークンデータを処理
-    st.write("取得したトークン:")
-    
-    # 安全に.items()を使用
-    try:
-        if isinstance(tokens, dict):
-            for key, value in tokens.items():
-                st.write(f"- {key}: {value}")
-        else:
-            st.write(f"トークンデータ: {tokens}")
-    except AttributeError as e:
-        st.error(f"トークンデータの処理でエラーが発生しました: {e}")
-        st.write(f"データの型: {type(tokens)}")
-        st.write(f"データの内容: {tokens}")
+    # トークンデータのキー一覧のみ表示（値は非表示）
+    if isinstance(tokens, dict):
+        st.caption(f"トークンキー: {list(tokens.keys())}")
+    else:
+        st.caption("トークン取得済み")
 
 def main():
     """メイン関数"""
@@ -291,8 +282,7 @@ def main():
         user_id = get_firebase_user_id()
         
         # 現在のユーザー情報を表示
-        st.write(f"認証済みユーザーID: {user_id}")
-        st.write(f"認証状態: {is_user_authenticated()}")
+        st.caption(f"ユーザーID: {user_id}")
         
         # トークン操作ボタン
         if st.button("トークンを読み込む"):
