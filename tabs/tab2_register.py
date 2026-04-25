@@ -562,10 +562,10 @@ def render_tab2_register(user_id: str, manager):
 
     if not has_work and not outside_mode:
         st.markdown("""
-<div style="border:1.5px dashed var(--color-border-secondary);border-radius:10px;padding:24px;text-align:center;color:var(--color-text-secondary);">
+<div style="border:1.5px dashed var(--border-strong);border-radius:12px;padding:24px;text-align:center;color:var(--text-3);">
   <div style="margin-bottom:8px;"><span class="mi">folder_open</span></div>
-  <div style="font-size:15px;font-weight:500;margin-bottom:4px;">ファイルがアップロードされていません</div>
-  <div style="font-size:13px;">「1. ファイル取込」タブでExcel / CSVをアップロードしてから戻ってきてください。</div>
+  <div style="font-size:15px;font-weight:500;margin-bottom:4px;color:var(--text-1);">ファイルがアップロードされていません</div>
+  <div style="font-size:13px;color:var(--text-2);">「1. ファイル取込」タブでExcel / CSVをアップロードしてから戻ってきてください。</div>
 </div>
 """, unsafe_allow_html=True)
         return
@@ -681,10 +681,10 @@ def render_tab2_register(user_id: str, manager):
         st.dataframe(df, use_container_width=True)
 
     st.markdown(f"""
-<div style="border:2px solid #4f46e5;border-radius:10px;padding:14px 18px;margin:8px 0;">
-  <div style="font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">この内容でGoogleカレンダーに登録します</div>
+<div style="border:1.5px solid var(--accent-border);border-radius:12px;padding:14px 18px;margin:8px 0;background:var(--surface);">
+  <div style="font-size:12px;color:var(--text-3);margin-bottom:4px;">この内容でGoogleカレンダーに登録します</div>
   <div style="display:flex;align-items:baseline;gap:16px;flex-wrap:wrap;">
-    <span style="font-size:14px;"><span class="mi">calendar_month</span> 登録先：<strong style="font-size:17px;color:#4f46e5;">{selected_calendar_name}</strong></span>
+    <span style="font-size:14px;"><span class="mi">calendar_month</span> 登録先：<strong style="font-size:17px;color:var(--accent);">{selected_calendar_name}</strong></span>
     <span style="font-size:14px;">件数：<strong>{event_count} 件</strong></span>
   </div>
 </div>
@@ -708,10 +708,10 @@ def render_tab2_register(user_id: str, manager):
 
         # 結果サマリーカード
         all_ok = r["failed"] == 0
-        card_color = "#4f46e5" if all_ok else "#e53935"
+        card_color = "var(--accent)" if all_ok else "var(--danger)"
         st.markdown(f"""
 <div style="border:2px solid {card_color};border-radius:10px;padding:16px 20px;margin:8px 0;">
-  <div style="font-size:13px;color:var(--color-text-secondary);margin-bottom:8px;">
+  <div style="font-size:13px;color:var(--text-2);margin-bottom:8px;">
     <span class="mi">check_circle</span> {cal_name} への登録が完了しました
   </div>
   <div style="display:flex;gap:24px;flex-wrap:wrap;font-size:15px;">

@@ -31,226 +31,172 @@ st.markdown("""
 @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;600;700&display=swap');
 @import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20,300,0,0&display=block');
 
+/* ── iOS準拠カラー変数（ライトモード） ── */
+:root {
+  --app-bg:          #F2F2F7;   /* systemGroupedBackground */
+  --surface:         #FFFFFF;   /* systemBackground */
+  --surface-2:       #F2F2F7;   /* secondarySystemBackground */
+  --surface-3:       #E5E5EA;   /* systemGray5 */
+  --border:          #C6C6C8;   /* opaqueSeparator */
+  --border-strong:   #AEAEB2;   /* systemGray2 */
+  --separator:       rgba(60,60,67,.36); /* separator */
+  --text-1:          #000000;   /* label */
+  --text-2:          rgba(60,60,67,.6);  /* secondaryLabel ≈ #3C3C43 60% */
+  --text-3:          rgba(60,60,67,.3);  /* tertiaryLabel */
+  --text-4:          rgba(60,60,67,.18); /* quaternaryLabel */
+  --accent:          #5856D6;   /* systemIndigo */
+  --accent-hover:    #4644BC;
+  --accent-surface:  #EDEDFA;   /* systemIndigo 8% tint */
+  --accent-border:   #C0BFF2;   /* systemIndigo 30% tint */
+  --accent-text:     #1D1C6E;   /* systemIndigo dark text */
+  --accent-label:    #5856D6;   /* systemIndigo */
+  --success:         #34C759;   /* systemGreen */
+  --success-surface: #E8FAF0;
+  --danger:          #FF3B30;   /* systemRed */
+  --danger-surface:  #FFF0EF;
+  --warning:         #FF9500;   /* systemOrange */
+}
+
+/* ── iOS準拠カラー変数（ダークモード） ── */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --app-bg:          #000000;   /* systemBackground */
+    --surface:         #1c1c1e;   /* secondarySystemBackground */
+    --surface-2:       #2c2c2e;   /* tertiarySystemBackground */
+    --surface-3:       #3a3a3c;   /* systemGray4 */
+    --border:          #38383a;   /* opaqueSeparator */
+    --border-strong:   #48484a;   /* systemGray3 */
+    --separator:       rgba(84,84,88,.6); /* separator */
+    --text-1:          #ffffff;
+    --text-2:          rgba(235,235,245,.7);  /* secondaryLabel */
+    --text-3:          rgba(235,235,245,.45); /* tertiaryLabel */
+    --text-4:          rgba(235,235,245,.2);  /* quaternaryLabel */
+    --accent:          #5e5ce6;   /* systemIndigo dark */
+    --accent-hover:    #7472ec;
+    --accent-surface:  #1c1438;
+    --accent-border:   #3d3a7a;
+    --accent-text:     #a5a3f0;
+    --accent-label:    #8381eb;
+    --success:         #30d158;   /* systemGreen dark */
+    --success-surface: #0d2c1a;
+    --danger:          #ff453a;   /* systemRed dark */
+    --danger-surface:  #2c0f0e;
+    --warning:         #ff9f0a;   /* systemOrange dark */
+  }
+}
+
 /* ── Material Icons ── */
 .mi {
     font-family: 'Material Symbols Outlined';
     font-variation-settings: 'FILL' 0, 'wght' 300, 'GRAD' 0, 'opsz' 20;
-    font-size: 16px;
-    line-height: 1;
-    vertical-align: middle;
-    display: inline-block;
-    color: inherit;
-    margin-right: 4px;
-    position: relative;
-    top: -1px;
+    font-size: 16px; line-height: 1; vertical-align: middle;
+    display: inline-block; color: inherit; margin-right: 4px; position: relative; top: -1px;
 }
-.section-heading .mi { font-size: 15px; color: #9d9b96; }
-.cal-card-icon { font-size: 14px; }
+.section-heading .mi { font-size: 15px; color: var(--text-3); }
 
 /* ── ベース ── */
-html, body, [class*="css"] {
-    font-family: 'Noto Sans JP', -apple-system, BlinkMacSystemFont, sans-serif;
-}
-
-/* ── ページ背景 ── */
-.stApp {
-    background: #f8f7f5;
-}
-@media (prefers-color-scheme: dark) {
-    .stApp { background: #0f0f0f; }
-}
-
-/* ── メインコンテンツエリア ── */
-section[data-testid="stMain"] > div {
-    padding-top: 1.5rem;
-}
+html, body, [class*="css"] { font-family: 'Noto Sans JP', -apple-system, BlinkMacSystemFont, sans-serif; }
+.stApp { background: var(--app-bg) !important; }
+section[data-testid="stMain"] > div { padding-top: 1.5rem; }
 
 /* ── タブバー ── */
 .stTabs [data-baseweb="tab-list"] {
-    gap: 0;
-    background: transparent;
-    border-bottom: 1px solid #e5e3df;
-    padding: 0;
-    position: sticky;
-    top: 0;
-    z-index: 100;
-    background-color: #f8f7f5;
-}
-@media (prefers-color-scheme: dark) {
-    .stTabs [data-baseweb="tab-list"] { background-color: #0f0f0f; border-color: #2a2a2a; }
+    gap: 0; background: var(--app-bg) !important;
+    border-bottom: 1px solid var(--border);
+    padding: 0; position: sticky; top: 0; z-index: 100;
 }
 .stTabs [data-baseweb="tab"] {
-    font-family: 'Noto Sans JP', sans-serif;
-    font-size: 13px;
-    font-weight: 500;
-    padding: 10px 20px;
-    border-radius: 0;
-    color: #888;
-    letter-spacing: .01em;
-    border-bottom: 2px solid transparent;
+    font-family: 'Noto Sans JP', sans-serif; font-size: 13px; font-weight: 500;
+    padding: 10px 20px; border-radius: 0; color: var(--text-3);
+    letter-spacing: .01em; border-bottom: 2px solid transparent;
     transition: color .15s, border-color .15s;
 }
-.stTabs [data-baseweb="tab"]:hover {
-    color: #4f46e5;
-    background: transparent;
-}
+.stTabs [data-baseweb="tab"]:hover { color: var(--accent); background: transparent; }
 .stTabs [aria-selected="true"] {
     background: transparent !important;
-    color: #4f46e5 !important;
-    font-weight: 700;
-    border-bottom: 2px solid #4f46e5 !important;
+    color: var(--accent) !important; font-weight: 700;
+    border-bottom: 2px solid var(--accent) !important;
 }
 
 /* ── セクション見出し ── */
 .section-heading {
-    font-family: 'Noto Sans JP', sans-serif;
-    font-size: 11px;
-    font-weight: 700;
-    color: #9d9b96;
-    letter-spacing: .08em;
-    text-transform: uppercase;
-    margin: 22px 0 10px;
-    padding-bottom: 0;
-    border-bottom: none;
-    display: flex;
-    align-items: center;
-    gap: 6px;
+    font-size: 11px; font-weight: 700; color: var(--text-3);
+    letter-spacing: .08em; text-transform: uppercase;
+    margin: 22px 0 10px; display: flex; align-items: center; gap: 6px;
 }
-.section-heading::after {
-    content: '';
-    flex: 1;
-    height: 1px;
-    background: #e5e3df;
-}
+.section-heading::after { content: ''; flex: 1; height: 1px; background: var(--border); }
 
 /* ── アプリ名 ── */
 .app-subtitle {
-    font-family: 'Noto Sans JP', sans-serif;
-    font-size: 13px;
-    font-weight: 500;
-    color: #9d9b96;
-    margin-bottom: 18px;
-    letter-spacing: .02em;
-}
-
-/* ── カレンダー選択カード ── */
-div[style*="border:2px solid #1E88E5"] {
-    border: 1.5px solid #c7d2fe !important;
-    background: #eef2ff !important;
-    border-radius: 12px !important;
+    font-size: 13px; font-weight: 500; color: var(--text-3);
+    margin-bottom: 18px; letter-spacing: .02em;
 }
 
 /* ── プライマリボタン ── */
 .stButton > button[kind="primary"] {
-    background: #4f46e5;
-    border: none;
-    border-radius: 8px;
-    font-family: 'Noto Sans JP', sans-serif;
-    font-size: 13px;
-    font-weight: 600;
-    letter-spacing: .02em;
-    padding: 0 20px;
-    height: 38px;
+    background: var(--accent); border: none; border-radius: 8px;
+    font-family: 'Noto Sans JP', sans-serif; font-size: 13px;
+    font-weight: 600; letter-spacing: .02em; padding: 0 20px; height: 38px;
     box-shadow: 0 1px 3px rgba(79,70,229,.25);
     transition: background .15s, box-shadow .15s, transform .1s;
 }
 .stButton > button[kind="primary"]:hover {
-    background: #4338ca;
-    box-shadow: 0 4px 12px rgba(79,70,229,.35);
-    transform: translateY(-1px);
+    background: var(--accent-hover) !important;
+    box-shadow: 0 4px 12px rgba(79,70,229,.3); transform: translateY(-1px);
 }
-.stButton > button[kind="primary"]:active {
-    transform: translateY(0);
-    box-shadow: 0 1px 2px rgba(79,70,229,.2);
-}
+.stButton > button[kind="primary"]:active { transform: translateY(0); }
 
 /* ── セカンダリボタン ── */
 .stButton > button[kind="secondary"] {
-    border-radius: 8px;
-    font-family: 'Noto Sans JP', sans-serif;
-    font-size: 13px;
-    border: 1px solid #e5e3df;
-    background: white;
+    border-radius: 8px; font-family: 'Noto Sans JP', sans-serif; font-size: 13px;
+    border: 1px solid var(--border); background: var(--surface); color: var(--text-1);
     transition: border-color .15s, background .15s;
 }
-.stButton > button[kind="secondary"]:hover {
-    border-color: #c7d2fe;
-    background: #f5f3ff;
-}
+.stButton > button[kind="secondary"]:hover { border-color: var(--accent-border); background: var(--accent-surface); }
 
 /* ── リンクボタン ── */
-.stLinkButton a {
-    background: #4f46e5 !important;
-    border-radius: 8px !important;
-    font-weight: 600 !important;
-    font-family: 'Noto Sans JP', sans-serif !important;
-}
+.stLinkButton a { background: var(--accent) !important; border-radius: 8px !important; font-weight: 600 !important; }
 
 /* ── divider ── */
-hr {
-    border: none !important;
-    border-top: 1px solid #e5e3df !important;
-    margin: 16px 0 !important;
-}
+hr { border: none !important; border-top: 1px solid var(--border) !important; margin: 16px 0 !important; }
 
-/* ── st.info / success / warning / error ── */
-[data-testid="stAlert"] {
-    border-radius: 10px;
-    border: none;
-    padding: 12px 16px;
-}
+/* ── Alert ── */
+[data-testid="stAlert"] { border-radius: 10px; border: none; padding: 12px 16px; }
 
 /* ── 入力フィールド ── */
 .stTextInput > div > div > input,
 .stSelectbox > div > div,
 .stMultiSelect > div > div {
-    border-radius: 8px;
-    border-color: #e5e3df;
+    border-radius: 8px; border-color: var(--border);
     font-family: 'Noto Sans JP', sans-serif;
+    background: var(--surface); color: var(--text-1);
 }
-.stTextInput > div > div > input:focus {
-    border-color: #4f46e5;
-    box-shadow: 0 0 0 3px rgba(79,70,229,.12);
-}
+.stTextInput > div > div > input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(94,92,230,.15); }
 
 /* ── expander ── */
 .stExpander {
-    border: 1px solid #e5e3df !important;
-    border-radius: 10px !important;
-    background: white;
+    border: 1px solid var(--border) !important; border-radius: 10px !important;
+    background: var(--surface) !important;
 }
 .stExpander > details > summary {
-    font-family: 'Noto Sans JP', sans-serif;
-    font-size: 13px;
-    font-weight: 600;
-    color: #3d3b37;
+    font-family: 'Noto Sans JP', sans-serif; font-size: 13px;
+    font-weight: 600; color: var(--text-1);
 }
 
-/* ── progress bar ── */
-.stProgress > div > div > div > div {
-    background: linear-gradient(90deg, #4f46e5, #818cf8);
-}
-
-/* ── スピナー ── */
-.stSpinner > div {
-    border-top-color: #4f46e5 !important;
-}
+/* ── progress / spinner ── */
+.stProgress > div > div > div > div { background: linear-gradient(90deg, var(--accent), var(--accent-label)); }
+.stSpinner > div { border-top-color: var(--accent) !important; }
 
 /* ── checkbox ── */
 .stCheckbox > label > span[data-testid="stCheckboxLabel"] {
-    font-family: 'Noto Sans JP', sans-serif;
-    font-size: 13px;
+    font-family: 'Noto Sans JP', sans-serif; font-size: 13px; color: var(--text-1);
 }
 
-/* ── step indicator (認証フロー) ── */
-.step-dot-active {
-    background: #4f46e5;
-    color: white;
-    border-radius: 50%;
-    width: 22px; height: 22px;
-    display: inline-flex; align-items: center; justify-content: center;
-    font-size: 11px; font-weight: 700;
-}
+/* ── dataframe ── */
+[data-testid="stDataFrame"] { border-radius: 8px; overflow: hidden; }
+
+/* ── sidebar ── */
+[data-testid="stSidebar"] { background: var(--surface) !important; border-right: 1px solid var(--border); }
 </style>
 """, unsafe_allow_html=True)
 
@@ -269,11 +215,11 @@ def main():
             st.markdown('<div class="app-subtitle">Googleカレンダー一括管理システム</div>', unsafe_allow_html=True)
             st.markdown("""
 <div style="display:flex;gap:8px;align-items:center;margin-bottom:20px;">
-  <span style="background:#4f46e5;color:white;border-radius:50%;width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;">1</span>
-  <span style="font-weight:600;color:#4f46e5;font-size:13px;">アカウントにログイン</span>
-  <span style="color:#ddd;margin:0 2px;">→</span>
-  <span style="background:#f1f0ee;color:#bbb;border-radius:50%;width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;">2</span>
-  <span style="color:#bbb;font-size:13px;">Googleカレンダーと連携</span>
+  <span style="background:var(--accent);color:white;border-radius:50%;width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;">1</span>
+  <span style="font-weight:600;color:var(--accent);font-size:13px;">アカウントにログイン</span>
+  <span style="color:var(--border-strong);margin:0 2px;">→</span>
+  <span style="background:var(--surface-3);color:var(--text-4);border-radius:50%;width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;">2</span>
+  <span style="color:var(--text-4);font-size:13px;">Googleカレンダーと連携</span>
 </div>
 """, unsafe_allow_html=True)
             firebase_auth_form()
@@ -286,11 +232,11 @@ def main():
             st.markdown('<div class="app-subtitle">Googleカレンダー一括管理システム</div>', unsafe_allow_html=True)
             st.markdown("""
 <div style="display:flex;gap:8px;align-items:center;margin-bottom:20px;">
-  <span style="background:#16a34a;color:white;border-radius:50%;width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;">✓</span>
-  <span style="font-weight:600;color:#16a34a;font-size:13px;">ログイン済み</span>
-  <span style="color:#ddd;margin:0 2px;">→</span>
-  <span style="background:#4f46e5;color:white;border-radius:50%;width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;">2</span>
-  <span style="font-weight:600;color:#4f46e5;font-size:13px;">Googleカレンダーと連携</span>
+  <span style="background:var(--success);color:white;border-radius:50%;width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;">✓</span>
+  <span style="font-weight:600;color:var(--success);font-size:13px;">ログイン済み</span>
+  <span style="color:var(--border-strong);margin:0 2px;">→</span>
+  <span style="background:var(--accent);color:white;border-radius:50%;width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;">2</span>
+  <span style="font-weight:600;color:var(--accent);font-size:13px;">Googleカレンダーと連携</span>
 </div>
 """, unsafe_allow_html=True)
         st.stop()
