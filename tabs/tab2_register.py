@@ -751,6 +751,7 @@ def render_tab2_register(user_id: str, manager):
             if st.button("✅ 登録する", type="primary", use_container_width=True):
                 st.session_state[confirm_key] = False
                 _execute_registration(service, df, calendar_id, outside_mode)
+                st.rerun()
         with col_cancel:
             if st.button("キャンセル", use_container_width=True):
                 st.session_state[confirm_key] = False
