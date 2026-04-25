@@ -17,7 +17,7 @@ from tabs.tab8_notice_fax import render_tab8_notice_fax
 # ページ設定
 # ──────────────────────────────────────────────
 st.set_page_config(
-    page_title="G-Cal Pro | カレンダー管理",
+    page_title="Googleカレンダー一括管理システム",
     page_icon="📅",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -69,13 +69,6 @@ st.markdown("""
     border-bottom: 1px solid var(--color-border-tertiary, #e8eaf0);
 }
 /* ── ページタイトル ── */
-.app-title {
-    font-size: 20px;
-    font-weight: 800;
-    color: #1E88E5;
-    letter-spacing: -.01em;
-    margin-bottom: 2px;
-}
 .app-subtitle {
     font-size: 12px;
     color: var(--text-color-secondary, #888);
@@ -110,7 +103,6 @@ def main():
     if not user_id:
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
-            st.markdown('<div class="app-title">📅 G-Cal Pro</div>', unsafe_allow_html=True)
             st.markdown('<div class="app-subtitle">Googleカレンダー一括管理システム</div>', unsafe_allow_html=True)
             st.markdown("""
 <div style="display:flex;gap:8px;align-items:center;margin-bottom:20px;">
@@ -128,7 +120,7 @@ def main():
     if not manager.ensure_google_services():
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
-            st.markdown('<div class="app-title">📅 G-Cal Pro</div>', unsafe_allow_html=True)
+            st.markdown('<div class="app-subtitle">Googleカレンダー一括管理システム</div>', unsafe_allow_html=True)
             st.markdown("""
 <div style="display:flex;gap:8px;align-items:center;margin-bottom:20px;">
   <span style="background:#43a047;color:white;border-radius:50%;width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;">✓</span>
@@ -153,7 +145,6 @@ def main():
     )
 
     # ── 5. ページタイトル（サイドバーが開いているとき用） ──
-    st.markdown('<div class="app-title">📅 G-Cal Pro</div>', unsafe_allow_html=True)
     st.markdown('<div class="app-subtitle">Googleカレンダー一括管理システム</div>', unsafe_allow_html=True)
 
     # ── 6. タブ ──
