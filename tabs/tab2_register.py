@@ -1,3 +1,6 @@
+from ui.components import calendar_card
+from core.utils.datetime_utils import default_fetch_window
+from services.settings_service import get_setting as get_user_setting, set_setting as set_user_setting
 import re
 import streamlit as st
 import pandas as pd
@@ -6,7 +9,7 @@ from zoneinfo import ZoneInfo
 from typing import Dict, Optional
 
 from utils.helpers import safe_get
-from utils.parsers import extract_worksheet_id_from_text
+from core.parsers.description import extract_worksheet_id as extract_worksheet_id_from_text, is_event_changed
 from excel_parser import (
     process_excel_data_for_calendar,
     get_available_columns_for_event_name,
@@ -16,10 +19,6 @@ from calendar_utils import (
     fetch_all_events,
     add_event_to_calendar,
     update_event_if_needed,
-)
-from session_utils import (
-    get_user_setting,
-    set_user_setting,
 )
 
 JST = ZoneInfo("Asia/Tokyo")
@@ -47,29 +46,9 @@ def _normalize_time_dict(d: dict) -> str:
     return ""
 
 
-def is_event_changed(existing_event: dict, new_event_data: dict) -> bool:
-    nz = lambda v: (v or "")
-    for field in ("summary", "description", "location", "visibility", "transparency"):
-        if nz(existing_event.get(field)) != nz(new_event_data.get(field)):
-            return True
-    if _normalize_time_dict(existing_event.get("start") or {}) != _normalize_time_dict(new_event_data.get("start") or {}):
-        return True
-    if _normalize_time_dict(existing_event.get("end") or {}) != _normalize_time_dict(new_event_data.get("end") or {}):
-        return True
-    return False
-
-
 # ============================================================
 # フェッチ期間計算
 # ============================================================
-
-def default_fetch_window_years(years: int = 2):
-    now_utc = datetime.now(tz=ZoneInfo("UTC"))
-    return (
-        (now_utc - timedelta(days=365 * years)).isoformat(),
-        (now_utc + timedelta(days=365 * years)).isoformat(),
-    )
-
 
 def compute_fetch_window_from_df(df: pd.DataFrame, buffer_days: int = 30):
     """DFのStart/End Date列からイベント取得範囲を最小化する。"""
@@ -313,34 +292,6 @@ def _build_calendar_df_from_outside(df_raw: pd.DataFrame, private_event: bool, a
 # UI 補助
 # ============================================================
 
-def _render_calendar_selector(user_id, calendar_options, base_calendar, outside_mode):
-    sel_key = "selected_calendar_name_register"
-    share_calendar = st.session_state.get("share_calendar_selection_across_tabs", True)
-
-    if share_calendar:
-        st.session_state[sel_key] = base_calendar
-    elif (sel_key not in st.session_state) or (st.session_state.get(sel_key) not in calendar_options):
-        st.session_state[sel_key] = base_calendar
-
-    # 選択中カレンダーを目立つ形で表示
-    current = st.session_state.get(sel_key, base_calendar)
-    st.markdown(f"""
-<div style="border:2px solid #1E88E5;border-radius:10px;padding:14px 18px;margin-bottom:12px;background:var(--color-background-info);">
-  <div style="font-size:12px;font-weight:600;color:var(--color-text-info);margin-bottom:4px;">📅 登録先カレンダー（必ず確認）</div>
-  <div style="font-size:20px;font-weight:700;color:var(--color-text-info);">{current}</div>
-</div>
-""", unsafe_allow_html=True)
-
-    if share_calendar:
-        st.caption("サイドバーの「基準カレンダー」と連動しています。変更はサイドバーから行ってください。")
-    else:
-        with st.expander("カレンダーを変更する"):
-            if outside_mode:
-                st.caption("作業外予定の登録先を選択してください。")
-            st.selectbox("カレンダーを選択", calendar_options, key=sel_key, label_visibility="collapsed")
-
-    return st.session_state.get(sel_key, base_calendar)
-
 
 def _render_event_settings(user_id, outside_mode):
     """設定ウィジェットを描画する（値はセッション状態に保存済みのものを使う）"""
@@ -432,7 +383,7 @@ def _execute_registration(
     total = len(df)
 
     window = compute_fetch_window_from_df(df, buffer_days=30)
-    time_min, time_max = window if window else default_fetch_window_years(2)
+    time_min, time_max = window if window else default_fetch_window(2)
 
     with st.spinner("既存イベントを取得中..."):
         events = fetch_all_events(service, calendar_id, time_min, time_max) or []
@@ -656,7 +607,14 @@ def render_tab2_register(user_id: str, manager):
         bulk_enabled  = False
 
     # ── Step 1: 登録先カレンダー ──
-    selected_calendar_name = _render_calendar_selector(user_id, calendar_options, base_calendar, outside_mode)
+    selected_calendar_name = calendar_card(
+        calendar_names=calendar_options,
+        session_key="selected_calendar_name_register",
+        base_calendar=base_calendar,
+        label="登録先カレンダー",
+        share_on=st.session_state.get("share_calendar_selection_across_tabs", True),
+        allow_change=not outside_mode or not st.session_state.get("share_calendar_selection_across_tabs", True),
+    )
     calendar_id = editable_calendar_options[selected_calendar_name]
 
     # ── Step 2: df 計算 ──

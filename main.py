@@ -9,7 +9,7 @@ from auth_manager import get_auth_manager, AuthManager
 # ---- Utils & Helpers ----
 from utils.user_roles import get_or_create_user, ROLE_ADMIN
 from sidebar import render_sidebar
-from firebase_auth import firebase_auth_form
+from ui.auth_forms import login_form as firebase_auth_form
 
 # ---- Tab Modules ----
 from tabs.tab1_upload import render_tab1_upload
@@ -172,7 +172,6 @@ def main():
     # --- Tab 3: Export ---
     with tabs[2]:
         with st.container(border=True):
-            from calendar_utils import fetch_all_events
             render_tab5_export(manager)
 
     # --- Tab 4: Property Master ---

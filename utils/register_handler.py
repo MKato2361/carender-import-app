@@ -3,6 +3,7 @@ tab2_register.py
 タブ2：イベント登録 UI（軽い改善版）
 """
 
+from services.settings_service import get_setting as get_user_setting, set_setting as set_user_setting
 from __future__ import annotations
 import streamlit as st
 import pandas as pd
@@ -14,10 +15,10 @@ from utils.register_handler import (
     register_or_update_events,
 )
 
-from utils.helpers import safe_get, default_fetch_window_years
+from utils.helpers import safe_get  # safe_get は helpers に残存
+from core.utils.datetime_utils import default_fetch_window as default_fetch_window_years
 from excel_parser import process_excel_data_for_calendar
 from firebase_auth import get_firebase_user_id
-from session_utils import get_user_setting, set_user_setting
 from calendar_utils import add_task_to_todo_list, build_tasks_service, fetch_all_events
 
 

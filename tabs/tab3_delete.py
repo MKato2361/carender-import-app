@@ -1,7 +1,9 @@
+from ui.components import calendar_card
+from core.utils.datetime_utils import to_utc_range
+from services.settings_service import get_setting as get_user_setting, set_setting as set_user_setting
 import streamlit as st
 from calendar_utils import fetch_all_events
 from datetime import datetime, date, timedelta, timezone
-from session_utils import get_user_setting, set_user_setting
 
 def _get_current_user_key(fallback: str = "") -> str:
     """設定保存用のユーザーキーを取得（優先: uid -> email）。"""
@@ -17,29 +19,6 @@ def _get_current_user_key(fallback: str = "") -> str:
 
 JST = timezone(timedelta(hours=9))
 
-
-def _render_calendar_card(calendar_names, select_key, base_calendar, label="対象カレンダー", share_on=True):
-    """tab1スタイルのカレンダー選択カード"""
-    if share_on:
-        st.session_state[select_key] = base_calendar
-    elif (select_key not in st.session_state) or (st.session_state.get(select_key) not in calendar_names):
-        st.session_state[select_key] = base_calendar
-
-    current = st.session_state.get(select_key, base_calendar)
-    st.markdown(f"""
-<div style="border:2px solid #1E88E5;border-radius:10px;padding:14px 18px;margin-bottom:8px;background:var(--color-background-info);">
-  <div style="font-size:12px;font-weight:600;color:var(--color-text-info);margin-bottom:4px;">📅 {label}（必ず確認）</div>
-  <div style="font-size:20px;font-weight:700;color:var(--color-text-info);">{current}</div>
-</div>
-""", unsafe_allow_html=True)
-
-    if share_on:
-        st.caption("サイドバーの「基準カレンダー」と連動しています。")
-    else:
-        with st.expander("カレンダーを変更する"):
-            st.selectbox("カレンダーを選択", calendar_names, key=select_key, label_visibility="collapsed")
-
-    return st.session_state.get(select_key, base_calendar)
 
 
 def render_tab3_delete(editable_calendar_options, service, tasks_service, default_task_list_id):
@@ -72,9 +51,12 @@ def render_tab3_delete(editable_calendar_options, service, tasks_service, defaul
     elif (select_key not in st.session_state) or (st.session_state.get(select_key) not in calendar_names):
         st.session_state[select_key] = base_calendar
 
-    selected_calendar_name_del = _render_calendar_card(
-        calendar_names, select_key, base_calendar,
-        label="削除対象カレンダー", share_on=share_on,
+    selected_calendar_name_del = calendar_card(
+        calendar_names=calendar_names,
+        session_key=select_key,
+        base_calendar=base_calendar,
+        label="削除対象カレンダー",
+        share_on=share_on,
     )
 
     calendar_id_del = editable_calendar_options[selected_calendar_name_del]
@@ -96,14 +78,6 @@ def render_tab3_delete(editable_calendar_options, service, tasks_service, defaul
         st.error("削除開始日は終了日より前に設定してください。")
         return
 
-    # UTC 変換ヘルパー（イベント・ToDo共通で使用）
-    def to_utc_range(d1: date, d2: date):
-        sdt = datetime.combine(d1, datetime.min.time(), tzinfo=JST).astimezone(timezone.utc)
-        edt = datetime.combine(d2, datetime.max.time(), tzinfo=JST).astimezone(timezone.utc)
-        return (
-            sdt.isoformat(timespec="microseconds").replace("+00:00", "Z"),
-            edt.isoformat(timespec="microseconds").replace("+00:00", "Z"),
-        )
 
     # -------------------------------
     # イベント削除 実行セクション

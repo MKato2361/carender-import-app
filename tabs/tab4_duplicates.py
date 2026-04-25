@@ -1,10 +1,10 @@
+from services.settings_service import get_setting as get_user_setting, set_setting as set_user_setting
 import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 import re
 import unicodedata
-from session_utils import get_user_setting, set_user_setting
 
 def _get_current_user_key(fallback: str = "") -> str:
     """設定保存用のユーザーキーを取得（優先: uid -> email）。"""

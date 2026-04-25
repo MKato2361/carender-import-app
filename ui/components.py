@@ -129,3 +129,19 @@ def file_summary_bar(has_work: bool, has_outside: bool, on_confirm, on_clear) ->
     with col_clear:
         if st.button("🗑️", help="アップロードをクリア", use_container_width=True):
             on_clear()
+
+def handle_http_error(e, action: str = "操作") -> None:
+    """Google API HttpError をユーザー向けメッセージに変換して表示する。"""
+    import streamlit as st
+    try:
+        status = e.resp.status
+    except Exception:
+        status = None
+    messages = {
+        401: f"{action}に失敗しました。Googleセッションが切れています。ページを再読み込みして再連携してください。",
+        403: f"{action}に失敗しました。このカレンダーへの書き込み権限がありません。",
+        404: f"{action}に失敗しました。対象のイベントが見つかりません（すでに削除済みの可能性があります）。",
+        429: f"{action}に失敗しました。APIのリクエスト上限に達しました。しばらく待ってから再試行してください。",
+    }
+    st.error(messages.get(status, f"{action}に失敗しました（エラーコード: {status}）。しばらく待ってから再試行してください。"))
+

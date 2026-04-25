@@ -1,259 +1,44 @@
-import os
-import json
-import urllib.parse
-from google.auth.transport.requests import Request
-from google.oauth2.credentials import Credentials
-from requests_oauthlib import OAuth2Session
-from firebase_admin import firestore
-from firebase_auth import get_firebase_user_id
-from googleapiclient.discovery import build
-from googleapiclient.errors import HttpError
+from ui.components import handle_http_error as _handle_http_error
+"""
+calendar_utils.py — 後方互換ラッパー
+
+実体は以下に移行済み:
+  core/auth/google_oauth.py     … トークン管理ロジック
+  services/auth_service.py      … authenticate_google (UI 付き)
+  core/calendar/crud.py         … fetch_all_events / add_event / update_event / delete_event
+  core/calendar/tasks.py        … build_tasks_service / add_task / find_and_delete_tasks_by_event_id
+
+既存の import が壊れないようエイリアスを公開する。
+新規コードでは直接 core / services を import すること。
+"""
+from __future__ import annotations
+from typing import Optional
+
 import streamlit as st
+from googleapiclient.errors import HttpError
 
-# requests_oauthlib の PKCE を強制無効化
-os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
+# ── ロジック層 ──
+from services.auth_service import authenticate_google          # noqa: F401
+from core.calendar.crud  import (
+    fetch_all_events,                                          # noqa: F401
+    add_event         as _add_event,
+    update_event_if_changed as _update_event_if_changed,
+    delete_event      as _delete_event,
+)
+from core.calendar.tasks import (
+    build_tasks_service,                                       # noqa: F401
+    add_task          as _add_task,
+    find_and_delete_tasks_by_event_id,                        # noqa: F401
+)
 
 
-def _handle_http_error(e, action: str = "操作") -> None:
-    """HttpError をユーザー向けメッセージに変換して表示する"""
+
+# ── UI 向けラッパー（エラーを st.error で表示して None を返す） ──
+
+def add_event_to_calendar(service, calendar_id: str,
+                           event_data: dict) -> Optional[dict]:
     try:
-        status = e.resp.status
-    except Exception:
-        status = None
-    if status == 401:
-        st.error(f"{action}に失敗しました。Googleセッションが切れています。ページを再読み込みして再連携してください。")
-    elif status == 403:
-        st.error(f"{action}に失敗しました。このカレンダーへの書き込み権限がありません。")
-    elif status == 404:
-        st.error(f"{action}に失敗しました。対象のイベントが見つかりません（すでに削除済みの可能性があります）。")
-    elif status == 429:
-        st.error(f"{action}に失敗しました。APIのリクエスト上限に達しました。しばらく待ってから再試行してください。")
-    else:
-        st.error(f"{action}に失敗しました（エラーコード: {status}）。しばらく待ってから再試行してください。")
-
-os.environ["OAUTHLIB_RELAX_TOKEN_SCOPE"] = "1"
-
-# Google API スコープ
-SCOPES = [
-    "https://www.googleapis.com/auth/calendar",
-    "https://www.googleapis.com/auth/tasks",
-    "https://www.googleapis.com/auth/spreadsheets"
-]
-
-# ==============================
-# Google 認証（Webリダイレクト型）
-# ==============================
-def authenticate_google():
-    # ============================================================
-    # セッション初期化（必須）
-    # ============================================================
-    if "credentials" not in st.session_state:
-        st.session_state["credentials"] = None
-    if "credentials_user_id" not in st.session_state:
-        st.session_state["credentials_user_id"] = None
-
-    # ============================================================
-    # 強制リセット（?clear_auth=1 でアクセス）
-    # ============================================================
-    if st.query_params.get("clear_auth") == "1":
-        user_id = get_firebase_user_id()
-        if user_id:
-            try:
-                firestore.client().collection('google_tokens').document(user_id).delete()
-            except Exception:
-                pass
-        st.session_state.pop('credentials', None)
-        st.session_state.pop('credentials_user_id', None)
-        st.query_params.clear()
-        st.rerun()
-
-    # ============================================================
-    # user_id 取得
-    # ============================================================
-    user_id = get_firebase_user_id()
-    if not user_id:
-        return None
-
-    db = firestore.client()
-    doc_ref = db.collection('google_tokens').document(user_id)
-
-    creds = None
-
-    # ============================================================
-    # ① セッションから取得（user一致チェック）
-    # ============================================================
-    if (
-        "credentials" in st.session_state and
-        st.session_state["credentials"] and
-        st.session_state.get("credentials_user_id") == user_id
-    ):
-        creds = st.session_state["credentials"]
-
-        if not creds.refresh_token:
-            st.session_state.pop('credentials', None)
-            st.session_state.pop('credentials_user_id', None)
-            try:
-                doc_ref.delete()
-            except Exception:
-                pass
-            creds = None
-
-        elif creds.valid:
-            return creds
-
-        elif creds.expired:
-            try:
-                creds.refresh(Request())
-                st.session_state["credentials"] = creds
-                st.session_state["credentials_user_id"] = user_id
-                doc_ref.set(json.loads(creds.to_json()))
-                return creds
-            except Exception:
-                st.session_state.pop('credentials', None)
-                st.session_state.pop('credentials_user_id', None)
-                try:
-                    doc_ref.delete()
-                except Exception:
-                    pass
-                creds = None
-
-    # ============================================================
-    # ② Firestoreから取得
-    # ============================================================
-    try:
-        doc = doc_ref.get()
-        if doc.exists:
-            token_data = doc.to_dict()
-
-            try:
-                creds = Credentials.from_authorized_user_info(token_data, SCOPES)
-            except Exception:
-                creds = None
-
-            if creds:
-                if not creds.refresh_token:
-                    doc_ref.delete()
-                    creds = None
-
-                elif creds.expired:
-                    try:
-                        creds.refresh(Request())
-                        st.session_state["credentials"] = creds
-                        st.session_state["credentials_user_id"] = user_id
-                        doc_ref.set(json.loads(creds.to_json()))
-                        return creds
-                    except Exception:
-                        doc_ref.delete()
-                        creds = None
-
-                elif creds.valid:
-                    st.session_state["credentials"] = creds
-                    st.session_state["credentials_user_id"] = user_id
-                    return creds
-    except Exception:
-        pass
-
-    # ============================================================
-    # ③ OAuthフロー
-    # ============================================================
-    try:
-        client_id     = st.secrets["google"]["client_id"]
-        client_secret = st.secrets["google"]["client_secret"]
-        redirect_uri  = st.secrets["google"]["redirect_uri"]
-
-        AUTH_URI  = "https://accounts.google.com/o/oauth2/auth"
-        TOKEN_URI = "https://oauth2.googleapis.com/token"
-
-        params = st.query_params
-
-        # -------------------------------
-        # 認証開始
-        # -------------------------------
-        if "code" not in params:
-            oauth = OAuth2Session(
-                client_id=client_id,
-                redirect_uri=redirect_uri,
-                scope=SCOPES,
-            )
-            auth_url, state = oauth.authorization_url(
-                AUTH_URI,
-                access_type="offline",
-                prompt="consent",
-                include_granted_scopes="true",
-            )
-            # ✅ stateはGoogleがコールバック時に返してくれるので保存不要
-            st.info("Googleカレンダーへのアクセス許可が必要です。下のボタンからGoogleアカウントで連携してください。")
-            st.link_button("Googleアカウントで連携する", auth_url, use_container_width=True, type="primary")
-            st.stop()
-
-        # -------------------------------
-        # コールバック処理
-        # -------------------------------
-        else:
-            # ✅ Googleがコールバック時に返してくれる state をそのまま使う
-            state = params.get("state")
-
-            if not state:
-                st.warning("セッションが切れました。再度ログインしてください。")
-                st.session_state.pop("credentials", None)
-                st.session_state.pop("credentials_user_id", None)
-                st.query_params.clear()
-                st.stop()
-
-            oauth = OAuth2Session(
-                client_id=client_id,
-                redirect_uri=redirect_uri,
-                scope=SCOPES,
-                state=state,
-            )
-
-            # ✅ URLエンコードして正確に current_url を組み立てる
-            current_url = redirect_uri + "?" + "&".join(
-                f"{k}={urllib.parse.quote(str(v))}" for k, v in params.items()
-            )
-
-            token = oauth.fetch_token(
-                TOKEN_URI,
-                authorization_response=current_url,
-                client_secret=client_secret,
-            )
-
-            creds = Credentials(
-                token=token.get("access_token"),
-                refresh_token=token.get("refresh_token"),
-                token_uri=TOKEN_URI,
-                client_id=client_id,
-                client_secret=client_secret,
-                scopes=SCOPES,
-            )
-
-            if not creds or not creds.refresh_token:
-                st.error("認証に失敗しました（トークン不正）")
-                return None
-
-            st.session_state["credentials"] = creds
-            st.session_state["credentials_user_id"] = user_id
-            doc_ref.set(json.loads(creds.to_json()))
-            st.success("Google認証が完了しました！")
-            st.query_params.clear()
-            st.rerun()
-
-    except Exception as e:
-        st.error(f"Google認証に失敗しました: {e}")
-        st.session_state.pop('credentials', None)
-        st.session_state.pop('credentials_user_id', None)
-        return None
-
-    return None
-
-
-# ==============================
-# イベント操作関数群
-# ==============================
-
-def add_event_to_calendar(service, calendar_id, event_data):
-    try:
-        return service.events().insert(calendarId=calendar_id, body=event_data).execute()
+        return _add_event(service, calendar_id, event_data)
     except HttpError as e:
         _handle_http_error(e, "イベントの追加")
     except Exception as e:
@@ -261,79 +46,10 @@ def add_event_to_calendar(service, calendar_id, event_data):
     return None
 
 
-def fetch_all_events(service, calendar_id, time_min=None, time_max=None):
-    """イベント全件取得（ページネーション対応）"""
-    events = []
-    page_token = None
+def update_event_if_needed(service, calendar_id: str,
+                            event_id: str, new_event_data: dict) -> Optional[dict]:
     try:
-        while True:
-            events_result = service.events().list(
-                calendarId=calendar_id,
-                timeMin=time_min,
-                timeMax=time_max,
-                singleEvents=True,
-                orderBy='startTime',
-                pageToken=page_token
-            ).execute()
-            events.extend(events_result.get('items', []))
-            page_token = events_result.get('nextPageToken')
-            if not page_token:
-                break
-        return events
-    except HttpError as e:
-        _handle_http_error(e, "イベントの取得")
-    except Exception as e:
-        st.error(f"イベント取得失敗: {e}")
-    return []
-
-
-def update_event_if_needed(service, calendar_id, event_id, new_event_data):
-    """
-    既存イベントと new_event_data を比較し、差分がある場合のみ更新する。
-    比較対象: summary, description, start, end, transparency, recurrence
-    """
-    try:
-        existing_event = service.events().get(calendarId=calendar_id, eventId=event_id).execute()
-
-        def normalize(val):
-            return val or ""
-
-        needs_update = False
-
-        if normalize(existing_event.get("summary")) != normalize(new_event_data.get("summary")):
-            needs_update = True
-
-        if not needs_update:
-            if normalize(existing_event.get("description")) != normalize(new_event_data.get("description")):
-                needs_update = True
-
-        if not needs_update:
-            if normalize(existing_event.get("transparency")) != normalize(new_event_data.get("transparency")):
-                needs_update = True
-
-        if not needs_update:
-            existing_recur = existing_event.get("recurrence") or []
-            new_recur = new_event_data.get("recurrence") or []
-            if existing_recur != new_recur:
-                needs_update = True
-
-        if not needs_update:
-            if (existing_event.get("start") or {}) != (new_event_data.get("start") or {}):
-                needs_update = True
-
-        if not needs_update:
-            if (existing_event.get("end") or {}) != (new_event_data.get("end") or {}):
-                needs_update = True
-
-        if needs_update:
-            return service.events().update(
-                calendarId=calendar_id,
-                eventId=event_id,
-                body=new_event_data
-            ).execute()
-
-        return existing_event
-
+        return _update_event_if_changed(service, calendar_id, event_id, new_event_data)
     except HttpError as e:
         _handle_http_error(e, "イベントの更新")
     except Exception as e:
@@ -341,9 +57,10 @@ def update_event_if_needed(service, calendar_id, event_id, new_event_data):
     return None
 
 
-def delete_event_from_calendar(service, calendar_id, event_id):
+def delete_event_from_calendar(service, calendar_id: str,
+                                event_id: str) -> bool:
     try:
-        service.events().delete(calendarId=calendar_id, eventId=event_id).execute()
+        _delete_event(service, calendar_id, event_id)
         return True
     except HttpError as e:
         _handle_http_error(e, "イベントの削除")
@@ -352,42 +69,12 @@ def delete_event_from_calendar(service, calendar_id, event_id):
     return False
 
 
-# ==============================
-# ToDoリスト操作関数群
-# ==============================
-
-def build_tasks_service(creds):
+def add_task_to_todo_list(tasks_service, task_list_id: str,
+                          task_data: dict) -> Optional[dict]:
     try:
-        if not creds:
-            return None
-        return build('tasks', 'v1', credentials=creds)
-    except Exception as e:
-        st.warning(f"Google Tasks サービスのビルドに失敗しました: {e}")
-        return None
-
-
-def add_task_to_todo_list(tasks_service, task_list_id, task_data):
-    try:
-        return tasks_service.tasks().insert(tasklist=task_list_id, body=task_data).execute()
+        return _add_task(tasks_service, task_list_id, task_data)
     except HttpError as e:
         _handle_http_error(e, "タスクの追加")
     except Exception as e:
         st.error(f"タスク追加失敗: {e}")
     return None
-
-
-def find_and_delete_tasks_by_event_id(tasks_service, task_list_id, event_id):
-    try:
-        tasks_result = tasks_service.tasks().list(tasklist=task_list_id).execute()
-        tasks = tasks_result.get('items', [])
-        deleted_count = 0
-        for task in tasks:
-            if (event_id in task.get('notes', '') or event_id in task.get('title', '')):
-                tasks_service.tasks().delete(tasklist=task_list_id, task=task['id']).execute()
-                deleted_count += 1
-        return deleted_count
-    except HttpError as e:
-        _handle_http_error(e, "タスクの検索・削除")
-    except Exception as e:
-        st.error(f"タスク検索・削除失敗: {e}")
-    return 0

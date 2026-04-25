@@ -1,3 +1,5 @@
+from services.settings_service import get_setting as get_user_setting, set_setting as set_user_setting, clear_session as clear_user_settings
+from core.storage.firestore_client import save_setting as save_user_setting_to_firestore
 from __future__ import annotations
 
 import os
@@ -5,7 +7,6 @@ import re
 import streamlit as st
 from typing import Dict, Optional, Callable
 
-from session_utils import get_user_setting, set_user_setting, clear_user_settings
 from github_loader import (
     _headers,
     GITHUB_OWNER,
