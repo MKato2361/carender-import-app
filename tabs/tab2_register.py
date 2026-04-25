@@ -295,7 +295,7 @@ def _build_calendar_df_from_outside(df_raw: pd.DataFrame, private_event: bool, a
 
 def _render_event_settings(user_id, outside_mode):
     """設定ウィジェットを描画する（値はセッション状態に保存済みのものを使う）"""
-    st.markdown("##### イベント基本設定")
+    st.markdown('<div class="section-heading">イベント基本設定</div>', unsafe_allow_html=True)
     col1, col2 = st.columns(2)
     with col1:
         st.checkbox("すべて終日として扱う", key="reg_all_day")

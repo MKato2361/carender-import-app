@@ -161,8 +161,6 @@ def _build_download_section(df: pd.DataFrame, file_base_name: str, export_format
 # ==============================
 def render_tab5_export(manager) -> None:
     """タブ5: カレンダーイベントをExcel/CSVへ出力"""
-    st.subheader("📊 カレンダーイベントのエクスポート")
-
     # manager から必要なサービスとオプションを取得
     service = manager.calendar_service
     editable_calendar_options = manager.editable_calendar_options
@@ -191,8 +189,8 @@ def render_tab5_export(manager) -> None:
 
     export_format = st.radio("出力形式", ("CSV", "Excel"), index=0, horizontal=True)
 
-    with st.container(border=True):
-        st.markdown("**2. 出力期間の選択**")
+    st.markdown('<div class="section-heading">出力期間</div>', unsafe_allow_html=True)
+    if True:
         today_date = date.today()
 
         # デフォルト開始日 = 翌月1日

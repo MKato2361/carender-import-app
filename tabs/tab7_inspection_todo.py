@@ -554,7 +554,6 @@ def render_tab7_inspection_todo(
       - ToDo の重複作成防止（EVENT_ID タグで既存タスクを判定し、更新に切り替え）
       - イベント日程変更時の ToDo 更新
     """
-    st.subheader("点検連絡用 ToDo 自動作成")
 
     if not service or not editable_calendar_options:
         st.warning("カレンダーサービスが初期化されていません。タブ1〜2で認証を完了してください。")
