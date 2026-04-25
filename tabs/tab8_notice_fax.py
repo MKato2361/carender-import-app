@@ -1,6 +1,5 @@
 from __future__ import annotations
 from core.utils.datetime_utils import to_utc_range
-from services.settings_service import get_setting as get_user_setting, set_setting as set_user_setting
 
 from datetime import datetime, date, time, timedelta, timezone
 from typing import Any, Dict, List, Optional
@@ -21,6 +20,7 @@ from tabs.tab6_property_master import (
     _normalize_df,
 )
 from utils.helpers import safe_get
+from services.settings_service import get_setting as get_user_setting, set_setting as set_user_setting
 
 # ─────────────────────────────────────────────────────────
 # 定数
@@ -222,40 +222,41 @@ def render_tab8_notice_fax(manager, current_user_email: str) -> None:
     # STEP 1
     _render_step_indicator(0)
 
-    st.markdown("**① 取得条件の設定**")
-    c1, c2, c3 = st.columns([2, 2, 2])
+    with st.container(border=True):
+        st.markdown("**① 取得条件の設定**")
+        c1, c2, c3 = st.columns([2, 2, 2])
 
-    calendar_options = manager.editable_calendar_options
-    calendar_names = list(calendar_options.keys())
+        calendar_options = manager.editable_calendar_options
+        calendar_names = list(calendar_options.keys())
 
-    base_calendar = (
-        st.session_state.get("base_calendar_name")
-        or st.session_state.get("selected_calendar_name")
-        or (calendar_names[0] if calendar_names else "")
-    )
-    if calendar_names and base_calendar not in calendar_names:
-        base_calendar = calendar_names[0]
+        base_calendar = (
+            st.session_state.get("base_calendar_name")
+            or st.session_state.get("selected_calendar_name")
+            or (calendar_names[0] if calendar_names else "")
+        )
+        if calendar_names and base_calendar not in calendar_names:
+            base_calendar = calendar_names[0]
 
-    select_key = "fax_cal_select"
-    share_calendar = st.session_state.get("share_calendar_selection_across_tabs", True)
+        select_key = "fax_cal_select"
+        share_calendar = st.session_state.get("share_calendar_selection_across_tabs", True)
 
-    if share_calendar:
-        st.session_state[select_key] = base_calendar
-    elif (select_key not in st.session_state) or (st.session_state.get(select_key) not in calendar_names):
-        st.session_state[select_key] = base_calendar
+        if share_calendar:
+            st.session_state[select_key] = base_calendar
+        elif (select_key not in st.session_state) or (st.session_state.get(select_key) not in calendar_names):
+            st.session_state[select_key] = base_calendar
 
-    calendar_name = c1.selectbox("対象カレンダー", calendar_names, key=select_key)
-    calendar_id = calendar_options[calendar_name]
+        calendar_name = c1.selectbox("対象カレンダー", calendar_names, key=select_key)
+        calendar_id = calendar_options[calendar_name]
 
-    start_date = c2.date_input("開始日", value=date.today(), key="fax_start_date")
-    if "fax_end_date" not in st.session_state:
-        st.session_state["fax_end_date"] = start_date + timedelta(days=7)
-    end_date = c3.date_input("終了日", key="fax_end_date")
+        start_date = c2.date_input("開始日", value=date.today(), key="fax_start_date")
+        if "fax_end_date" not in st.session_state:
+            st.session_state["fax_end_date"] = start_date + timedelta(days=7)
+        end_date = c3.date_input("終了日", key="fax_end_date")
 
-    st.markdown("---")
-    c_mode, c_btn = st.columns([3, 1])
-    use_master_filter = c_mode.toggle("物件マスタの『貼り紙テンプレ種別=自社』のみを対象にする", value=True)
-    fetch_clicked = c_btn.button("🔍 イベントを取得", type="primary", use_container_width=True)
+        st.markdown("---")
+        c_mode, c_btn = st.columns([3, 1])
+        use_master_filter = c_mode.toggle("物件マスタの『貼り紙テンプレ種別=自社』のみを対象にする", value=True)
+        fetch_clicked = c_btn.button("🔍 イベントを取得", type="primary", use_container_width=True)
 
     # STEP 2
     if fetch_clicked:
@@ -318,91 +319,92 @@ def render_tab8_notice_fax(manager, current_user_email: str) -> None:
         st.divider()
         _render_step_indicator(2)
 
-        st.markdown(f"**② 作成対象の確認 ({len(cand_df)} 件)**")
+        with st.container(border=True):
+            st.markdown(f"**② 作成対象の確認 ({len(cand_df)} 件)**")
 
-        edited_df_preview = st.session_state.get("notice_fax_candidates_df", cand_df)
-        target_count = int(edited_df_preview["作成"].sum()) if "作成" in edited_df_preview.columns else 0
+            edited_df_preview = st.session_state.get("notice_fax_candidates_df", cand_df)
+            target_count = int(edited_df_preview["作成"].sum()) if "作成" in edited_df_preview.columns else 0
 
-        # 生成ボタンも上に表示
-        if target_count > 0:
-            if st.button(
-                f"🖨️ {target_count} 件の貼り紙を生成",
-                type="primary",
+            # 生成ボタンも上に表示
+            if target_count > 0:
+                if st.button(
+                    f"🖨️ {target_count} 件の貼り紙を生成",
+                    type="primary",
+                    use_container_width=True,
+                    key="fax_generate_button_top",
+                ):
+                    with st.status("貼り紙を生成中...") as status:
+                        pm_idx = _pm_index(st.session_state["notice_fax_pm_view_df"])
+                        events_by_id = st.session_state["notice_fax_events_by_id"]
+                        current_df = st.session_state["notice_fax_candidates_df"]
+                        outputs = []
+                        errors = []
+
+                        for _, row in current_df[current_df["作成"]].iterrows():
+                            ev = events_by_id.get(row["event_id"])
+                            if not ev:
+                                continue
+                            try:
+                                out_name, content = _generate_single_docx(ev, row, pm_idx)
+                                outputs.append((out_name, content))
+                            except Exception as e:
+                                errors.append(f"{row['管理番号']}: {e}")
+
+                        if outputs:
+                            zip_data = _pack_zip(outputs)
+                            st.session_state["fax_zip_ready"] = {
+                                "data": zip_data,
+                                "name": f"harigami_{datetime.now().strftime('%Y%m%d_%H%M')}.zip"
+                            }
+                            status.update(label=f"生成完了: {len(outputs)} 件", state="complete")
+                            st.rerun()
+                        else:
+                            status.update(label="生成に失敗しました", state="error")
+
+                    if errors:
+                        with st.expander("エラー詳細"):
+                            for e in errors:
+                                st.error(e)
+
+            # 保存ボタンも上に表示
+            if "fax_zip_ready" in st.session_state:
+                st.download_button(
+                    label="📦 ZIPファイルを保存",
+                    data=st.session_state["fax_zip_ready"]["data"],
+                    file_name=st.session_state["fax_zip_ready"]["name"],
+                    mime="application/zip",
+                    use_container_width=True,
+                    type="primary",
+                    key="fax_zip_download_top_only",
+                )
+                st.markdown("---")
+
+            col_op1, col_op2, _ = st.columns([1, 1, 3])
+            if col_op1.button("✅ 全選択", key="fax_all_on"):
+                cand_df["作成"] = True
+                st.session_state["notice_fax_candidates_df"] = cand_df
+                st.rerun()
+
+            if col_op2.button("☐ 全解除", key="fax_all_off"):
+                cand_df["作成"] = False
+                st.session_state["notice_fax_candidates_df"] = cand_df
+                st.rerun()
+
+            edited_df = st.data_editor(
+                cand_df,
+                column_config={
+                    "作成": st.column_config.CheckboxColumn(width="small"),
+                    "event_id": None,
+                    "管理番号": st.column_config.TextColumn(disabled=True),
+                    "物件名": st.column_config.TextColumn(disabled=True),
+                    "予定日": st.column_config.TextColumn(disabled=True),
+                    "作業タイプ": st.column_config.TextColumn(disabled=True),
+                },
+                hide_index=True,
                 use_container_width=True,
-                key="fax_generate_button_top",
-            ):
-                with st.status("貼り紙を生成中...") as status:
-                    pm_idx = _pm_index(st.session_state["notice_fax_pm_view_df"])
-                    events_by_id = st.session_state["notice_fax_events_by_id"]
-                    current_df = st.session_state["notice_fax_candidates_df"]
-                    outputs = []
-                    errors = []
-
-                    for _, row in current_df[current_df["作成"]].iterrows():
-                        ev = events_by_id.get(row["event_id"])
-                        if not ev:
-                            continue
-                        try:
-                            out_name, content = _generate_single_docx(ev, row, pm_idx)
-                            outputs.append((out_name, content))
-                        except Exception as e:
-                            errors.append(f"{row['管理番号']}: {e}")
-
-                    if outputs:
-                        zip_data = _pack_zip(outputs)
-                        st.session_state["fax_zip_ready"] = {
-                            "data": zip_data,
-                            "name": f"harigami_{datetime.now().strftime('%Y%m%d_%H%M')}.zip"
-                        }
-                        status.update(label=f"生成完了: {len(outputs)} 件", state="complete")
-                        st.rerun()
-                    else:
-                        status.update(label="生成に失敗しました", state="error")
-
-                if errors:
-                    with st.expander("エラー詳細"):
-                        for e in errors:
-                            st.error(e)
-
-        # 保存ボタンも上に表示
-        if "fax_zip_ready" in st.session_state:
-            st.download_button(
-                label="📦 ZIPファイルを保存",
-                data=st.session_state["fax_zip_ready"]["data"],
-                file_name=st.session_state["fax_zip_ready"]["name"],
-                mime="application/zip",
-                use_container_width=True,
-                type="primary",
-                key="fax_zip_download_top_only",
+                key="fax_editor",
             )
-            st.markdown("---")
-
-        col_op1, col_op2, _ = st.columns([1, 1, 3])
-        if col_op1.button("✅ 全選択", key="fax_all_on"):
-            cand_df["作成"] = True
-            st.session_state["notice_fax_candidates_df"] = cand_df
-            st.rerun()
-
-        if col_op2.button("☐ 全解除", key="fax_all_off"):
-            cand_df["作成"] = False
-            st.session_state["notice_fax_candidates_df"] = cand_df
-            st.rerun()
-
-        edited_df = st.data_editor(
-            cand_df,
-            column_config={
-                "作成": st.column_config.CheckboxColumn(width="small"),
-                "event_id": None,
-                "管理番号": st.column_config.TextColumn(disabled=True),
-                "物件名": st.column_config.TextColumn(disabled=True),
-                "予定日": st.column_config.TextColumn(disabled=True),
-                "作業タイプ": st.column_config.TextColumn(disabled=True),
-            },
-            hide_index=True,
-            use_container_width=True,
-            key="fax_editor",
-        )
-        st.session_state["notice_fax_candidates_df"] = edited_df
+            st.session_state["notice_fax_candidates_df"] = edited_df
 
         st.divider()
         _render_step_indicator(3)

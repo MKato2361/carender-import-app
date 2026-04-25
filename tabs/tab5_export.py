@@ -190,50 +190,52 @@ def render_tab5_export(manager) -> None:
     export_format = st.radio("出力形式", ("CSV", "Excel"), index=0, horizontal=True)
 
     st.markdown('<div class="section-heading">出力期間</div>', unsafe_allow_html=True)
-    if True:
-        today_date = date.today()
+    today_date = date.today()
 
-        # デフォルト開始日 = 翌月1日
-        _next_month = today_date.month % 12 + 1
-        _next_year  = today_date.year + (1 if today_date.month == 12 else 0)
-        _default_start = date(_next_year, _next_month, 1)
-        # デフォルト終了日 = 翌月末日
-        _end_month = _default_start.month % 12 + 1
-        _end_year  = _default_start.year + (1 if _default_start.month == 12 else 0)
-        _default_end = date(_end_year, _end_month, 1) - timedelta(days=1)
+    # デフォルト開始日 = 翌月1日
+    _next_month = today_date.month % 12 + 1
+    _next_year  = today_date.year + (1 if today_date.month == 12 else 0)
+    _default_start = date(_next_year, _next_month, 1)
+    # デフォルト終了日 = 翌月末日
+    _end_month = _default_start.month % 12 + 1
+    _end_year  = _default_start.year + (1 if _default_start.month == 12 else 0)
+    _default_end = date(_end_year, _end_month, 1) - timedelta(days=1)
 
-        # セッション状態の初期化
-        if "export_start_date" not in st.session_state:
-            st.session_state["export_start_date"] = _default_start
-        if "export_end_date" not in st.session_state:
-            st.session_state["export_end_date"] = _default_end
+    # セッション状態の初期化
+    # 未設定 or 過去の月のまま残っている場合はデフォルト（翌月1日）にリセット
+    if ("export_start_date" not in st.session_state
+            or st.session_state["export_start_date"] < _default_start):
+        st.session_state["export_start_date"] = _default_start
+    if ("export_end_date" not in st.session_state
+            or st.session_state["export_end_date"] < _default_start):
+        st.session_state["export_end_date"] = _default_end
 
-        # コールバック関数: 開始日が変更されたら終了日を1ヶ月後にセット
-        def _on_start_date_change():
-            new_start = st.session_state["export_start_date"]
-            # 翌月を計算
-            month = new_start.month + 1
-            year = new_start.year + (1 if month > 12 else 0)
-            month = month if month <= 12 else 1
-            # 翌月の末日を取得して、日が範囲外にならないように調整
-            last_day = cal_mod.monthrange(year, month)[1]
-            auto_end = new_start.replace(year=year, month=month, day=min(new_start.day, last_day))
-            st.session_state["export_end_date"] = auto_end
+    # コールバック関数: 開始日が変更されたら終了日を1ヶ月後にセット
+    def _on_start_date_change():
+        new_start = st.session_state["export_start_date"]
+        # 翌月を計算
+        month = new_start.month + 1
+        year = new_start.year + (1 if month > 12 else 0)
+        month = month if month <= 12 else 1
+        # 翌月の末日を取得して、日が範囲外にならないように調整
+        last_day = cal_mod.monthrange(year, month)[1]
+        auto_end = new_start.replace(year=year, month=month, day=min(new_start.day, last_day))
+        st.session_state["export_end_date"] = auto_end
 
-        col1, col2 = st.columns(2)
-        with col1:
-            st.date_input(
-                "📅 開始日",
-                key="export_start_date",
-                on_change=_on_start_date_change,
-                help="開始日を変更すると、終了日が自動的に1ヶ月後にセットされます。"
-            )
-        with col2:
-            st.date_input(
-                "📅 終了日",
-                key="export_end_date",
-                min_value=st.session_state["export_start_date"],
-            )
+    col1, col2 = st.columns(2)
+    with col1:
+        st.date_input(
+            "📅 開始日",
+            key="export_start_date",
+            on_change=_on_start_date_change,
+            help="開始日を変更すると、終了日が自動的に1ヶ月後にセットされます。"
+        )
+    with col2:
+        st.date_input(
+            "📅 終了日",
+            key="export_end_date",
+            min_value=st.session_state["export_start_date"],
+        )
 
     export_start_date: date = st.session_state["export_start_date"]
     export_end_date: date = st.session_state["export_end_date"]

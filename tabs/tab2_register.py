@@ -530,6 +530,7 @@ def _execute_registration(
     st.caption("※ スキップ = カレンダー上の既存イベントと内容が同一のため更新不要だったもの")
 
     # 呼び出し元で結果表示 + 終了ボタンに切り替えるためセッションに保存
+    _cal_name = st.session_state.get("selected_calendar_name_register", "")
     st.session_state["register_result"] = {
         "added":   added_count,
         "updated": updated_count,
@@ -537,8 +538,9 @@ def _execute_registration(
         "failed":  failed_count,
         "total":   total,
         "failed_items": failed_items,
-        "calendar_name": st.session_state.get("selected_calendar_name_register", ""),
+        "calendar_name": _cal_name,
     }
+    st.session_state["_last_registered_calendar"] = _cal_name
 
 
 # ============================================================
@@ -585,6 +587,13 @@ def render_tab2_register(user_id: str, manager):
 
     # ── セッション状態の初期化（ウィジェット描画前に1度だけ） ──
     pool = st.session_state.get("description_columns_pool") or []
+
+    # プールが変わったら reg_desc_cols の存在しない列をフィルタして修正
+    if "reg_desc_cols" in st.session_state:
+        valid_cols = [c for c in st.session_state["reg_desc_cols"] if c in pool]
+        if valid_cols != st.session_state["reg_desc_cols"]:
+            st.session_state["reg_desc_cols"] = valid_cols
+
     if "reg_all_day" not in st.session_state:
         st.session_state["reg_all_day"] = get_user_setting(user_id, "default_allday_event") or False
     if "reg_private" not in st.session_state:
@@ -683,7 +692,15 @@ def render_tab2_register(user_id: str, manager):
 """, unsafe_allow_html=True)
 
     confirm_key = "register_confirm_pending"
-    result      = st.session_state.get("register_result")
+
+    # カレンダーや設定が変わったら前回の登録結果をクリア
+    prev_cal = st.session_state.get("_last_registered_calendar")
+    if prev_cal and prev_cal != selected_calendar_name:
+        st.session_state.pop("register_result", None)
+        st.session_state.pop(confirm_key, None)
+        st.session_state["_last_registered_calendar"] = selected_calendar_name
+
+    result = st.session_state.get("register_result")
 
     # ── 登録完了後 → 結果表示 + 終了ボタン ──
     if result:
