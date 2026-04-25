@@ -57,7 +57,11 @@ def authenticate_google() -> Optional[Credentials]:
 
     # 新規認証が必要 → UI 表示
     auth_url = build_auth_url()
-    st.info("Googleカレンダーへのアクセス許可が必要です。下のボタンからGoogleアカウントで連携してください。")
+    # セッションに invalid_grant フラグがあれば理由を明示
+    if st.session_state.pop("_invalid_grant", False):
+        st.warning("Googleアカウントの連携が切れました。再度連携してください。")
+    else:
+        st.info("Googleカレンダーへのアクセス許可が必要です。下のボタンからGoogleアカウントで連携してください。")
     st.link_button("Googleアカウントで連携する", auth_url, use_container_width=True, type="primary")
     st.stop()
     return None

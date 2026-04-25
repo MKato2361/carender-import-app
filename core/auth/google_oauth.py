@@ -43,6 +43,11 @@ def _clear_creds(user_id: Optional[str] = None) -> None:
         delete_token(user_id)
 
 
+class InvalidGrantError(Exception):
+    """リフレッシュトークンが失効・失効している場合に raise する"""
+    pass
+
+
 def get_valid_credentials(user_id: str) -> Optional[Credentials]:
     """
     有効な Google OAuth 認証情報を返す。
@@ -70,7 +75,8 @@ def get_valid_credentials(user_id: str) -> Optional[Credentials]:
                 _save_creds_to_session(creds, user_id)
                 save_token(user_id, json.loads(creds.to_json()))
                 return creds
-            except Exception:
+            except Exception as e:
+                # invalid_grant = トークン失効 → 削除して再認証
                 _clear_creds(user_id)
 
     # ② Firestore から
@@ -90,7 +96,8 @@ def get_valid_credentials(user_id: str) -> Optional[Credentials]:
                     _save_creds_to_session(creds, user_id)
                     save_token(user_id, json.loads(creds.to_json()))
                     return creds
-                except Exception:
+                except Exception as e:
+                    # invalid_grant = トークン失効 → 削除して再認証
                     delete_token(user_id)
             elif creds.valid:
                 _save_creds_to_session(creds, user_id)

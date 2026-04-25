@@ -35,6 +35,26 @@ from core.calendar.tasks import (
 
 # ── UI 向けラッパー（エラーを st.error で表示して None を返す） ──
 
+def _handle_generic_error(e: Exception, action: str) -> None:
+    """HttpError 以外の例外を種別判定してユーザー向けメッセージで表示する。"""
+    msg = str(e).lower()
+    if "invalid_grant" in msg or "token has been expired or revoked" in msg:
+        # セッションとFirestoreのトークンを削除して再認証を促す
+        try:
+            user_id = st.session_state.get("user_info")
+            if user_id:
+                from core.auth.google_oauth import _clear_creds
+                _clear_creds(user_id)
+        except Exception:
+            pass
+        st.error(
+            f"{action}に失敗しました。Googleアカウントの連携が切れています。"
+            "ページを再読み込みして再連携してください。"
+        )
+    else:
+        st.error(f"{action}に失敗しました。しばらく待ってから再試行してください。")
+
+
 def add_event_to_calendar(service, calendar_id: str,
                            event_data: dict) -> Optional[dict]:
     try:
@@ -42,7 +62,7 @@ def add_event_to_calendar(service, calendar_id: str,
     except HttpError as e:
         _handle_http_error(e, "イベントの追加")
     except Exception as e:
-        st.error(f"イベント追加失敗: {e}")
+        _handle_generic_error(e, "イベントの追加")
     return None
 
 
@@ -53,7 +73,7 @@ def update_event_if_needed(service, calendar_id: str,
     except HttpError as e:
         _handle_http_error(e, "イベントの更新")
     except Exception as e:
-        st.error(f"イベント更新失敗: {e}")
+        _handle_generic_error(e, "イベントの更新")
     return None
 
 
@@ -65,7 +85,7 @@ def delete_event_from_calendar(service, calendar_id: str,
     except HttpError as e:
         _handle_http_error(e, "イベントの削除")
     except Exception as e:
-        st.error(f"イベント削除失敗: {e}")
+        _handle_generic_error(e, "イベントの削除")
     return False
 
 
@@ -76,5 +96,5 @@ def add_task_to_todo_list(tasks_service, task_list_id: str,
     except HttpError as e:
         _handle_http_error(e, "タスクの追加")
     except Exception as e:
-        st.error(f"タスク追加失敗: {e}")
+        _handle_generic_error(e, "タスクの追加")
     return None
