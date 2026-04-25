@@ -294,7 +294,7 @@ def load_property_master_view(
 
 
 # ==========================
-# TODO 生成ロジック
+# ToDo 生成ロジック
 # ==========================
 
 def build_methods_str(row: pd.Series) -> str:
