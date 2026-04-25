@@ -1,3 +1,4 @@
+from __future__ import annotations
 from ui.components import handle_http_error as _handle_http_error
 """
 calendar_utils.py — 後方互換ラッパー
@@ -11,7 +12,6 @@ calendar_utils.py — 後方互換ラッパー
 既存の import が壊れないようエイリアスを公開する。
 新規コードでは直接 core / services を import すること。
 """
-from __future__ import annotations
 from typing import Optional
 
 import streamlit as st

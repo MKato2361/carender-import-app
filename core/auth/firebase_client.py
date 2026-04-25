@@ -1,10 +1,10 @@
+from __future__ import annotations
 """
 core/auth/firebase_client.py
 Firebase REST API クライアント（st.* 禁止）
 
 firebase_auth.py の UI 部分を除いた認証ロジックのみを担う。
 """
-from __future__ import annotations
 import json
 from typing import Optional
 import requests

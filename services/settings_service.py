@@ -1,10 +1,10 @@
+from __future__ import annotations
 """
 services/settings_service.py
 ユーザー設定の読み書き（session_utils.py + user_settings.py を統合）
 
 session_state のアクセスは許可。st.error 等の UI 表示は不可。
 """
-from __future__ import annotations
 import copy
 import streamlit as st
 from core.storage.firestore_client import load_settings, save_setting

@@ -1,6 +1,6 @@
+from __future__ import annotations
 from core.utils.datetime_utils import to_utc_range
 from services.settings_service import get_setting as get_user_setting, set_setting as set_user_setting
-from __future__ import annotations
 
 from datetime import datetime, date, time, timedelta, timezone
 from typing import Any, Dict, List, Optional

@@ -1,10 +1,10 @@
+from __future__ import annotations
 """
 tab2_register.py
 タブ2：イベント登録 UI（軽い改善版）
 """
 
 from services.settings_service import get_setting as get_user_setting, set_setting as set_user_setting
-from __future__ import annotations
 import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta, timezone, date

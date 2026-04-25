@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 core/auth/google_oauth.py
 Google OAuth トークンの検証・取得・更新ロジック（st.* 禁止）
@@ -6,7 +7,6 @@ authenticate_google() から純粋ロジック部分を抽出。
 セッション状態の読み書きは許可（st.session_state は Data only）。
 st.info / st.error 等の UI 表示は呼び出し元（services/auth_service.py）が担う。
 """
-from __future__ import annotations
 import json
 import urllib.parse
 from typing import Optional

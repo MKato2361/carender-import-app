@@ -1,10 +1,10 @@
+from __future__ import annotations
 """
 ui/auth_forms.py
 認証 UI フォーム（firebase_auth.py の UI パートを分離）
 
 st.* の使用は許可。ロジックは core/auth/firebase_client.py に委譲。
 """
-from __future__ import annotations
 import streamlit as st
 from core.auth.firebase_client import sign_in, sign_up
 

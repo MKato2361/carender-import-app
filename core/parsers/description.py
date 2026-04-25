@@ -1,10 +1,10 @@
+from __future__ import annotations
 """
 core/parsers/description.py
 Description 文字列パースユーティリティ（st.* 禁止）
 
 utils/parsers.py と parsers/worksheet_parser.py の重複を統合。
 """
-from __future__ import annotations
 import re
 import unicodedata
 from typing import Optional, Dict, Any

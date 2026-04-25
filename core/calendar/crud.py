@@ -1,10 +1,10 @@
+from __future__ import annotations
 """
 core/calendar/crud.py
 Google Calendar API CRUD 操作（st.* 禁止）
 
 全関数がエラーを raise する。st.error 等の表示は呼び出し元が担う。
 """
-from __future__ import annotations
 from typing import Optional
 from googleapiclient.errors import HttpError
 

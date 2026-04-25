@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 core/storage/firestore_client.py
 Firestore CRUD（st.* 禁止）
@@ -5,7 +6,6 @@ Firestore CRUD（st.* 禁止）
 session_utils.py / firebase_auth.py から Firestore 操作を抽出。
 UI 依存なし・純粋な読み書き関数のみ。
 """
-from __future__ import annotations
 from typing import Any, Optional
 
 

@@ -1,10 +1,10 @@
+from __future__ import annotations
 """
 core/utils/datetime_utils.py
 日時変換ユーティリティ（st.* 禁止）
 
 to_utc_range が tab3/tab5/tab7/tab8 に重複して定義されていたものを統合。
 """
-from __future__ import annotations
 from datetime import date, datetime, timedelta, timezone
 
 JST = timezone(timedelta(hours=9))

@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 ui/components.py
 全タブで使う共通 UI コンポーネント
@@ -5,7 +6,6 @@ ui/components.py
 各タブに散在していたカレンダーカード・確認ボタンパターンをここに集約。
 st.* の使用は許可。
 """
-from __future__ import annotations
 import streamlit as st
 
 

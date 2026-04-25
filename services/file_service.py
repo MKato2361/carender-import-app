@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 services/file_service.py
 ファイルアップロード管理（utils/file_loader.py を整理）
@@ -6,7 +7,6 @@ session_state のアクセスは許可。
 st.warning / st.error は呼び出し元の UI 層が担うため、
 このモジュールは結果を戻り値で返す。
 """
-from __future__ import annotations
 from typing import Any
 import streamlit as st
 from excel_parser import _load_and_merge_dataframes

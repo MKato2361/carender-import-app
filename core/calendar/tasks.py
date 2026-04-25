@@ -1,8 +1,8 @@
+from __future__ import annotations
 """
 core/calendar/tasks.py
 Google Tasks API 操作（st.* 禁止）
 """
-from __future__ import annotations
 from typing import Optional
 from googleapiclient.discovery import build
 

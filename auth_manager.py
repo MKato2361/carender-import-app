@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 auth_manager.py
 Firebase + Google 認証と API サービスを一括管理するクラス。
@@ -5,7 +6,6 @@ Firebase + Google 認証と API サービスを一括管理するクラス。
 認証ロジックは services/auth_service.py に委譲。
 このクラスはサービスインスタンスを保持するシェルとして機能する。
 """
-from __future__ import annotations
 import streamlit as st
 from firebase_admin import firestore
 

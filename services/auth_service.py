@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 services/auth_service.py
 Google 認証フロー制御（st.* 表示 + セッション管理）
@@ -5,7 +6,6 @@ Google 認証フロー制御（st.* 表示 + セッション管理）
 auth_manager.py の ensure_google_services / authenticate_google の UI 部分を担う。
 ロジックは core/auth/google_oauth.py に委譲。
 """
-from __future__ import annotations
 from typing import Optional
 
 import streamlit as st
