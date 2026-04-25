@@ -195,11 +195,20 @@ def render_tab5_export(manager) -> None:
         st.markdown("**2. 出力期間の選択**")
         today_date = date.today()
 
+        # デフォルト開始日 = 翌月1日
+        _next_month = today_date.month % 12 + 1
+        _next_year  = today_date.year + (1 if today_date.month == 12 else 0)
+        _default_start = date(_next_year, _next_month, 1)
+        # デフォルト終了日 = 翌月末日
+        _end_month = _default_start.month % 12 + 1
+        _end_year  = _default_start.year + (1 if _default_start.month == 12 else 0)
+        _default_end = date(_end_year, _end_month, 1) - timedelta(days=1)
+
         # セッション状態の初期化
         if "export_start_date" not in st.session_state:
-            st.session_state["export_start_date"] = today_date - timedelta(days=30)
+            st.session_state["export_start_date"] = _default_start
         if "export_end_date" not in st.session_state:
-            st.session_state["export_end_date"] = today_date
+            st.session_state["export_end_date"] = _default_end
 
         # コールバック関数: 開始日が変更されたら終了日を1ヶ月後にセット
         def _on_start_date_change():
