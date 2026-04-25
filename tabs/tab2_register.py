@@ -529,6 +529,17 @@ def _execute_registration(
 
     st.caption("※ スキップ = カレンダー上の既存イベントと内容が同一のため更新不要だったもの")
 
+    # 呼び出し元で結果表示 + 終了ボタンに切り替えるためセッションに保存
+    st.session_state["register_result"] = {
+        "added":   added_count,
+        "updated": updated_count,
+        "skipped": skipped_count,
+        "failed":  failed_count,
+        "total":   total,
+        "failed_items": failed_items,
+        "calendar_name": st.session_state.get("selected_calendar_name_register", ""),
+    }
+
 
 # ============================================================
 # メインタブ描画 (AuthManager対応版)
@@ -672,6 +683,59 @@ def render_tab2_register(user_id: str, manager):
 """, unsafe_allow_html=True)
 
     confirm_key = "register_confirm_pending"
+    result      = st.session_state.get("register_result")
+
+    # ── 登録完了後 → 結果表示 + 終了ボタン ──
+    if result:
+        r = result
+        cal_name = r.get("calendar_name") or selected_calendar_name
+
+        # 結果サマリーカード
+        all_ok = r["failed"] == 0
+        card_color = "#1E88E5" if all_ok else "#e53935"
+        st.markdown(f"""
+<div style="border:2px solid {card_color};border-radius:10px;padding:16px 20px;margin:8px 0;">
+  <div style="font-size:13px;color:var(--color-text-secondary);margin-bottom:8px;">
+    📅 {cal_name} への登録が完了しました
+  </div>
+  <div style="display:flex;gap:24px;flex-wrap:wrap;font-size:15px;">
+    <span>✅ 登録 <strong>{r["added"]} 件</strong></span>
+    <span>🔧 更新 <strong>{r["updated"]} 件</strong></span>
+    <span>↪ スキップ <strong>{r["skipped"]} 件</strong></span>
+    {"" if all_ok else f'<span style="color:#e53935;">❌ 失敗 <strong>{r["failed"]} 件</strong></span>'}
+  </div>
+</div>
+""", unsafe_allow_html=True)
+
+        if r.get("failed_items"):
+            with st.expander("❌ 登録失敗の一覧", expanded=True):
+                st.dataframe(pd.DataFrame(r["failed_items"]), use_container_width=True)
+
+        st.divider()
+
+        col_done, col_retry = st.columns([3, 1])
+        with col_done:
+            if st.button(
+                "🗑️ アップロードファイルを削除して終了",
+                type="primary",
+                use_container_width=True,
+            ):
+                # ファイルとセッションをリセット
+                from services.file_service import clear_files
+                clear_files()
+                st.session_state.pop("register_result", None)
+                st.session_state.pop(confirm_key, None)
+                st.session_state["upload_version"] = st.session_state.get("upload_version", 0) + 1
+                st.session_state["gh_version"]     = st.session_state.get("gh_version", 0) + 1
+                st.rerun()
+        with col_retry:
+            if st.button("続けて登録", use_container_width=True):
+                st.session_state.pop("register_result", None)
+                st.session_state.pop(confirm_key, None)
+                st.rerun()
+        return
+
+    # ── 未実行 → 確認ボタン ──
     if not st.session_state.get(confirm_key):
         if st.button(
             f"「{selected_calendar_name}」に {event_count}件 登録する",
