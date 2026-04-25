@@ -35,7 +35,7 @@ def _navigate_to_register_tab():
     function tryClick() {
         var tabs = window.parent.document.querySelectorAll('[data-baseweb="tab"]');
         for (var i = 0; i < tabs.length; i++) {
-            if (tabs[i].innerText.indexOf('\u767b\u9332\u30fb\u524a\u9664') !== -1) {
+            if (tabs[i].innerText.indexOf('\u767b\u9332\u30fb\u64cd\u4f5c') !== -1) {
                 tabs[i].click();
                 return true;
             }
@@ -118,10 +118,15 @@ def render_tab1_upload():
         "gh_version": 0,
         "gh_defaults_applied": False,
         "navigate_to_register": False,
+        "_gh_version_at_last_apply": -1,
     }
     for key, val in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = val
+
+    # gh_version が変わったら gh_defaults_applied をリセット（クリア後の再アップロード対応）
+    if st.session_state["gh_version"] != st.session_state["_gh_version_at_last_apply"]:
+        st.session_state["gh_defaults_applied"] = False
 
     # --- タブ自動遷移（確定ボタン押下後） ---
     if st.session_state.get("navigate_to_register"):
@@ -186,8 +191,10 @@ def render_tab1_upload():
         if isinstance(default_gh_text, str):
             default_gh_logicals = {l.strip() for l in default_gh_text.splitlines() if l.strip()}
 
+        # ローカルファイルが存在する（今選択 or セッション既存）かつ未適用の場合に自動選択
+        has_any_work = bool(uploaded_work_files) or has_work_files
         auto_apply_gh_defaults_now = (
-            bool(uploaded_work_files)
+            has_any_work
             and not has_outside_work
             and not st.session_state["gh_defaults_applied"]
             and len(default_gh_logicals) > 0
@@ -224,6 +231,7 @@ def render_tab1_upload():
 
                 if auto_apply_gh_defaults_now:
                     st.session_state["gh_defaults_applied"] = True
+                    st.session_state["_gh_version_at_last_apply"] = st.session_state["gh_version"]
             else:
                 st.info("GitHubリポジトリに対応ファイルが見つかりませんでした。")
         except Exception:
