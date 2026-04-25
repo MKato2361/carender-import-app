@@ -36,7 +36,7 @@ def parse_created(dt_str: Optional[str]) -> datetime:
 
 
 def render_tab4_duplicates(service, editable_calendar_options, fetch_all_events):
-    st.subheader("🔍 重複イベントの検出・削除")
+    st.subheader("重複イベントの検出・削除")
 
     # メッセージ復元
     if "last_dup_message" in st.session_state and st.session_state["last_dup_message"]:
@@ -172,7 +172,7 @@ def render_tab4_duplicates(service, editable_calendar_options, fetch_all_events)
         dup_df = st.session_state["dup_df"]
         current_mode = st.session_state.get("current_delete_mode", "手動で選択して削除")
 
-        st.warning(f"⚠️ {dup_df['worksheet_id'].nunique()} 種類の重複作業指示書が見つかりました。（合計 {len(dup_df)} イベント）")
+        st.warning(f" {dup_df['worksheet_id'].nunique()} 種類の重複作業指示書が見つかりました。（合計 {len(dup_df)} イベント）")
         st.dataframe(dup_df[["worksheet_id", "summary", "created", "start", "end", "id"]], use_container_width=True)
 
         # ===== 手動削除 =====
@@ -184,7 +184,7 @@ def render_tab4_duplicates(service, editable_calendar_options, fetch_all_events)
             )
             confirm = st.checkbox("削除操作を確認しました", value=False, key="manual_del_confirm")
 
-            if st.button("🗑️ 選択したイベントを削除", type="primary", disabled=not confirm, key="run_manual_delete"):
+            if st.button("選択したイベントを削除", type="primary", disabled=not confirm, key="run_manual_delete"):
                 deleted_count = 0
                 errors: List[str] = []
 
@@ -201,7 +201,7 @@ def render_tab4_duplicates(service, editable_calendar_options, fetch_all_events)
                 if errors:
                     st.error("以下のイベントの削除に失敗しました:\n" + "\n".join(errors))
                     if deleted_count == 0:
-                        st.session_state["last_dup_message"] = ("error", "⚠️ 削除処理中にエラーが発生しました。詳細はログを確認してください。")
+                        st.session_state["last_dup_message"] = ("error", " 削除処理中にエラーが発生しました。詳細はログを確認してください。")
 
                 st.session_state["dup_df"] = pd.DataFrame()
                 st.rerun()
@@ -218,7 +218,7 @@ def render_tab4_duplicates(service, editable_calendar_options, fetch_all_events)
 
                 confirm = st.checkbox("削除操作を確認しました", value=False, key="auto_del_confirm_final")
 
-                if st.button("🗑️ 自動削除を実行", type="primary", disabled=not confirm, key="run_auto_delete"):
+                if st.button("自動削除を実行", type="primary", disabled=not confirm, key="run_auto_delete"):
                     deleted_count = 0
                     errors: List[str] = []
 
@@ -235,7 +235,7 @@ def render_tab4_duplicates(service, editable_calendar_options, fetch_all_events)
                     if errors:
                         st.error("以下のイベントの削除に失敗しました:\n" + "\n".join(errors))
                         if deleted_count == 0:
-                            st.session_state["last_dup_message"] = ("error", "⚠️ 削除処理中にエラーが発生しました。詳細はログを確認してください。")
+                            st.session_state["last_dup_message"] = ("error", " 削除処理中にエラーが発生しました。詳細はログを確認してください。")
 
                     st.session_state["dup_df"] = pd.DataFrame()
                     st.rerun()

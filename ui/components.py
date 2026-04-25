@@ -34,10 +34,10 @@ def calendar_card(
 
     st.markdown(
         f"""
-<div style="border:2px solid #1E88E5;border-radius:10px;padding:14px 18px;
+<div style="border:2px solid #4f46e5;border-radius:10px;padding:14px 18px;
             margin-bottom:8px;background:var(--color-background-info);">
   <div style="font-size:12px;font-weight:600;color:var(--color-text-info);
-              margin-bottom:4px;">📅 {label}（必ず確認）</div>
+              margin-bottom:4px;"><span class="mi">calendar_month</span>{label}</div>
   <div style="font-size:20px;font-weight:700;color:var(--color-text-info);">{current}</div>
 </div>
 """,
@@ -124,10 +124,10 @@ def file_summary_bar(has_work: bool, has_outside: bool, on_confirm, on_clear) ->
             unsafe_allow_html=True,
         )
     with col_btn:
-        if st.button("✅ 確定してカレンダー登録へ →", type="primary", use_container_width=True):
+        if st.button("確定してカレンダー登録へ", type="primary", use_container_width=True):
             on_confirm()
     with col_clear:
-        if st.button("🗑️", help="アップロードをクリア", use_container_width=True):
+        if st.button("クリア", help="アップロードをクリア", use_container_width=True):
             on_clear()
 
 def handle_http_error(e, action: str = "操作") -> None:

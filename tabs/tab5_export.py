@@ -189,7 +189,7 @@ def render_tab5_export(manager) -> None:
 
     export_format = st.radio("出力形式", ("CSV", "Excel"), index=0, horizontal=True)
 
-    st.markdown('<div class="section-heading">出力期間</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-heading"><span class="mi">date_range</span>出力期間</div>', unsafe_allow_html=True)
     today_date = date.today()
 
     # デフォルト開始日 = 翌月1日
@@ -225,14 +225,14 @@ def render_tab5_export(manager) -> None:
     col1, col2 = st.columns(2)
     with col1:
         st.date_input(
-            "📅 開始日",
+            "開始日",
             key="export_start_date",
             on_change=_on_start_date_change,
             help="開始日を変更すると、終了日が自動的に1ヶ月後にセットされます。"
         )
     with col2:
         st.date_input(
-            "📅 終了日",
+            "終了日",
             key="export_end_date",
             min_value=st.session_state["export_start_date"],
         )
@@ -247,8 +247,8 @@ def render_tab5_export(manager) -> None:
     st.divider()
 
     # 実行ボタン
-    if st.button(f"🚀 {export_format} データを生成する", type="primary", use_container_width=True):
-        progress = st.progress(0, text="📡 カレンダーからデータを取得中...")
+    if st.button(f"{export_format} データを出力する", type="primary", use_container_width=True):
+        progress = st.progress(0, text="データを取得中...")
         try:
             df_filtered, excluded_count = _fetch_and_extract(
                 service,
@@ -262,7 +262,7 @@ def render_tab5_export(manager) -> None:
                 st.info("条件に一致するイベントが見つかりませんでした。")
                 return
 
-            progress.progress(80, text="📄 ダウンロード準備中...")
+            progress.progress(80, text="ダウンロード準備中...")
             
             start_str = export_start_date.strftime("%Y%m%d")
             end_str = export_end_date.strftime("%m%d")
@@ -274,7 +274,7 @@ def render_tab5_export(manager) -> None:
             
             _build_download_section(df_filtered, file_base_name, export_format)
             
-            with st.expander("🔍 抽出データプレビュー", expanded=True):
+            with st.expander("抽出データプレビュー", expanded=True):
                 st.dataframe(df_filtered, use_container_width=True)
             
             progress.progress(100, text="✅ 完了")

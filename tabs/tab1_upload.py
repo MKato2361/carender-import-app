@@ -84,7 +84,7 @@ def _render_confirm_bar(has_work_files, has_outside_work):
 
     with col_btn:
         if st.button(
-            "✅ 確定してカレンダー登録へ →",
+            "確定してカレンダー登録へ",
             type="primary",
             use_container_width=True,
         ):
@@ -92,7 +92,7 @@ def _render_confirm_bar(has_work_files, has_outside_work):
             st.rerun()
 
     with col_clear:
-        if st.button("🗑️", help="アップロードをクリア", use_container_width=True):
+        if st.button("クリア", help="アップロードをクリア", use_container_width=True):
             clear_uploaded_files()
             st.session_state["uploaded_outside_work_file"] = None
             st.session_state["merged_df_for_selector"]     = None
@@ -152,7 +152,7 @@ def render_tab1_upload():
     col1, col2 = st.columns(2)
 
     with col1:
-        st.markdown('<div class="section-heading">🛠️ 作業指示書</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-heading"><span class="mi">build</span>作業指示書</div>', unsafe_allow_html=True)
         uploaded_work_files = st.file_uploader(
             "作業指示書",
             type=["xlsx", "xls", "csv"],
@@ -163,7 +163,7 @@ def render_tab1_upload():
         )
 
     with col2:
-        st.markdown('<div class="section-heading">🗓️ 作業外予定</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-heading"><span class="mi">event</span>作業外予定</div>', unsafe_allow_html=True)
         uploaded_outside_file = st.file_uploader(
             "作業外予定",
             type=["xlsx", "xls", "csv"],
@@ -178,9 +178,9 @@ def render_tab1_upload():
         st.divider()
         col_title, col_reload = st.columns([8, 1])
         with col_title:
-            st.markdown('<div class="section-heading">📦 GitHubリポジトリから選択</div>', unsafe_allow_html=True)
+            st.markdown('<div class="section-heading"><span class="mi">cloud_download</span>GitHubから選択</div>', unsafe_allow_html=True)
         with col_reload:
-            if st.button("🔄", help="ファイル一覧を更新", disabled=disable_work_upload):
+            if st.button("更新", help="ファイル一覧を更新", disabled=disable_work_upload):
                 _clear_github_cache()
                 st.session_state["gh_version"] += 1
                 st.session_state["gh_defaults_applied"] = False

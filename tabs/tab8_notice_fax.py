@@ -185,7 +185,7 @@ def _render_step_indicator(current: int) -> None:
         is_current = i == current
         color = "#4CAF50" if is_done else "#1976D2" if is_current else "#9E9E9E"
         weight = "700" if is_current else "600" if is_done else "400"
-        bg = "#E3F2FD" if is_current else "transparent"
+        bg = "#eef2ff" if is_current else "transparent"
         icon = "✅" if is_done else "▶" if is_current else "○"
 
         col.markdown(

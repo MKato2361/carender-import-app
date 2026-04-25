@@ -148,7 +148,7 @@ def render_sidebar(
 ) -> None:
     """サイドバー全体をモダンに描画する"""
     with st.sidebar:
-        st.title("⚙️ 設定")
+        st.title("設定")
 
         # ════════════════════════════════
         # メイン設定: カレンダー選択 (常に表示)
@@ -272,7 +272,7 @@ def render_sidebar(
             sheets_ok = bool(st.session_state.get("sheets_service"))
 
             def _status_badge(ok: bool, label: str):
-                icon = "🟢" if ok else "🔴"
+                icon = "●" if ok else "●"
                 st.markdown(f"{icon} {label}")
 
             _status_badge(firebase_ok, "アカウント認証")
@@ -293,13 +293,13 @@ def render_sidebar(
 
         col_save, col_reset = st.columns(2)
         with col_save:
-            if st.button("💾 保存", type="primary", use_container_width=True):
+            if st.button("保存", type="primary", use_container_width=True):
                 _do_save(user_id, editable_calendar_options or {}, save_user_setting_to_firestore)
                 st.toast("設定を保存しました ✅")
                 st.rerun()
 
         with col_reset:
-            if st.button("🗑️ リセット", use_container_width=True):
+            if st.button("リセット", use_container_width=True):
                 st.session_state["_confirm_reset"] = True
                 st.rerun()
 
@@ -318,7 +318,7 @@ def render_sidebar(
         st.divider()
 
         # ログアウト
-        if st.button("🚪 ログアウト", use_container_width=True, help="セッションを終了します"):
+        if st.button("ログアウト", use_container_width=True, help="セッションを終了します"):
             if user_id:
                 clear_user_settings(user_id)
             for key in list(st.session_state.keys()):

@@ -295,7 +295,7 @@ def _build_calendar_df_from_outside(df_raw: pd.DataFrame, private_event: bool, a
 
 def _render_event_settings(user_id, outside_mode):
     """設定ウィジェットを描画する（値はセッション状態に保存済みのものを使う）"""
-    st.markdown('<div class="section-heading">イベント基本設定</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-heading"><span class="mi">tune</span>イベント基本設定</div>', unsafe_allow_html=True)
     col1, col2 = st.columns(2)
     with col1:
         st.checkbox("すべて終日として扱う", key="reg_all_day")
@@ -318,7 +318,7 @@ def _render_bulk_datetime_settings(all_day_override: bool):
     st.session_state.setdefault("bulk_start_date", today)
     st.session_state.setdefault("bulk_start_time", default_start_time)
 
-    with st.expander("⏰ 日時一括設定（日時が空の行に適用）", expanded=st.session_state.get("bulk_datetime_enabled", False)):
+    with st.expander("日時一括設定（日時が空の行に適用）", expanded=st.session_state.get("bulk_datetime_enabled", False)):
         st.caption("日時が空の行だけに適用されます。1件ごとに1時間ずつずらして登録し、1日15件まで（16件目以降は翌日に繰り越し）。終了時刻は自動で開始の1時間後になります。")
         enabled = st.checkbox(
             "有効にする",
@@ -356,7 +356,7 @@ def _render_event_name_settings(user_id):
         st.session_state.get("reg_add_task_type", False)
         or st.session_state.get("reg_fallback_col", "選択しない") != "選択しない"
     )
-    with st.expander("✏️ イベント名の構成（カスタマイズ）", expanded=is_customized):
+    with st.expander("イベント名の構成（カスタマイズ）", expanded=is_customized):
         col1, col2 = st.columns(2)
         with col1:
             add_type = st.checkbox("先頭に作業種別を付与する", key="reg_add_task_type")
@@ -507,14 +507,13 @@ def _execute_registration(
         done = i + 1
         progress.progress(done / total)
         status_text.caption(
-            f"処理中 ({done}/{total})：{subject or '(無題)'}　"
-            f"✅ {added_count}件登録　🔧 {updated_count}件更新　↪ {skipped_count}件スキップ　❌ {failed_count}件失敗"
+            f"処理中 ({done}/{total})：{subject or '(無題)'} — 登録 {added_count} 更新 {updated_count} スキップ {skipped_count} 失敗 {failed_count}"
         )
 
     status_text.empty()
 
     st.success(
-        f"✅ 登録: {added_count} 件 / 🔧 更新: {updated_count} 件 / ↪ スキップ: {skipped_count} 件 / ❌ 失敗: {failed_count} 件"
+        f"登録 {added_count} 件 ／ 更新 {updated_count} 件 ／ スキップ {skipped_count} 件 ／ 失敗 {failed_count} 件"
     )
 
     accounted = added_count + updated_count + skipped_count + failed_count
@@ -564,7 +563,7 @@ def render_tab2_register(user_id: str, manager):
     if not has_work and not outside_mode:
         st.markdown("""
 <div style="border:1.5px dashed var(--color-border-secondary);border-radius:10px;padding:24px;text-align:center;color:var(--color-text-secondary);">
-  <div style="font-size:32px;margin-bottom:8px;">📂</div>
+  <div style="margin-bottom:8px;"><span class="mi">folder_open</span></div>
   <div style="font-size:15px;font-weight:500;margin-bottom:4px;">ファイルがアップロードされていません</div>
   <div style="font-size:13px;">「1. ファイル取込」タブでExcel / CSVをアップロードしてから戻ってきてください。</div>
 </div>
@@ -678,14 +677,14 @@ def render_tab2_register(user_id: str, manager):
     # ── Step 3: プレビュー + 確認カード + 登録ボタン ──
     st.divider()
 
-    with st.expander(f"📋 登録内容プレビュー（{event_count} 件）", expanded=False):
+    with st.expander(f"登録内容プレビュー（{event_count} 件）", expanded=False):
         st.dataframe(df, use_container_width=True)
 
     st.markdown(f"""
-<div style="border:2px solid #1E88E5;border-radius:10px;padding:14px 18px;margin:8px 0;">
+<div style="border:2px solid #4f46e5;border-radius:10px;padding:14px 18px;margin:8px 0;">
   <div style="font-size:12px;color:var(--color-text-secondary);margin-bottom:4px;">この内容でGoogleカレンダーに登録します</div>
   <div style="display:flex;align-items:baseline;gap:16px;flex-wrap:wrap;">
-    <span style="font-size:14px;">📅 登録先：<strong style="font-size:17px;color:var(--color-text-info);">{selected_calendar_name}</strong></span>
+    <span style="font-size:14px;"><span class="mi">calendar_month</span> 登録先：<strong style="font-size:17px;color:#4f46e5;">{selected_calendar_name}</strong></span>
     <span style="font-size:14px;">件数：<strong>{event_count} 件</strong></span>
   </div>
 </div>
@@ -709,23 +708,23 @@ def render_tab2_register(user_id: str, manager):
 
         # 結果サマリーカード
         all_ok = r["failed"] == 0
-        card_color = "#1E88E5" if all_ok else "#e53935"
+        card_color = "#4f46e5" if all_ok else "#e53935"
         st.markdown(f"""
 <div style="border:2px solid {card_color};border-radius:10px;padding:16px 20px;margin:8px 0;">
   <div style="font-size:13px;color:var(--color-text-secondary);margin-bottom:8px;">
-    📅 {cal_name} への登録が完了しました
+    <span class="mi">check_circle</span> {cal_name} への登録が完了しました
   </div>
   <div style="display:flex;gap:24px;flex-wrap:wrap;font-size:15px;">
-    <span>✅ 登録 <strong>{r["added"]} 件</strong></span>
-    <span>🔧 更新 <strong>{r["updated"]} 件</strong></span>
-    <span>↪ スキップ <strong>{r["skipped"]} 件</strong></span>
+    <span>登録 <strong>{r["added"]} 件</strong></span>
+    <span>更新 <strong>{r["updated"]} 件</strong></span>
+    <span>スキップ <strong>{r["skipped"]} 件</strong></span>
     {"" if all_ok else f'<span style="color:#e53935;">❌ 失敗 <strong>{r["failed"]} 件</strong></span>'}
   </div>
 </div>
 """, unsafe_allow_html=True)
 
         if r.get("failed_items"):
-            with st.expander("❌ 登録失敗の一覧", expanded=True):
+            with st.expander("登録失敗の一覧", expanded=True):
                 st.dataframe(pd.DataFrame(r["failed_items"]), use_container_width=True)
 
         st.divider()
@@ -733,7 +732,7 @@ def render_tab2_register(user_id: str, manager):
         col_done, col_retry = st.columns([3, 1])
         with col_done:
             if st.button(
-                "🗑️ アップロードファイルを削除して終了",
+                "アップロードファイルを削除して終了",
                 type="primary",
                 use_container_width=True,
             ):
@@ -765,7 +764,7 @@ def render_tab2_register(user_id: str, manager):
         st.warning(f"「{selected_calendar_name}」に {event_count}件 を登録します。よろしいですか？")
         col_ok, col_cancel = st.columns([3, 1])
         with col_ok:
-            if st.button("✅ 登録する", type="primary", use_container_width=True):
+            if st.button("登録する", type="primary", use_container_width=True):
                 st.session_state[confirm_key] = False
                 _execute_registration(service, df, calendar_id, outside_mode)
                 st.rerun()

@@ -28,65 +28,228 @@ st.set_page_config(
 # ──────────────────────────────────────────────
 st.markdown("""
 <style>
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20,300,0,0&display=block');
+
+/* ── Material Icons ── */
+.mi {
+    font-family: 'Material Symbols Outlined';
+    font-variation-settings: 'FILL' 0, 'wght' 300, 'GRAD' 0, 'opsz' 20;
+    font-size: 16px;
+    line-height: 1;
+    vertical-align: middle;
+    display: inline-block;
+    color: inherit;
+    margin-right: 4px;
+    position: relative;
+    top: -1px;
+}
+.section-heading .mi { font-size: 15px; color: #9d9b96; }
+.cal-card-icon { font-size: 14px; }
+
+/* ── ベース ── */
+html, body, [class*="css"] {
+    font-family: 'Noto Sans JP', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+/* ── ページ背景 ── */
+.stApp {
+    background: #f8f7f5;
+}
+@media (prefers-color-scheme: dark) {
+    .stApp { background: #0f0f0f; }
+}
+
+/* ── メインコンテンツエリア ── */
+section[data-testid="stMain"] > div {
+    padding-top: 1.5rem;
+}
+
 /* ── タブバー ── */
 .stTabs [data-baseweb="tab-list"] {
-    gap: 4px;
+    gap: 0;
     background: transparent;
-    border-bottom: 1.5px solid var(--color-border-tertiary, #e8eaf0);
+    border-bottom: 1px solid #e5e3df;
     padding: 0;
     position: sticky;
     top: 0;
     z-index: 100;
-    background-color: var(--background-color, white);
+    background-color: #f8f7f5;
+}
+@media (prefers-color-scheme: dark) {
+    .stTabs [data-baseweb="tab-list"] { background-color: #0f0f0f; border-color: #2a2a2a; }
 }
 .stTabs [data-baseweb="tab"] {
-    font-size: 14px;
+    font-family: 'Noto Sans JP', sans-serif;
+    font-size: 13px;
     font-weight: 500;
-    padding: 10px 18px;
-    border-radius: 8px 8px 0 0;
-    color: var(--text-color-secondary, #666);
+    padding: 10px 20px;
+    border-radius: 0;
+    color: #888;
+    letter-spacing: .01em;
+    border-bottom: 2px solid transparent;
+    transition: color .15s, border-color .15s;
+}
+.stTabs [data-baseweb="tab"]:hover {
+    color: #4f46e5;
+    background: transparent;
 }
 .stTabs [aria-selected="true"] {
-    background: #EFF6FF !important;
-    color: #1E88E5 !important;
+    background: transparent !important;
+    color: #4f46e5 !important;
     font-weight: 700;
-    border-bottom: 2.5px solid #1E88E5;
+    border-bottom: 2px solid #4f46e5 !important;
 }
-/* ダークモード */
-@media (prefers-color-scheme: dark) {
-    .stTabs [data-baseweb="tab-list"] { background-color: #0e1117; }
-    .stTabs [aria-selected="true"] { background: #1a2744 !important; }
-}
-/* ── セクション見出し共通 ── */
+
+/* ── セクション見出し ── */
 .section-heading {
-    font-size: 13px;
+    font-family: 'Noto Sans JP', sans-serif;
+    font-size: 11px;
     font-weight: 700;
-    color: var(--text-color-secondary, #666);
-    letter-spacing: .04em;
+    color: #9d9b96;
+    letter-spacing: .08em;
     text-transform: uppercase;
-    margin: 20px 0 10px;
-    padding-bottom: 6px;
-    border-bottom: 1px solid var(--color-border-tertiary, #e8eaf0);
+    margin: 22px 0 10px;
+    padding-bottom: 0;
+    border-bottom: none;
+    display: flex;
+    align-items: center;
+    gap: 6px;
 }
-/* ── ページタイトル ── */
+.section-heading::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: #e5e3df;
+}
+
+/* ── アプリ名 ── */
 .app-subtitle {
-    font-size: 12px;
-    color: var(--text-color-secondary, #888);
-    margin-bottom: 16px;
+    font-family: 'Noto Sans JP', sans-serif;
+    font-size: 13px;
+    font-weight: 500;
+    color: #9d9b96;
+    margin-bottom: 18px;
+    letter-spacing: .02em;
 }
-/* ── カード・境界線をスッキリ ── */
-[data-testid="stVerticalBlock"] > [data-testid="stVerticalBlock"] > div[class*="st-emotion-cache"] {
-    border-radius: 10px;
+
+/* ── カレンダー選択カード ── */
+div[style*="border:2px solid #1E88E5"] {
+    border: 1.5px solid #c7d2fe !important;
+    background: #eef2ff !important;
+    border-radius: 12px !important;
 }
-/* ── ボタン ── */
+
+/* ── プライマリボタン ── */
 .stButton > button[kind="primary"] {
+    background: #4f46e5;
+    border: none;
     border-radius: 8px;
+    font-family: 'Noto Sans JP', sans-serif;
+    font-size: 13px;
     font-weight: 600;
+    letter-spacing: .02em;
+    padding: 0 20px;
+    height: 38px;
+    box-shadow: 0 1px 3px rgba(79,70,229,.25);
+    transition: background .15s, box-shadow .15s, transform .1s;
 }
-/* ── divider を細く ── */
+.stButton > button[kind="primary"]:hover {
+    background: #4338ca;
+    box-shadow: 0 4px 12px rgba(79,70,229,.35);
+    transform: translateY(-1px);
+}
+.stButton > button[kind="primary"]:active {
+    transform: translateY(0);
+    box-shadow: 0 1px 2px rgba(79,70,229,.2);
+}
+
+/* ── セカンダリボタン ── */
+.stButton > button[kind="secondary"] {
+    border-radius: 8px;
+    font-family: 'Noto Sans JP', sans-serif;
+    font-size: 13px;
+    border: 1px solid #e5e3df;
+    background: white;
+    transition: border-color .15s, background .15s;
+}
+.stButton > button[kind="secondary"]:hover {
+    border-color: #c7d2fe;
+    background: #f5f3ff;
+}
+
+/* ── リンクボタン ── */
+.stLinkButton a {
+    background: #4f46e5 !important;
+    border-radius: 8px !important;
+    font-weight: 600 !important;
+    font-family: 'Noto Sans JP', sans-serif !important;
+}
+
+/* ── divider ── */
 hr {
-    border-color: var(--color-border-tertiary, #e8eaf0) !important;
-    margin: 12px 0 !important;
+    border: none !important;
+    border-top: 1px solid #e5e3df !important;
+    margin: 16px 0 !important;
+}
+
+/* ── st.info / success / warning / error ── */
+[data-testid="stAlert"] {
+    border-radius: 10px;
+    border: none;
+    padding: 12px 16px;
+}
+
+/* ── 入力フィールド ── */
+.stTextInput > div > div > input,
+.stSelectbox > div > div,
+.stMultiSelect > div > div {
+    border-radius: 8px;
+    border-color: #e5e3df;
+    font-family: 'Noto Sans JP', sans-serif;
+}
+.stTextInput > div > div > input:focus {
+    border-color: #4f46e5;
+    box-shadow: 0 0 0 3px rgba(79,70,229,.12);
+}
+
+/* ── expander ── */
+.stExpander {
+    border: 1px solid #e5e3df !important;
+    border-radius: 10px !important;
+    background: white;
+}
+.stExpander > details > summary {
+    font-family: 'Noto Sans JP', sans-serif;
+    font-size: 13px;
+    font-weight: 600;
+    color: #3d3b37;
+}
+
+/* ── progress bar ── */
+.stProgress > div > div > div > div {
+    background: linear-gradient(90deg, #4f46e5, #818cf8);
+}
+
+/* ── スピナー ── */
+.stSpinner > div {
+    border-top-color: #4f46e5 !important;
+}
+
+/* ── checkbox ── */
+.stCheckbox > label > span[data-testid="stCheckboxLabel"] {
+    font-family: 'Noto Sans JP', sans-serif;
+    font-size: 13px;
+}
+
+/* ── step indicator (認証フロー) ── */
+.step-dot-active {
+    background: #4f46e5;
+    color: white;
+    border-radius: 50%;
+    width: 22px; height: 22px;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 700;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -106,10 +269,10 @@ def main():
             st.markdown('<div class="app-subtitle">Googleカレンダー一括管理システム</div>', unsafe_allow_html=True)
             st.markdown("""
 <div style="display:flex;gap:8px;align-items:center;margin-bottom:20px;">
-  <span style="background:#1E88E5;color:white;border-radius:50%;width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;">1</span>
-  <span style="font-weight:600;color:#1E88E5;font-size:13px;">アカウントにログイン</span>
+  <span style="background:#4f46e5;color:white;border-radius:50%;width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;">1</span>
+  <span style="font-weight:600;color:#4f46e5;font-size:13px;">アカウントにログイン</span>
   <span style="color:#ddd;margin:0 2px;">→</span>
-  <span style="background:#e8eaf0;color:#bbb;border-radius:50%;width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;">2</span>
+  <span style="background:#f1f0ee;color:#bbb;border-radius:50%;width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;">2</span>
   <span style="color:#bbb;font-size:13px;">Googleカレンダーと連携</span>
 </div>
 """, unsafe_allow_html=True)
@@ -123,11 +286,11 @@ def main():
             st.markdown('<div class="app-subtitle">Googleカレンダー一括管理システム</div>', unsafe_allow_html=True)
             st.markdown("""
 <div style="display:flex;gap:8px;align-items:center;margin-bottom:20px;">
-  <span style="background:#43a047;color:white;border-radius:50%;width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;">✓</span>
-  <span style="font-weight:600;color:#43a047;font-size:13px;">ログイン済み</span>
+  <span style="background:#16a34a;color:white;border-radius:50%;width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;">✓</span>
+  <span style="font-weight:600;color:#16a34a;font-size:13px;">ログイン済み</span>
   <span style="color:#ddd;margin:0 2px;">→</span>
-  <span style="background:#1E88E5;color:white;border-radius:50%;width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;">2</span>
-  <span style="font-weight:600;color:#1E88E5;font-size:13px;">Googleカレンダーと連携</span>
+  <span style="background:#4f46e5;color:white;border-radius:50%;width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;">2</span>
+  <span style="font-weight:600;color:#4f46e5;font-size:13px;">Googleカレンダーと連携</span>
 </div>
 """, unsafe_allow_html=True)
         st.stop()
@@ -148,9 +311,9 @@ def main():
     st.markdown('<div class="app-subtitle">Googleカレンダー一括管理システム</div>', unsafe_allow_html=True)
 
     # ── 6. タブ ──
-    tab_labels = ["📁 ファイル取込", "📥 登録・操作", "📤 出力", "🏠 物件マスタ"]
+    tab_labels = ["ファイル取込", "登録・操作", "出力", "物件マスタ"]
     if is_admin:
-        tab_labels.append("⚙️ 管理者")
+        tab_labels.append("管理者")
 
     tabs = st.tabs(tab_labels)
 
@@ -158,7 +321,7 @@ def main():
         render_tab1_upload()
 
     with tabs[1]:
-        sub_tabs = st.tabs(["📥 イベント登録", "🗑️ イベント削除", "✅ 点検ToDo", "📄 貼り紙・FAX"])
+        sub_tabs = st.tabs(["イベント登録", "イベント削除", "点検ToDo", "貼り紙・FAX"])
         with sub_tabs[0]:
             render_tab2_register(user_id, manager)
         with sub_tabs[1]:

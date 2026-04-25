@@ -63,7 +63,7 @@ def render_tab3_delete(editable_calendar_options, service, tasks_service, defaul
     # イベント削除の期間指定
     # -------------------------------
     st.divider()
-    st.markdown('<div class="section-heading">🗓️ 削除期間</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-heading"><span class="mi">date_range</span>削除期間</div>', unsafe_allow_html=True)
     today_date = date.today()
     delete_start_date = st.date_input("削除開始日", value=today_date - timedelta(days=30))
     delete_end_date = st.date_input("削除終了日", value=today_date)
@@ -80,7 +80,7 @@ def render_tab3_delete(editable_calendar_options, service, tasks_service, defaul
     # -------------------------------
     # イベント削除 実行セクション
     # -------------------------------
-    st.markdown('<div class="section-heading">🗑️ 削除の実行</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-heading"><span class="mi">delete</span>削除の実行</div>', unsafe_allow_html=True)
 
     if "confirm_delete" not in st.session_state:
         st.session_state["confirm_delete"] = False
@@ -98,7 +98,7 @@ def render_tab3_delete(editable_calendar_options, service, tasks_service, defaul
         col1, col2 = st.columns([3, 1])
 
         with col1:
-            if st.button("✅ 削除を実行する", type="primary", use_container_width=True, key="events_delete_execute"):
+            if st.button("削除を実行する", type="primary", use_container_width=True, key="events_delete_execute"):
                 st.session_state["confirm_delete"] = False
 
                 time_min_utc, time_max_utc = to_utc_range(delete_start_date, delete_end_date)
@@ -156,7 +156,7 @@ def render_tab3_delete(editable_calendar_options, service, tasks_service, defaul
     # ToDo一括削除セクション
     # -------------------------------
     st.divider()
-    st.markdown('<div class="section-heading">✅ ToDo の一括削除</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-heading"><span class="mi">checklist</span>ToDo の一括削除</div>', unsafe_allow_html=True)
 
     if not tasks_service or not default_task_list_id:
         st.info("Google ToDo リストサービスが利用できないため、ToDo一括削除機能は使用できません。")
@@ -211,7 +211,7 @@ def render_tab3_delete(editable_calendar_options, service, tasks_service, defaul
         colt1, colt2 = st.columns([3, 1])
 
         with colt1:
-            if st.button("✅ ToDo削除を実行", type="primary", use_container_width=True, key="todo_delete_execute"):
+            if st.button("ToDo削除を実行", type="primary", use_container_width=True, key="todo_delete_execute"):
                 st.session_state["confirm_delete_todo"] = False
 
                 due_min_utc, due_max_utc = to_utc_range(todo_delete_start, todo_delete_end)
