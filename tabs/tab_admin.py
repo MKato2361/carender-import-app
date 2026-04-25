@@ -1,5 +1,5 @@
-# tabs/tab_admin.py
 from __future__ import annotations
+# tabs/tab_admin.py
 
 import base64
 from datetime import datetime
@@ -25,7 +25,7 @@ from github_loader import (
 )
 
 # 外部タブ・ユーティリティ
-from calendar_utils import fetch_all_events
+from services.calendar_service import get_events as fetch_all_events
 from tabs.tab4_duplicates import render_tab4_duplicates
 
 # ==============================

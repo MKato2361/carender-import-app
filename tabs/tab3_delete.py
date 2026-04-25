@@ -2,7 +2,7 @@ from ui.components import calendar_card
 from core.utils.datetime_utils import to_utc_range
 from services.settings_service import get_setting as get_user_setting, set_setting as set_user_setting
 import streamlit as st
-from calendar_utils import fetch_all_events
+from services.calendar_service import get_events as fetch_all_events
 from datetime import datetime, date, timedelta, timezone
 
 def _get_current_user_key(fallback: str = "") -> str:
@@ -122,7 +122,7 @@ def render_tab3_delete(editable_calendar_options, service, tasks_service, defaul
                         status_text.text(f"イベント '{event_summary}' を削除中... ({i}/{total_events})")
                         try:
                             if delete_related_todos and tasks_service and default_task_list_id:
-                                from calendar_utils import find_and_delete_tasks_by_event_id
+                                from services.calendar_service import delete_tasks_by_event_id as find_and_delete_tasks_by_event_id
                                 deleted_task_count_for_event = find_and_delete_tasks_by_event_id(
                                     tasks_service,
                                     default_task_list_id,

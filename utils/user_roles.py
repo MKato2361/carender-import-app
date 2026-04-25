@@ -1,5 +1,5 @@
-# utils/user_roles.py
 from __future__ import annotations
+# utils/user_roles.py
 
 from dataclasses import dataclass
 from datetime import datetime

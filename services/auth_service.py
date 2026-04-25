@@ -18,7 +18,7 @@ from core.auth.google_oauth import (
     handle_oauth_callback,
 )
 from core.calendar.tasks import build_tasks_service, get_default_task_list_id
-from firebase_auth import get_firebase_user_id
+from core.auth.firebase_client import get_user_id as get_firebase_user_id
 
 
 def authenticate_google() -> Optional[Credentials]:

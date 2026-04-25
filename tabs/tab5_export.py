@@ -12,7 +12,7 @@ import pandas as pd
 import streamlit as st
 
 # 認証・カレンダー関連のユーティリティ
-from calendar_utils import fetch_all_events
+from services.calendar_service import get_events as fetch_all_events
 
 # ==============================
 # 正規表現（全角/半角/表記ゆれ対応）

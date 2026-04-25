@@ -15,8 +15,8 @@ from excel_parser import (
     get_available_columns_for_event_name,
     check_event_name_columns,
 )
-from calendar_utils import (
-    fetch_all_events,
+from services.calendar_service import (
+    get_events as fetch_all_events,
     add_event_to_calendar,
     update_event_if_needed,
 )

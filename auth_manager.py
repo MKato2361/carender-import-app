@@ -9,7 +9,7 @@ Firebase + Google 認証と API サービスを一括管理するクラス。
 import streamlit as st
 from firebase_admin import firestore
 
-from firebase_auth import initialize_firebase, get_firebase_user_id
+from core.auth.firebase_client import initialize_firebase, get_user_id as get_firebase_user_id
 from services.auth_service import authenticate_google, build_google_services
 from services.settings_service import (
     _ensure_initialized as initialize_session_state,

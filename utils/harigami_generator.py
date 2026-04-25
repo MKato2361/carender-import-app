@@ -1,5 +1,5 @@
-# utils/harigami_generator.py
 from __future__ import annotations
+# utils/harigami_generator.py
 
 import io
 import os
