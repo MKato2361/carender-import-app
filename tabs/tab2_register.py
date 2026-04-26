@@ -12,6 +12,8 @@ from utils.helpers import safe_get
 from core.parsers.description import extract_worksheet_id as extract_worksheet_id_from_text, is_event_changed
 from excel_parser import (
     process_excel_data_for_calendar,
+    _cached_process_excel,
+    _files_hash,
     get_available_columns_for_event_name,
     check_event_name_columns,
 )
@@ -19,6 +21,7 @@ from services.calendar_service import (
     get_events as fetch_all_events,
     add_event_to_calendar,
     update_event_if_needed,
+    invalidate_events_cache,
 )
 
 JST = ZoneInfo("Asia/Tokyo")
@@ -643,19 +646,20 @@ def render_tab2_register(user_id: str, manager):
             df = _build_calendar_df_from_outside(
                 raw_df, private_event=private_event, all_day_override=all_day_override
             )
-        elif bulk_enabled:
-            df = process_excel_data_for_calendar(
-                st.session_state["uploaded_files"],
-                description_columns, all_day_override, private_event,
-                fallback_col, add_task_type,
-                bulk_start_date=bulk_start_date, bulk_start_time=bulk_start_time,
-                bulk_end_date=None, bulk_end_time=None,
-            )
         else:
-            df = process_excel_data_for_calendar(
-                st.session_state["uploaded_files"],
-                description_columns, all_day_override, private_event,
+            _ufiles = st.session_state["uploaded_files"]
+            _fhash  = _files_hash(_ufiles)
+            _fdata  = []
+            for _f in _ufiles:
+                _f.seek(0); _fdata.append((_f.name, _f.read())); _f.seek(0)
+            df = _cached_process_excel(
+                _fhash, _fdata,
+                tuple(description_columns), all_day_override, private_event,
                 fallback_col, add_task_type,
+                bulk_start_date if bulk_enabled else None,
+                bulk_start_time if bulk_enabled else None,
+                None, None,
+                True,
             )
     except Exception:
         st.error("ファイルの読み込み中にエラーが発生しました。ファイル形式と内容を確認してください。")
@@ -766,6 +770,8 @@ def render_tab2_register(user_id: str, manager):
         with col_ok:
             if st.button("登録する", type="primary", use_container_width=True):
                 st.session_state[confirm_key] = False
+                _cached_process_excel.clear()  # 登録後は次回レンダーで再計算
+                invalidate_events_cache(calendar_id)  # イベントキャッシュ無効化
                 _execute_registration(service, df, calendar_id, outside_mode)
                 st.rerun()
         with col_cancel:

@@ -9,7 +9,7 @@ st.warning / st.error は呼び出し元の UI 層が担うため、
 """
 from typing import Any
 import streamlit as st
-from excel_parser import _load_and_merge_dataframes
+from excel_parser import _load_and_merge_dataframes, _files_hash, _cached_load_and_merge
 
 
 def add_files(new_files: list[Any]) -> None:
@@ -56,7 +56,12 @@ def merge_files() -> list[str]:
 
     if valid:
         try:
-            merged = _load_and_merge_dataframes(valid)
+            # ファイルハッシュをキーにキャッシュして高速化
+            fhash = _files_hash(valid)
+            fdata = []
+            for f in valid:
+                f.seek(0); fdata.append((f.name, f.read())); f.seek(0)
+            merged = _cached_load_and_merge(fhash, fdata)
             st.session_state["merged_df_for_selector"] = merged
             st.session_state["description_columns_pool"] = merged.columns.tolist()
         except Exception:

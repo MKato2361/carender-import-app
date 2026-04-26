@@ -2,7 +2,7 @@ from ui.components import calendar_card
 from core.utils.datetime_utils import to_utc_range
 from services.settings_service import get_setting as get_user_setting, set_setting as set_user_setting
 import streamlit as st
-from services.calendar_service import get_events as fetch_all_events
+from services.calendar_service import get_events as fetch_all_events, invalidate_events_cache
 from datetime import datetime, date, timedelta, timezone
 
 def _get_current_user_key(fallback: str = "") -> str:
