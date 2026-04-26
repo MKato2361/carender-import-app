@@ -36,7 +36,7 @@ def calendar_card(
         f"""
 <div style="border:1.5px solid var(--accent-border);border-radius:12px;padding:14px 18px;
             margin-bottom:8px;background:var(--accent-surface);">
-  <div style="font-size:12px;font-weight:600;color:var(--color-text-info);
+  <div style="font-size:12px;font-weight:600;color:var(--accent-label);
               margin-bottom:4px;"><span class="mi">calendar_month</span>{label}</div>
   <div style="font-size:20px;font-weight:700;color:var(--accent-text);">{current}</div>
 </div>
@@ -117,8 +117,8 @@ def file_summary_bar(has_work: bool, has_outside: bool, on_confirm, on_clear) ->
     with col_info:
         st.markdown(
             f"**{kind}** &nbsp;"
-            f"<span style='background:var(--color-background-success);"
-            f"color:var(--color-text-success);font-size:12px;font-weight:600;"
+            f"<span style='background:var(--success-surface);"
+            f"color:var(--success);font-size:12px;font-weight:600;"
             f"padding:2px 8px;border-radius:4px;'>{badge}</span>  \n"
             f"<span style='font-size:12px;color:var(--text-2);'>{summary}</span>",
             unsafe_allow_html=True,

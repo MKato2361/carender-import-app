@@ -241,7 +241,7 @@ def render_tab5_export(manager) -> None:
     export_end_date: date = st.session_state["export_end_date"]
 
     if export_start_date > export_end_date:
-        st.error("⚠️ 終了日は開始日以降に設定してください。")
+        st.error("終了日は開始日以降に設定してください。")
         return
 
     st.divider()

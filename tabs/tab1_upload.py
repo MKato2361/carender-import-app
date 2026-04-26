@@ -75,10 +75,10 @@ def _render_confirm_bar(has_work_files, has_outside_work):
     with col_info:
         st.markdown(
             f"**{kind}** &nbsp;"
-            f"<span style='background:var(--color-background-success);"
-            f"color:var(--color-text-success);font-size:12px;font-weight:600;"
+            f"<span style='background:var(--success-surface);"
+            f"color:var(--success);font-size:12px;font-weight:600;"
             f"padding:2px 8px;border-radius:4px;'>{badge}</span>  \n"
-            f"<span style='font-size:12px;color:var(--color-text-secondary);'>{summary}</span>",
+            f"<span style='font-size:12px;color:var(--text-2);'>{summary}</span>",
             unsafe_allow_html=True,
         )
 
