@@ -62,20 +62,62 @@ def _generic_error_msg(e: Exception, action: str) -> str:
 
 # ── イベント CRUD ───────────────────────────────────────────
 
+# ── キャッシュ対応イベント取得（セッションキャッシュ / TTL 5分）──
+def _get_cache_key(calendar_id: str, time_min, time_max) -> str:
+    return f"{calendar_id}::{time_min}::{time_max}"
+
+
 def get_events(
     service,
     calendar_id: str,
     time_min: Optional[str] = None,
     time_max: Optional[str] = None,
+    use_cache: bool = True,
 ) -> list[dict]:
-    """イベントを全件取得する。失敗時は空リストを返す。"""
+    """
+    イベントを全件取得する。失敗時は空リストを返す。
+    use_cache=True の場合、5分間 session_state にキャッシュして API 呼び出しを削減する。
+    """
+    import streamlit as st
+
+    cache_key = f"_ev_cache_{_get_cache_key(calendar_id, time_min, time_max)}"
+    ts_key    = f"_ev_cache_ts_{_get_cache_key(calendar_id, time_min, time_max)}"
+
+    if use_cache:
+        import time as _time
+        cached    = st.session_state.get(cache_key)
+        cached_ts = st.session_state.get(ts_key, 0)
+        if cached is not None and (_time.time() - cached_ts) < 300:  # 5分TTL
+            return cached
+
     try:
-        return fetch_all_events(service, calendar_id, time_min, time_max)
+        result = fetch_all_events(service, calendar_id, time_min, time_max)
+        if use_cache:
+            import time as _time
+            st.session_state[cache_key] = result
+            st.session_state[ts_key]    = _time.time()
+        return result
     except HttpError as e:
         st.error(_http_error_msg(e, "イベントの取得"))
     except Exception as e:
         st.error(_generic_error_msg(e, "イベントの取得"))
     return []
+
+
+def invalidate_events_cache(calendar_id: str = None) -> None:
+    """
+    イベントキャッシュを手動で無効化する。
+    calendar_id を指定するとそのカレンダーのみ、None なら全て削除。
+    登録・削除・更新完了後に呼ぶ。
+    """
+    import streamlit as st
+    keys_to_del = [
+        k for k in list(st.session_state.keys())
+        if k.startswith("_ev_cache_")
+        and (calendar_id is None or calendar_id in k)
+    ]
+    for k in keys_to_del:
+        del st.session_state[k]
 
 
 def add_event_to_calendar(

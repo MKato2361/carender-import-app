@@ -1,3 +1,5 @@
+import streamlit as st
+import hashlib
 import pandas as pd
 import re
 import datetime
@@ -61,6 +63,20 @@ def format_worksheet_value(val):
         return str(int(val))
     return str(val)
 
+
+
+def _files_hash(uploaded_files) -> str:
+    """アップロードファイル群のバイト内容からハッシュを計算する。"""
+    h = hashlib.md5()
+    for f in uploaded_files:
+        try:
+            f.seek(0)
+            h.update(f.read())
+            f.seek(0)
+            h.update(f.name.encode())
+        except Exception:
+            h.update(str(id(f)).encode())
+    return h.hexdigest()
 
 def _load_and_merge_dataframes(uploaded_files):
     dataframes = []

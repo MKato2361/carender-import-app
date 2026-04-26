@@ -19,6 +19,7 @@ from services.calendar_service import (
     get_events as fetch_all_events,
     add_event_to_calendar,
     update_event_if_needed,
+    invalidate_events_cache,
 )
 
 JST = ZoneInfo("Asia/Tokyo")
@@ -766,6 +767,7 @@ def render_tab2_register(user_id: str, manager):
         with col_ok:
             if st.button("登録する", type="primary", use_container_width=True):
                 st.session_state[confirm_key] = False
+                invalidate_events_cache(calendar_id)  # イベントキャッシュ無効化
                 _execute_registration(service, df, calendar_id, outside_mode)
                 st.rerun()
         with col_cancel:
