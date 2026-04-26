@@ -1,5 +1,3 @@
-import streamlit as st
-import hashlib
 import pandas as pd
 import re
 import datetime
@@ -62,40 +60,6 @@ def format_worksheet_value(val):
     if isinstance(val, float):
         return str(int(val))
     return str(val)
-
-
-
-def _files_hash(uploaded_files) -> str:
-    """アップロードファイル群のバイト内容からハッシュを計算する。"""
-    h = hashlib.md5()
-    for f in uploaded_files:
-        try:
-            f.seek(0)
-            h.update(f.read())
-            f.seek(0)
-            h.update(f.name.encode())
-        except Exception:
-            h.update(str(id(f)).encode())
-    return h.hexdigest()
-
-
-@st.cache_data(show_spinner=False)
-def _cached_load_and_merge(files_hash: str, file_data: list[tuple[str, bytes]]):
-    """
-    ファイルハッシュをキーにしたキャッシュ版マージ処理。
-    file_data: [(filename, bytes), ...] — シリアライズ可能な形式で渡す。
-    """
-    import io
-    class _FakeBuf:
-        def __init__(self, name, data):
-            self.name = name
-            self._buf = io.BytesIO(data)
-        def read(self, *a): return self._buf.read(*a)
-        def seek(self, *a): return self._buf.seek(*a)
-        def tell(self): return self._buf.tell()
-
-    fake_files = [_FakeBuf(name, data) for name, data in file_data]
-    return _load_and_merge_dataframes(fake_files)
 
 
 def _load_and_merge_dataframes(uploaded_files):
@@ -485,47 +449,3 @@ def process_excel_data_for_calendar(
         )
 
     return pd.DataFrame(output_records) if output_records else pd.DataFrame()
-
-
-@st.cache_data(show_spinner=False)
-def _cached_process_excel(
-    files_hash: str,
-    file_data: list[tuple[str, bytes]],
-    description_columns: tuple,
-    all_day_event_override: bool,
-    private_event: bool,
-    fallback_event_name_column,
-    add_task_type_to_event_name: bool,
-    bulk_start_date,
-    bulk_start_time,
-    bulk_end_date,
-    bulk_end_time,
-    apply_bulk_to_missing_only: bool,
-):
-    """
-    process_excel_data_for_calendar のキャッシュ対応版。
-    引数が全て同じ場合は再計算せずに前回結果を返す。
-    """
-    import io
-    class _FakeBuf:
-        def __init__(self, name, data):
-            self.name = name
-            self._buf = io.BytesIO(data)
-        def read(self, *a): return self._buf.read(*a)
-        def seek(self, *a): return self._buf.seek(*a)
-        def tell(self): return self._buf.tell()
-
-    fake_files = [_FakeBuf(name, data) for name, data in file_data]
-    return process_excel_data_for_calendar(
-        fake_files,
-        list(description_columns),
-        all_day_event_override,
-        private_event,
-        fallback_event_name_column,
-        add_task_type_to_event_name,
-        bulk_start_date,
-        bulk_start_time,
-        bulk_end_date,
-        bulk_end_time,
-        apply_bulk_to_missing_only,
-    )
