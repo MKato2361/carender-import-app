@@ -549,7 +549,7 @@ def _execute_registration(
 def render_tab2_register(user_id: str, manager):
     """タブ2: イベント登録・更新"""
     service = st.session_state.get("calendar_service")
-    editable_calendar_options = manager.editable_calendar_options
+    editable_calendar_options = st.session_state.get("editable_calendar_options", {})
 
     work_files = st.session_state.get("uploaded_files") or []
     has_work = (
