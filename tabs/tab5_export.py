@@ -162,8 +162,8 @@ def _build_download_section(df: pd.DataFrame, file_base_name: str, export_format
 def render_tab5_export(manager) -> None:
     """タブ5: カレンダーイベントをExcel/CSVへ出力"""
     # manager から必要なサービスとオプションを取得
-    service = manager.calendar_service
-    editable_calendar_options = manager.editable_calendar_options
+    service = st.session_state.get("calendar_service")
+    editable_calendar_options = st.session_state.get("editable_calendar_options", {})
 
     if not editable_calendar_options:
         st.error("利用可能なカレンダーが見つかりません。Google認証を確認してください。")
