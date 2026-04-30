@@ -229,13 +229,13 @@ def render_tab_admin(manager, current_user_email: str) -> None:
     # --- 3. 重複イベント管理 ---
     with tab_dup:
         st.markdown("### 🔁 重複イベントの検出と一括削除")
-        if not manager.calendar_service:
+        if not st.session_state.get("calendar_service"):
             st.warning("カレンダーサービスが利用できません。")
         else:
             # 既存の render_tab4_duplicates を呼び出し
             # 注: render_tab4_duplicates も将来的に manager 対応するのが望ましい
             render_tab4_duplicates(
-                manager.calendar_service,
-                manager.editable_calendar_options,
+                st.session_state.get("calendar_service"),
+                st.session_state.get("editable_calendar_options", {}),
                 fetch_all_events
             )
