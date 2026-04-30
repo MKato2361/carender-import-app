@@ -205,7 +205,7 @@ def render_tab8_notice_fax(manager, current_user_email: str) -> None:
         st.error(f"貼り紙生成モジュールが読み込めませんでした: {HARIGAMI_IMPORT_ERROR}")
         return
 
-    if not manager.calendar_service:
+    if not st.session_state.get("calendar_service"):
         st.warning("⚠️ カレンダーサービスが初期化されていません。")
         return
 
@@ -226,7 +226,7 @@ def render_tab8_notice_fax(manager, current_user_email: str) -> None:
         st.markdown("**① 取得条件の設定**")
         c1, c2, c3 = st.columns([2, 2, 2])
 
-        calendar_options = manager.editable_calendar_options
+        calendar_options = st.session_state.get("editable_calendar_options", {})
         calendar_names = list(calendar_options.keys())
 
         base_calendar = (
@@ -265,8 +265,8 @@ def render_tab8_notice_fax(manager, current_user_email: str) -> None:
         with st.status("イベントを取得中...", expanded=True) as status:
             try:
                 spreadsheet_id = get_property_master_spreadsheet_id(current_user_email)
-                pm_view_df = load_property_master_view(manager.sheets_service, spreadsheet_id)
-                events = fetch_events_in_range(manager.calendar_service, calendar_id, start_date, end_date)
+                pm_view_df = load_property_master_view(st.session_state.get("sheets_service"), spreadsheet_id)
+                events = fetch_events_in_range(st.session_state.get("calendar_service"), calendar_id, start_date, end_date)
 
                 if not events:
                     status.update(label="イベントが見つかりませんでした", state="error")
