@@ -272,8 +272,15 @@ def render_sidebar(
             sheets_ok = bool(st.session_state.get("sheets_service"))
 
             def _status_badge(ok: bool, label: str):
-                icon = "●" if ok else "●"
-                st.markdown(f"{icon} {label}")
+                icon   = "check_circle" if ok else "cancel"
+                color  = "var(--success)" if ok else "var(--danger)"
+                st.markdown(
+                    f'<span style="display:inline-flex;align-items:center;gap:5px;'
+                    f'font-size:13px;margin-bottom:4px;">'
+                    f'<span class="mi" style="color:{color};font-size:15px;">{icon}</span>'
+                    f'{label}</span>',
+                    unsafe_allow_html=True,
+                )
 
             _status_badge(firebase_ok, "アカウント認証")
             _status_badge(calendar_ok, "Google Calendar")
