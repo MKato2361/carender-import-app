@@ -1,5 +1,6 @@
 # github_loader.py
 import base64
+from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO
 from typing import Dict, List, Optional
 import requests
@@ -79,50 +80,36 @@ def walk_repo_tree(base_path: str = "", max_depth: int = 3) -> List[Dict]:
 @st.cache_data(ttl=600)
 def walk_repo_tree_with_dates(base_path: str = "", max_depth: int = 3) -> List[Dict]:
     """
-    walk_repo_tree と同じツリー構造を返しつつ、
-    ファイルノードには "updated" (YYYY-MM-DD) を付加する。
-    Commits API はファイルごとに1回だが、結果はまとめて ttl=600 でキャッシュされる。
+    walk_repo_tree のツリー構造にファイルごとの最終更新日を並列付加して返す。
 
     返り値: [{name, path, type, depth, updated}, ...]
       - type=="dir"  のとき updated==""
       - type=="file" のとき updated=="2025-01-10" or "-"
     """
-    nodes: List[Dict] = []
+    nodes = [dict(n, updated="") for n in walk_repo_tree(base_path, max_depth)]
+    file_indices = [(i, n["path"]) for i, n in enumerate(nodes) if n["type"] == "file"]
 
-    def _walk(path: str, depth: int):
-        if depth > max_depth:
-            return
+    if not file_indices:
+        return nodes
+
+    def _fetch(idx_path: tuple[int, str]) -> tuple[int, str]:
+        idx, path = idx_path
         try:
-            items = list_dir(path)
+            url = (
+                f"{GITHUB_API_BASE}/repos/{GITHUB_OWNER}/{GITHUB_REPO}"
+                f"/commits?path={path}&per_page=1"
+            )
+            res = requests.get(url, headers=_headers())
+            if res.status_code == 200 and res.json():
+                return idx, res.json()[0]["commit"]["committer"]["date"][:10]
+            return idx, "-"
         except Exception:
-            return
-        for it in items:
-            node = {
-                "name": it.get("name", ""),
-                "path": it.get("path", ""),
-                "type": it.get("type", ""),
-                "depth": depth,
-                "updated": "",
-            }
-            if it.get("type") == "file":
-                try:
-                    url = (
-                        f"{GITHUB_API_BASE}/repos/{GITHUB_OWNER}/{GITHUB_REPO}"
-                        f"/commits?path={it['path']}&per_page=1"
-                    )
-                    res = requests.get(url, headers=_headers())
-                    if res.status_code == 200 and res.json():
-                        raw = res.json()[0]["commit"]["committer"]["date"]
-                        node["updated"] = raw[:10]  # "YYYY-MM-DD"
-                    else:
-                        node["updated"] = "-"
-                except Exception:
-                    node["updated"] = "-"
-            nodes.append(node)
-            if it.get("type") == "dir":
-                _walk(it.get("path", ""), depth + 1)
+            return idx, "-"
 
-    _walk(base_path.strip("/"), 0)
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        for idx, date_str in executor.map(_fetch, file_indices):
+            nodes[idx]["updated"] = date_str
+
     return nodes
 
 @st.cache_data(ttl=600)
@@ -141,7 +128,7 @@ def load_file_bytes_from_github(path: str) -> BytesIO:
 
 def list_github_files(base_path: str = "") -> List[Dict]:
     """
-    指定ディレクトリ直下のファイル一覧を返す（キャッシュなし）。
+    指定ディレクトリ直下のファイル一覧をソートして返す（キャッシュなし）。
     admin UI の一覧表示・削除用。
     """
     clean = base_path.strip().strip("/")
@@ -152,28 +139,25 @@ def list_github_files(base_path: str = "") -> List[Dict]:
     if res.status_code != 200:
         raise Exception(f"GitHub list エラー {res.status_code}: {res.text}")
     data = res.json()
-    return data if isinstance(data, list) else [data]
+    items = data if isinstance(data, list) else [data]
+    return sorted(items, key=lambda x: (x.get("type", ""), x.get("path", "")))
 
 
+@st.cache_data(ttl=600)
 def get_dir_commit_dates(base_path: str = "") -> Dict[str, str]:
     """
-    指定ディレクトリ配下の各ファイルの最終コミット日時を一括取得して返す。
+    指定ディレクトリ配下の各ファイルの最終コミット日時を並列取得して返す。
     返り値: { "path/to/file.csv": "2025-01-10", ... }
-
-    GitHub の /commits API はディレクトリ単位で絞り込めないため、
-    対象ディレクトリの直下ファイルごとに per_page=1 で1件だけ取得する。
-    ファイル数が多い場合は並列化を検討。
     """
-    clean = base_path.strip().strip("/")
     result: Dict[str, str] = {}
 
     try:
-        items = list_github_files(clean)
+        items = list_github_files(base_path)
         file_paths = [it["path"] for it in items if it.get("type") == "file"]
     except Exception:
         return result
 
-    for path in file_paths:
+    def _fetch(path: str) -> tuple[str, str]:
         try:
             url = (
                 f"{GITHUB_API_BASE}/repos/{GITHUB_OWNER}/{GITHUB_REPO}"
@@ -181,12 +165,14 @@ def get_dir_commit_dates(base_path: str = "") -> Dict[str, str]:
             )
             res = requests.get(url, headers=_headers())
             if res.status_code == 200 and res.json():
-                raw = res.json()[0]["commit"]["committer"]["date"]  # ISO8601
-                result[path] = raw[:10]  # "YYYY-MM-DD"
-            else:
-                result[path] = "-"
+                return path, res.json()[0]["commit"]["committer"]["date"][:10]
+            return path, "-"
         except Exception:
-            result[path] = "-"
+            return path, "-"
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        for path, date_str in executor.map(_fetch, file_paths):
+            result[path] = date_str
 
     return result
 
