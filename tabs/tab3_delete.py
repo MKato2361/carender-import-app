@@ -65,8 +65,30 @@ def render_tab3_delete(editable_calendar_options, service, tasks_service, defaul
     st.divider()
     st.markdown('<div class="section-heading"><span class="mi">date_range</span>削除期間</div>', unsafe_allow_html=True)
     today_date = date.today()
-    delete_start_date = st.date_input("削除開始日", value=today_date - timedelta(days=30))
-    delete_end_date = st.date_input("削除終了日", value=today_date)
+    st.session_state.setdefault("del_start_date", today_date - timedelta(days=30))
+    st.session_state.setdefault("del_end_date", today_date)
+
+    def _on_del_start_change():
+        s = st.session_state["del_start_date"]
+        m = s.month % 12 + 1
+        y = s.year + (1 if s.month == 12 else 0)
+        import calendar as _cal
+        last_day = _cal.monthrange(y, m)[1]
+        st.session_state["del_end_date"] = s.replace(year=y, month=m, day=min(s.day, last_day))
+
+    col_d1, col_d2 = st.columns(2)
+    with col_d1:
+        delete_start_date = st.date_input(
+            "削除開始日",
+            key="del_start_date",
+            on_change=_on_del_start_change,
+        )
+    with col_d2:
+        delete_end_date = st.date_input(
+            "削除終了日",
+            key="del_end_date",
+            min_value=st.session_state["del_start_date"],
+        )
     delete_related_todos = st.checkbox(
         "関連するToDoリストも削除する (イベント詳細にIDが記載されている場合)",
         value=False,

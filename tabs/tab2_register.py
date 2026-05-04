@@ -310,38 +310,42 @@ def _render_event_settings(user_id, outside_mode):
             set_user_setting(user_id, "description_columns_selected", new_cols)
 
 
-def _render_bulk_datetime_settings(all_day_override: bool):
+def _render_bulk_datetime_settings(all_day_override: bool) -> None:
+    """
+    日時一括設定ウィジェットを描画する。
+    return は行わず、値は session_state["bulk_datetime_enabled"] 等から取得する。
+    （expander が折りたたまれていると内部コードが実行されず return 値が None になるバグを修正）
+    """
     today = date.today()
     default_start_time = time(9, 0)
-    # デフォルト値をセッションに初期化
     st.session_state.setdefault("bulk_datetime_enabled", False)
     st.session_state.setdefault("bulk_start_date", today)
     st.session_state.setdefault("bulk_start_time", default_start_time)
 
-    with st.expander("日時一括設定（日時が空の行に適用）", expanded=st.session_state.get("bulk_datetime_enabled", False)):
+    enabled = st.session_state.get("bulk_datetime_enabled", False)
+    with st.expander("日時一括設定（日時が空の行に適用）", expanded=enabled):
         st.caption("日時が空の行だけに適用されます。1件ごとに1時間ずつずらして登録し、1日15件まで（16件目以降は翌日に繰り越し）。終了時刻は自動で開始の1時間後になります。")
-        enabled = st.checkbox(
+        st.checkbox(
             "有効にする",
-            value=st.session_state.get("bulk_datetime_enabled", False),
             key="bulk_datetime_enabled",
         )
+        _enabled = st.session_state.get("bulk_datetime_enabled", False)
         c1, c2 = st.columns(2)
         with c1:
-            bulk_start_date = st.date_input(
+            st.date_input(
                 "開始日",
                 value=st.session_state.get("bulk_start_date", today),
                 key="bulk_start_date",
-                disabled=not enabled,
+                disabled=not _enabled,
             )
         with c2:
-            bulk_start_time = st.time_input(
+            st.time_input(
                 "開始時刻",
                 value=st.session_state.get("bulk_start_time", default_start_time),
                 key="bulk_start_time",
                 step=300,
-                disabled=not enabled,
+                disabled=not _enabled,
             )
-        return enabled, bulk_start_date, bulk_start_time
 
 
 def _render_event_name_settings(user_id):
@@ -677,7 +681,11 @@ def render_tab2_register(user_id: str, manager):
     # ── Step 3: プレビュー + 確認カード + 登録ボタン ──
     st.divider()
 
-    with st.expander(f"登録内容プレビュー（{event_count} 件）", expanded=False):
+    _preview_key = "register_preview_seen"
+    _preview_expanded = not st.session_state.get(_preview_key, False)
+    if _preview_expanded:
+        st.session_state[_preview_key] = True
+    with st.expander(f"登録内容プレビュー（{event_count} 件）", expanded=_preview_expanded):
         st.dataframe(df, use_container_width=True)
 
     st.markdown(f"""
@@ -715,10 +723,10 @@ def render_tab2_register(user_id: str, manager):
     <span class="mi">check_circle</span> {cal_name} への登録が完了しました
   </div>
   <div style="display:flex;gap:24px;flex-wrap:wrap;font-size:15px;">
-    <span>登録 <strong>{r["added"]} 件</strong></span>
-    <span>更新 <strong>{r["updated"]} 件</strong></span>
-    <span>スキップ <strong>{r["skipped"]} 件</strong></span>
-    {"" if all_ok else f'<span style="color:#e53935;">❌ 失敗 <strong>{r["failed"]} 件</strong></span>'}
+    <span><span class="mi">check_circle</span>登録 <strong>{r["added"]} 件</strong></span>
+    <span><span class="mi">sync</span>更新 <strong>{r["updated"]} 件</strong></span>
+    <span><span class="mi">skip_next</span>スキップ <strong>{r["skipped"]} 件</strong></span>
+    {"" if all_ok else f'<span style="color:var(--danger);"><span class="mi">error</span>失敗 <strong>{r["failed"]} 件</strong></span>'}
   </div>
 </div>
 """, unsafe_allow_html=True)

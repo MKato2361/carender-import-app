@@ -54,43 +54,33 @@ def _navigate_to_register_tab():
 
 
 def _render_confirm_bar(has_work_files, has_outside_work):
-    """ファイル取込済み時のコンパクトなサマリー + 確定ボタン（1行）"""
+    """ファイル取込済み時のサマリー + 確定ボタン（2段レイアウト）"""
     files   = st.session_state.get("uploaded_files", [])
     outside = st.session_state.get("uploaded_outside_work_file")
     df      = st.session_state.get("merged_df_for_selector")
 
     if has_work_files:
-        names    = [getattr(f, "name", "Unknown") for f in files]
+        names     = [getattr(f, "name", "Unknown") for f in files]
         row_count = len(df) if df is not None else "—"
-        badge    = f"{len(names)} ファイル / {row_count} 行"
-        summary  = "、".join(names)
-        kind     = "作業指示書"
+        badge     = f"{len(names)} ファイル / {row_count} 行"
+        summary   = "、".join(names)
+        kind      = "作業指示書"
     else:
         summary  = getattr(outside, "name", "")
         badge    = "1 ファイル"
         kind     = "作業外予定"
 
-    col_info, col_btn, col_clear = st.columns([5, 3, 1])
-
+    # 行1: ファイル情報 + クリアボタン
+    col_info, col_clear = st.columns([9, 1])
     with col_info:
         st.markdown(
             f"**{kind}** &nbsp;"
             f"<span style='background:var(--success-surface);"
             f"color:var(--success);font-size:12px;font-weight:600;"
-            f"padding:2px 8px;border-radius:4px;'>{badge}</span>  \n"
-            f"<span style='font-size:12px;color:var(--text-2);'>{summary}</span>",
+            f"padding:2px 8px;border-radius:4px;'>{badge}</span>"
+            f"&nbsp;&nbsp;<span style='font-size:12px;color:var(--text-2);'>{summary}</span>",
             unsafe_allow_html=True,
         )
-
-    with col_btn:
-        if st.button(
-            "確定してカレンダー登録へ",
-            type="primary",
-            use_container_width=True,
-        ):
-            st.session_state["navigate_to_register"] = True
-            st.rerun()
-
     with col_clear:
         if st.button("クリア", help="アップロードをクリア", use_container_width=True):
             clear_uploaded_files()
@@ -102,6 +92,15 @@ def _render_confirm_bar(has_work_files, has_outside_work):
             st.session_state["upload_version"] += 1
             st.session_state["gh_version"]     += 1
             st.rerun()
+
+    # 行2: 確定ボタン（全幅プライマリ）
+    if st.button(
+        "カレンダー登録へ進む",
+        type="primary",
+        use_container_width=True,
+    ):
+        st.session_state["navigate_to_register"] = True
+        st.rerun()
 
 
 def render_tab1_upload():

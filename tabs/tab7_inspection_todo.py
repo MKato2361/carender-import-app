@@ -617,11 +617,23 @@ def render_tab7_inspection_todo(
 
     # 期間指定
     today = date.today()
+    st.session_state.setdefault("ins_todo_start_date", today)
+    st.session_state.setdefault("ins_todo_end_date", today + timedelta(days=60))
+
+    def _on_ins_start_change():
+        import calendar as _cal
+        s = st.session_state["ins_todo_start_date"]
+        m = s.month % 12 + 1
+        y = s.year + (1 if s.month == 12 else 0)
+        last_day = _cal.monthrange(y, m)[1]
+        st.session_state["ins_todo_end_date"] = s.replace(year=y, month=m, day=min(s.day, last_day))
+
     col_d1, col_d2 = st.columns(2)
     with col_d1:
-        start_date = st.date_input("点検予定の検索開始日", value=today, key="ins_todo_start_date")
+        start_date = st.date_input("検索開始日", key="ins_todo_start_date", on_change=_on_ins_start_change)
     with col_d2:
-        end_date = st.date_input("点検予定の検索終了日", value=today + timedelta(days=60), key="ins_todo_end_date")
+        end_date = st.date_input("検索終了日", key="ins_todo_end_date",
+                                  min_value=st.session_state["ins_todo_start_date"])
 
     if start_date > end_date:
         st.error("開始日は終了日以前の日付を指定してください。")
