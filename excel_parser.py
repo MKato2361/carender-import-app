@@ -250,6 +250,7 @@ def process_excel_data_for_calendar(
     bulk_end_date=None,
     bulk_end_time=None,
     apply_bulk_to_missing_only=True,
+    include_col_header=False,
 ):
     merged_df = _load_and_merge_dataframes(uploaded_files)
 
@@ -426,7 +427,8 @@ def process_excel_data_for_calendar(
 
         for col in description_columns:
             if col in row and col != title_col_name:
-                optional_items.append(format_description_value(row.get(col)))
+                val = format_description_value(row.get(col))
+                optional_items.append(f"{col}：{val}" if include_col_header else val)
 
         description_parts = optional_items.copy()
         if required_items:
