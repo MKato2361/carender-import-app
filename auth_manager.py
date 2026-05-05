@@ -54,8 +54,8 @@ class AuthManager:
         if not creds:
             return False
 
-        # 既に初期化済みならスキップ
-        if st.session_state.get("_google_services_initialized"):
+        # 既に初期化済みならスキップ（user_id で照合してユーザー混在を防ぐ）
+        if st.session_state.get("_google_services_initialized") == user_id:
             return True
 
         with st.spinner("Googleサービスに接続中..."):
@@ -71,7 +71,7 @@ class AuthManager:
         st.session_state["editable_calendar_options"] = result["editable_calendar_options"]
         st.session_state["default_task_list_id"] = result["default_task_list_id"]
 
-        st.session_state["_google_services_initialized"] = True
+        st.session_state["_google_services_initialized"] = user_id
 
         return True
 
