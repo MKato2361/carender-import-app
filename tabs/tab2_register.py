@@ -3,6 +3,7 @@ from core.utils.datetime_utils import default_fetch_window
 from services.settings_service import get_setting as get_user_setting, set_setting as set_user_setting
 import re
 import streamlit as st
+from streamlit_sortables import sort_items as _sort_items
 import pandas as pd
 from datetime import datetime, timedelta, date, time
 from zoneinfo import ZoneInfo
@@ -305,9 +306,37 @@ def _render_event_settings(user_id, outside_mode):
     if not outside_mode:
         pool = st.session_state.get("description_columns_pool") or []
         new_cols = st.multiselect("説明文に含める列", pool, key="reg_desc_cols")
+
+        # 選択済みの列をドラッグで並び替え
+        prev_order = st.session_state.get("reg_desc_cols_order", [])
+        # 既存の順序を維持しつつ、削除された列を除き、新規列を末尾に追加
+        synced = [c for c in prev_order if c in new_cols]
+        synced += [c for c in new_cols if c not in synced]
+
+        # 選択セットが変わったらソータブルを強制リマウント
+        if set(prev_order) != set(new_cols):
+            ver = st.session_state.get("_desc_sort_ver", 0) + 1
+            st.session_state["_desc_sort_ver"] = ver
+            st.session_state["reg_desc_cols_order"] = synced
+
+        if new_cols:
+            st.caption("順序（ドラッグで並び替え）")
+            sorted_cols = _sort_items(
+                synced,
+                direction="horizontal",
+                key=f"desc_sort_{st.session_state.get('_desc_sort_ver', 0)}",
+                custom_style=".sortable-item { font-size: 13px; padding: 4px 12px; border-radius: 6px; cursor: grab; }",
+            )
+            if sorted_cols != st.session_state.get("reg_desc_cols_order"):
+                st.session_state["reg_desc_cols_order"] = sorted_cols
+        else:
+            st.session_state["reg_desc_cols_order"] = []
+            sorted_cols = []
+
         saved = get_user_setting(user_id, "description_columns_selected") or []
-        if sorted(new_cols) != sorted(saved):
-            set_user_setting(user_id, "description_columns_selected", new_cols)
+        current_order = st.session_state.get("reg_desc_cols_order", [])
+        if current_order != saved:
+            set_user_setting(user_id, "description_columns_selected", current_order)
 
 
 def _render_bulk_datetime_settings(all_day_override: bool) -> None:
@@ -605,6 +634,8 @@ def render_tab2_register(user_id: str, manager):
     if "reg_desc_cols" not in st.session_state:
         saved = get_user_setting(user_id, "description_columns_selected") or ["内容", "詳細"]
         st.session_state["reg_desc_cols"] = [col for col in saved if col in pool]
+    if "reg_desc_cols_order" not in st.session_state:
+        st.session_state["reg_desc_cols_order"] = list(st.session_state["reg_desc_cols"])
     if "reg_add_task_type" not in st.session_state:
         st.session_state["reg_add_task_type"] = get_user_setting(user_id, "add_task_type_to_event_name") or False
     if "reg_fallback_col" not in st.session_state:
@@ -616,7 +647,7 @@ def render_tab2_register(user_id: str, manager):
     # ── セッション状態から設定値を読み取る ──
     all_day_override    = st.session_state["reg_all_day"]
     private_event       = st.session_state["reg_private"]
-    description_columns = st.session_state["reg_desc_cols"]
+    description_columns = st.session_state.get("reg_desc_cols_order") or st.session_state["reg_desc_cols"]
     add_task_type       = st.session_state["reg_add_task_type"]
     saved_fb            = st.session_state["reg_fallback_col"]
     fallback_col        = None if saved_fb == "選択しない" else saved_fb
