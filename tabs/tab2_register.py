@@ -319,6 +319,11 @@ def _render_event_settings(user_id, outside_mode):
             st.session_state["_desc_sort_ver"] = ver
             st.session_state["reg_desc_cols_order"] = synced
 
+        st.checkbox("説明文に列名を含める（例: 内容：〇〇）", key="reg_desc_include_header")
+        saved_header = get_user_setting(user_id, "description_include_col_header") or False
+        if st.session_state.get("reg_desc_include_header") != saved_header:
+            set_user_setting(user_id, "description_include_col_header", st.session_state["reg_desc_include_header"])
+
         if new_cols:
             st.caption("順序（ドラッグで並び替え）")
             sorted_cols = _sort_items(
@@ -636,6 +641,8 @@ def render_tab2_register(user_id: str, manager):
         st.session_state["reg_desc_cols"] = [col for col in saved if col in pool]
     if "reg_desc_cols_order" not in st.session_state:
         st.session_state["reg_desc_cols_order"] = list(st.session_state["reg_desc_cols"])
+    if "reg_desc_include_header" not in st.session_state:
+        st.session_state["reg_desc_include_header"] = get_user_setting(user_id, "description_include_col_header") or False
     if "reg_add_task_type" not in st.session_state:
         st.session_state["reg_add_task_type"] = get_user_setting(user_id, "add_task_type_to_event_name") or False
     if "reg_fallback_col" not in st.session_state:
@@ -647,7 +654,8 @@ def render_tab2_register(user_id: str, manager):
     # ── セッション状態から設定値を読み取る ──
     all_day_override    = st.session_state["reg_all_day"]
     private_event       = st.session_state["reg_private"]
-    description_columns = st.session_state.get("reg_desc_cols_order") or st.session_state["reg_desc_cols"]
+    description_columns   = st.session_state.get("reg_desc_cols_order") or st.session_state["reg_desc_cols"]
+    include_col_header    = st.session_state.get("reg_desc_include_header", False)
     add_task_type       = st.session_state["reg_add_task_type"]
     saved_fb            = st.session_state["reg_fallback_col"]
     fallback_col        = None if saved_fb == "選択しない" else saved_fb
@@ -685,12 +693,14 @@ def render_tab2_register(user_id: str, manager):
                 fallback_col, add_task_type,
                 bulk_start_date=bulk_start_date, bulk_start_time=bulk_start_time,
                 bulk_end_date=None, bulk_end_time=None,
+                include_col_header=include_col_header,
             )
         else:
             df = process_excel_data_for_calendar(
                 st.session_state["uploaded_files"],
                 description_columns, all_day_override, private_event,
                 fallback_col, add_task_type,
+                include_col_header=include_col_header,
             )
     except Exception:
         st.error("ファイルの読み込み中にエラーが発生しました。ファイル形式と内容を確認してください。")

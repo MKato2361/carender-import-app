@@ -21,6 +21,7 @@ DEFAULT_SETTINGS: dict = {
     "selected_calendar_name": None,
     "share_calendar_selection_across_tabs": True,
     "default_github_logical_names": "",
+    "description_include_col_header": False,
 }
 
 
