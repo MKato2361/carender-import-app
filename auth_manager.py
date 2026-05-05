@@ -7,7 +7,6 @@ auth_manager.py（完全修正版）
 """
 
 import streamlit as st
-from firebase_admin import firestore
 
 from core.auth.firebase_client import (
     initialize_firebase,
@@ -27,9 +26,6 @@ class AuthManager:
     - 実データは session_state に保持
     """
 
-    def __init__(self):
-        self.db = None
-
     # ── Firebase ──
 
     def sync_with_session(self) -> str | None:
@@ -37,7 +33,6 @@ class AuthManager:
         if not initialize_firebase():
             return None
 
-        self.db = firestore.client()
         user_id = get_firebase_user_id()
 
         if user_id:
@@ -82,22 +77,8 @@ class AuthManager:
 
     # ── 設定保存 ──
 
-    def save_user_setting(self, *args, **kwargs) -> None:
-        """柔軟な引数対応"""
-        user_id = get_firebase_user_id()
-
-        key = value = None
-        if len(args) == 3:
-            user_id, key, value = args
-        elif len(args) == 2:
-            key, value = args
-        else:
-            key = kwargs.get("key")
-            value = kwargs.get("value")
-            user_id = kwargs.get("user_id") or user_id
-
-        if user_id and key is not None:
-            set_user_setting(user_id, key, value)
+    def save_user_setting(self, user_id: str, key: str, value) -> None:
+        set_user_setting(user_id, key, value)
 
     # ── 状態判定 ──
 
@@ -106,7 +87,5 @@ class AuthManager:
         return bool(get_firebase_user_id() and st.session_state.get("credentials"))
         
 
-# ❌ キャッシュ削除（これが一番重要）
 def get_auth_manager() -> AuthManager:
-    """毎回新しいインスタンスを返す（安全）"""
     return AuthManager()

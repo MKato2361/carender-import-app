@@ -28,7 +28,12 @@ AUTH_URI  = "https://accounts.google.com/o/oauth2/auth"
 TOKEN_URI = "https://oauth2.googleapis.com/token"
 
 import os
-os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
+try:
+    _redirect = st.secrets.get("google", {}).get("redirect_uri", "")
+    if _redirect.startswith("http://"):
+        os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
+except Exception:
+    os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
 
 
 def _save_creds_to_session(creds: Credentials, user_id: str) -> None:

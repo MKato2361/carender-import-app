@@ -1,12 +1,9 @@
 from __future__ import annotations
 # tabs/tab_admin.py
 
-import base64
 from datetime import datetime
-from typing import Dict, List, Optional
 
 import pandas as pd
-import requests
 import streamlit as st
 
 from utils.user_roles import (
@@ -20,76 +17,14 @@ from utils.user_roles import (
 from github_loader import (
     GITHUB_OWNER,
     GITHUB_REPO,
-    GITHUB_API_BASE,
-    _headers,
+    list_github_files,
+    upload_file_to_github,
+    get_dir_commit_dates,
 )
 
 # 外部タブ・ユーティリティ
 from services.calendar_service import get_events as fetch_all_events
 from tabs.tab4_duplicates import render_tab4_duplicates
-
-# ==============================
-# GitHub ヘルパー
-# ==============================
-def list_github_files(path: str = "") -> List[Dict]:
-    """GitHub Contents API 一覧を取得"""
-    clean_path = path.strip().strip("/")
-    url = f"{GITHUB_API_BASE}/repos/{GITHUB_OWNER}/{GITHUB_REPO}/contents/{clean_path}"
-    res = requests.get(url, headers=_headers())
-    res.raise_for_status()
-    items = res.json()
-    if isinstance(items, dict):
-        items = [items]
-    return sorted(items, key=lambda x: (x.get("type", ""), x.get("path", "")))
-
-def upload_file_to_github(target_path: str, content: bytes, message: str) -> Dict:
-    """GitHub にファイルを新規作成 / 更新"""
-    clean_path = target_path.strip().lstrip("/")
-    url = f"{GITHUB_API_BASE}/repos/{GITHUB_OWNER}/{GITHUB_REPO}/contents/{clean_path}"
-    b64_content = base64.b64encode(content).decode("utf-8")
-    payload = {"message": message, "content": b64_content, "branch": "main"}
-    
-    get_res = requests.get(url, headers=_headers())
-    if get_res.status_code == 200:
-        existing = get_res.json()
-        if isinstance(existing, dict) and "sha" in existing:
-            payload["sha"] = existing["sha"]
-
-    res = requests.put(url, headers=_headers(), json=payload)
-    res.raise_for_status()
-    return res.json()
-
-def delete_file_from_github(target_path: str, sha: str, message: str) -> Dict:
-    """GitHub 上のファイルを削除"""
-    clean_path = target_path.strip().lstrip("/")
-    url = f"{GITHUB_API_BASE}/repos/{GITHUB_OWNER}/{GITHUB_REPO}/contents/{clean_path}"
-    payload = {"message": message, "sha": sha, "branch": "main"}
-    res = requests.delete(url, headers=_headers(), json=payload)
-    res.raise_for_status()
-    return res.json()
-
-@st.cache_data(ttl=600)
-def get_dir_commit_dates(base_path: str = "") -> Dict[str, str]:
-    """各ファイルの最終コミット日を一括取得（キャッシュ有効化）"""
-    result: Dict[str, str] = {}
-    try:
-        items = list_github_files(base_path)
-        file_paths = [it["path"] for it in items if it.get("type") == "file"]
-    except Exception:
-        return result
-
-    for path in file_paths:
-        try:
-            url = f"{GITHUB_API_BASE}/repos/{GITHUB_OWNER}/{GITHUB_REPO}/commits?path={path}&per_page=1"
-            res = requests.get(url, headers=_headers())
-            if res.status_code == 200 and res.json():
-                raw = res.json()[0]["commit"]["committer"]["date"]
-                result[path] = raw[:10]
-            else:
-                result[path] = "-"
-        except Exception:
-            result[path] = "-"
-    return result
 
 # ==============================
 # 管理者タブ UI 本体 (AuthManager対応版)

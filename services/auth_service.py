@@ -100,8 +100,6 @@ def build_google_services(creds: Credentials) -> dict:
             for c in cal_list.get("items", [])
             if c.get("accessRole") != "reader"
         }
-        st.session_state["calendar_service"]          = svc
-        st.session_state["editable_calendar_options"] = result["editable_calendar_options"]
     except HttpError as e:
         status = e.resp.status if hasattr(e, "resp") else None
         if status in (401, 403):
@@ -117,10 +115,8 @@ def build_google_services(creds: Credentials) -> dict:
     try:
         tasks_svc = build_tasks_service(creds)
         if tasks_svc:
-            result["tasks_service"]         = tasks_svc
-            result["default_task_list_id"]  = get_default_task_list_id(tasks_svc)
-            st.session_state["tasks_service"]        = tasks_svc
-            st.session_state["default_task_list_id"] = result["default_task_list_id"]
+            result["tasks_service"]        = tasks_svc
+            result["default_task_list_id"] = get_default_task_list_id(tasks_svc)
     except Exception:
         pass
 
@@ -128,7 +124,6 @@ def build_google_services(creds: Credentials) -> dict:
     try:
         sheets_svc = build("sheets", "v4", credentials=creds)
         result["sheets_service"] = sheets_svc
-        st.session_state["sheets_service"] = sheets_svc
     except Exception:
         pass
 
