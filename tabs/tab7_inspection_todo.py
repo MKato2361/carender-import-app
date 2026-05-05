@@ -21,12 +21,9 @@ from tabs.tab6_property_master import (
 from utils.helpers import safe_get  # 既存ヘルパー
 
 def _get_current_user_key(fallback: str = "") -> str:
-    """設定保存用のユーザーキーを取得（優先: uid -> email）。"""
+    """設定保存用のユーザーキーを取得。現行認証は user_info に Firebase UID を格納する。"""
     return (
-        st.session_state.get("user_id")
-        or st.session_state.get("firebase_uid")
-        or st.session_state.get("localId")
-        or st.session_state.get("uid")
+        st.session_state.get("user_info")
         or st.session_state.get("user_email")
         or fallback
         or ""
