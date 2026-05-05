@@ -271,7 +271,7 @@ def main():
     default_task_list_id      = st.session_state.get("default_task_list_id")
 
     # ── 4. ユーザー情報 ──
-    current_user_email = st.session_state.get("user_email") or user_id
+    current_user_email = st.session_state.get("user_email") or ""
     user_doc  = get_or_create_user(current_user_email, None)
     is_admin  = user_doc.get("role") == ROLE_ADMIN
 

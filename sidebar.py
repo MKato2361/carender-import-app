@@ -328,7 +328,5 @@ def render_sidebar(
         if st.button("ログアウト", use_container_width=True, help="セッションを終了します"):
             if user_id:
                 clear_user_settings(user_id)
-            for key in list(st.session_state.keys()):
-                if not key.startswith("google_auth") and not key.startswith("firebase_"):
-                    del st.session_state[key]
+            st.session_state.clear()
             st.rerun()
