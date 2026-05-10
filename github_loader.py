@@ -92,6 +92,12 @@ def walk_repo_tree_with_dates(base_path: str = "", max_depth: int = 3) -> List[D
     if not file_indices:
         return nodes
 
+    # st.secrets はメインスレッドで取得してからワーカーに渡す
+    try:
+        auth_headers = _headers()
+    except Exception:
+        auth_headers = {}
+
     def _fetch(idx_path: tuple[int, str]) -> tuple[int, str]:
         idx, path = idx_path
         try:
@@ -99,7 +105,7 @@ def walk_repo_tree_with_dates(base_path: str = "", max_depth: int = 3) -> List[D
                 f"{GITHUB_API_BASE}/repos/{GITHUB_OWNER}/{GITHUB_REPO}"
                 f"/commits?path={path}&per_page=1"
             )
-            res = requests.get(url, headers=_headers())
+            res = requests.get(url, headers=auth_headers)
             if res.status_code == 200 and res.json():
                 return idx, res.json()[0]["commit"]["committer"]["date"][:10]
             return idx, "-"
@@ -157,13 +163,18 @@ def get_dir_commit_dates(base_path: str = "") -> Dict[str, str]:
     except Exception:
         return result
 
+    try:
+        auth_headers = _headers()
+    except Exception:
+        auth_headers = {}
+
     def _fetch(path: str) -> tuple[str, str]:
         try:
             url = (
                 f"{GITHUB_API_BASE}/repos/{GITHUB_OWNER}/{GITHUB_REPO}"
                 f"/commits?path={path}&per_page=1"
             )
-            res = requests.get(url, headers=_headers())
+            res = requests.get(url, headers=auth_headers)
             if res.status_code == 200 and res.json():
                 return path, res.json()[0]["commit"]["committer"]["date"][:10]
             return path, "-"
