@@ -6,6 +6,7 @@ from typing import List
 from io import BytesIO
 
 from github_loader import (
+    walk_repo_tree,
     walk_repo_tree_with_dates,
     load_file_bytes_from_github,
     is_supported_file,
@@ -25,6 +26,7 @@ def _logical_github_name(filename: str) -> str:
 
 def _clear_github_cache():
     list_dir.clear()
+    walk_repo_tree.clear()
     walk_repo_tree_with_dates.clear()
 
 def _navigate_to_register_tab():
