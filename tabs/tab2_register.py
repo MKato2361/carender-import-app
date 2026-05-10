@@ -7,10 +7,10 @@ from streamlit_sortables import sort_items as _sort_items
 import pandas as pd
 from datetime import datetime, timedelta, date, time
 from zoneinfo import ZoneInfo
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 from utils.helpers import safe_get
-from core.parsers.description import extract_worksheet_id as extract_worksheet_id_from_text, is_event_changed
+from core.parsers.description import extract_worksheet_id as extract_worksheet_id_from_text, parse_description_fields, is_event_changed
 from excel_parser import (
     process_excel_data_for_calendar,
     get_available_columns_for_event_name,
@@ -420,13 +420,15 @@ def _execute_registration(
     failed_items = []
     total = len(df)
 
-    window = compute_fetch_window_from_df(df, buffer_days=30)
+    # 日付バッファを90日に拡張（作業日再スケジュール時のフェッチ漏れを防止）
+    window = compute_fetch_window_from_df(df, buffer_days=90)
     time_min, time_max = window if window else default_fetch_window(2)
 
     with st.spinner("既存イベントを取得中..."):
         events = fetch_all_events(service, calendar_id, time_min, time_max) or []
 
-    worksheet_to_event: Dict[str, dict] = {}
+    # 同一作業指示書IDに複数イベントが紐づく場合を考慮してリストで保持
+    worksheet_to_events: Dict[str, List[dict]] = {}
     outside_key_to_event: Dict[str, dict] = {}
 
     for ev in events:
@@ -440,7 +442,32 @@ def _execute_registration(
         else:
             wid = extract_worksheet_id_from_text(ev.get("description") or "")
             if wid:
-                worksheet_to_event[wid] = ev
+                worksheet_to_events.setdefault(wid, []).append(ev)
+
+    # バルクフェッチで見つからなかった作業指示書IDをカレンダーのテキスト検索で補完
+    if not outside_mode:
+        missing_wids: set = set()
+        for _, _row in df.iterrows():
+            _wid = extract_worksheet_id_from_text(safe_get(_row, "Description", ""))
+            if _wid and _wid not in worksheet_to_events:
+                missing_wids.add(_wid)
+
+        if missing_wids:
+            with st.spinner(f"未照合の作業指示書 {len(missing_wids)} 件を検索中..."):
+                for _wid in missing_wids:
+                    try:
+                        _resp = service.events().list(
+                            calendarId=calendar_id,
+                            q=f"作業指示書: {_wid}",
+                            singleEvents=True,
+                            maxResults=10,
+                        ).execute()
+                        for _ev in _resp.get("items", []):
+                            _ev_wid = extract_worksheet_id_from_text(_ev.get("description") or "")
+                            if _ev_wid == _wid:
+                                worksheet_to_events.setdefault(_wid, []).append(_ev)
+                    except Exception:
+                        pass
 
     for i, row in df.iterrows():
         desc_text = safe_get(row, "Description", "")
@@ -494,7 +521,20 @@ def _execute_registration(
             existing = outside_key_to_event.get(f"{core}|{row_s}|{row_e}")
         else:
             worksheet_id = extract_worksheet_id_from_text(desc_text)
-            existing = worksheet_to_event.get(worksheet_id) if worksheet_id else None
+            existing = None
+            if worksheet_id:
+                candidates = worksheet_to_events.get(worksheet_id, [])
+                if len(candidates) == 1:
+                    existing = candidates[0]
+                elif len(candidates) > 1:
+                    # 管理番号で絞り込む
+                    new_assetnum = parse_description_fields(desc_text).get("assetnum", "")
+                    for _c in candidates:
+                        if parse_description_fields(_c.get("description", "")).get("assetnum", "") == new_assetnum:
+                            existing = _c
+                            break
+                    if existing is None:
+                        existing = candidates[0]
 
         try:
             if existing:
@@ -524,7 +564,7 @@ def _execute_registration(
                     else:
                         wid = extract_worksheet_id_from_text(desc_text)
                         if wid:
-                            worksheet_to_event[wid] = added_event
+                            worksheet_to_events.setdefault(wid, []).append(added_event)
                 else:
                     failed_count += 1
                     failed_items.append({
