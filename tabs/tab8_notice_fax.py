@@ -31,6 +31,8 @@ ASSETNUM_PATTERN = re.compile(
     r"[［\[]?\s*管理番号[：:]\s*([0-9A-Za-z\-]+)\s*[］\]]?"
 )
 WORKTYPE_PATTERN = re.compile(r"\[作業タイプ[：:]\s*(.*?)\]")
+# イベントタイトル先頭の [点検] / ［点検］ 形式
+TITLE_PREFIX_PATTERN = re.compile(r"^[[［]([^\]［］]+)[\]］]")
 
 DISPLAY_COLS = [
     "作成",
@@ -74,11 +76,17 @@ def extract_assetnum(text: str) -> str:
     return m.group(1).strip() if m else ""
 
 
-def extract_worktype(text: str) -> str:
-    if not text:
-        return ""
-    m = WORKTYPE_PATTERN.search(unicodedata.normalize("NFKC", str(text)))
-    return (m.group(1) or "").strip() if m else ""
+def extract_worktype(desc: str, title: str = "") -> str:
+    """description の [作業タイプ: X] を優先し、なければタイトル先頭の [X] を使う。"""
+    if desc:
+        m = WORKTYPE_PATTERN.search(unicodedata.normalize("NFKC", str(desc)))
+        if m:
+            return (m.group(1) or "").strip()
+    if title:
+        m = TITLE_PREFIX_PATTERN.match(unicodedata.normalize("NFKC", str(title)))
+        if m:
+            return (m.group(1) or "").strip()
+    return ""
 
 
 def get_event_start_datetime(event: Dict[str, Any]) -> Optional[datetime]:
@@ -312,7 +320,7 @@ def render_tab8_notice_fax(manager, current_user_email: str) -> None:
                             "物件名": _pm_get(pm_idx, mgmt, "物件名") or ev.get("summary", ""),
                             "予定日": start_dt.strftime("%m/%d") if start_dt else "-",
                             "予定時間": start_dt.strftime("%H:%M") if start_dt else "-",
-                            "作業タイプ": extract_worktype(desc),
+                            "作業タイプ": extract_worktype(desc, ev.get("summary", "")),
                             "イベントタイトル": ev.get("summary", ""),
                             "備考": desc[:50] + "..." if len(desc) > 50 else desc,
                         })
@@ -441,7 +449,7 @@ def _generate_single_docx(ev, row, pm_idx):
     if "ASSETNUM" not in tags and mgmt:
         tags["ASSETNUM"] = mgmt
 
-    work_type = extract_worktype(desc) or "default"
+    work_type = extract_worktype(desc, summary) or "default"
     template_file = DEFAULT_TEMPLATE_MAP.get(work_type, DEFAULT_TEMPLATE_MAP.get("default"))
     template_path = os.path.join("templates", template_file)
     start_dt = get_event_start_datetime(ev)
