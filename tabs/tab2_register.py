@@ -155,6 +155,8 @@ def _normalize_row_times_to_key(row: dict, all_day_flag: str) -> tuple:
             f"{row.get('End Date', '') or row.get('Start Date', '')} {row.get('End Time', '') or row.get('Start Time', '')}",
             "%Y/%m/%d %H:%M",
         ).replace(tzinfo=JST)
+        if edt <= sdt:
+            edt = sdt + timedelta(hours=1)
         return sdt.strftime("%Y-%m-%dT%H:%M"), edt.strftime("%Y-%m-%dT%H:%M")
     except Exception:
         return row.get("Start Date", ""), row.get("End Date", "") or row.get("Start Date", "")
@@ -498,6 +500,8 @@ def _execute_registration(
                 edt = datetime.strptime(
                     f"{end_date_str or start_date_str} {end_time_str or start_time_str}", "%Y/%m/%d %H:%M"
                 ).replace(tzinfo=JST)
+                if edt <= sdt:
+                    edt = sdt + timedelta(hours=1)
                 event_data["start"] = {"dateTime": sdt.isoformat(), "timeZone": "Asia/Tokyo"}
                 event_data["end"] = {"dateTime": edt.isoformat(), "timeZone": "Asia/Tokyo"}
         except Exception as e:

@@ -358,11 +358,8 @@ def process_excel_data_for_calendar(
         if start is None:
             continue
 
-        if end is not None and end < start:
-            if used_bulk_datetime:
-                end = start + datetime.timedelta(hours=1)
-            else:
-                continue
+        if end is not None and end <= start:
+            end = start + datetime.timedelta(hours=1)
 
         # 終日イベントにはしない
         is_all_day = False

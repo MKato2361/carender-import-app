@@ -164,6 +164,22 @@ def _pm_index(pm_view_df: pd.DataFrame) -> Optional[pd.DataFrame]:
     return None
 
 
+def _pm_get(pm_idx: Optional[pd.DataFrame], mgmt: str, col: str, default: str = "") -> str:
+    """
+    pm_idx から指定列の値を安全に取得する。
+    管理番号が重複している場合は先頭行を採用する。
+    """
+    if pm_idx is None or mgmt not in pm_idx.index:
+        return default
+    row = pm_idx.loc[mgmt]
+    if isinstance(row, pd.DataFrame):
+        row = row.iloc[0]
+    val = row.get(col, default)
+    if val is None or (isinstance(val, float) and pd.isna(val)) or str(val).strip() == "":
+        return default
+    return str(val).strip()
+
+
 def _clear_candidates() -> None:
     for k in (
         "notice_fax_candidates_df",
@@ -285,7 +301,7 @@ def render_tab8_notice_fax(manager, current_user_email: str) -> None:
                         if use_master_filter and pm_idx is not None:
                             if mgmt not in pm_idx.index:
                                 continue
-                            if str(pm_idx.loc[mgmt].get("貼り紙テンプレ種別", "")).strip() != "自社":
+                            if _pm_get(pm_idx, mgmt, "貼り紙テンプレ種別") != "自社":
                                 continue
 
                         start_dt = get_event_start_datetime(ev)
@@ -293,7 +309,7 @@ def render_tab8_notice_fax(manager, current_user_email: str) -> None:
                             "作成": True,
                             "event_id": ev["id"],
                             "管理番号": mgmt,
-                            "物件名": pm_idx.loc[mgmt].get("物件名", "") if pm_idx is not None and mgmt in pm_idx.index else ev.get("summary", ""),
+                            "物件名": _pm_get(pm_idx, mgmt, "物件名") or ev.get("summary", ""),
                             "予定日": start_dt.strftime("%m/%d") if start_dt else "-",
                             "予定時間": start_dt.strftime("%H:%M") if start_dt else "-",
                             "作業タイプ": extract_worktype(desc),
@@ -431,11 +447,7 @@ def _generate_single_docx(ev, row, pm_idx):
     start_dt = get_event_start_datetime(ev)
     when_str = start_dt.date().strftime("%Y-%m-%d") if start_dt else ""
 
-    name_for_doc = (
-        str(pm_idx.loc[mgmt].get("物件名") or summary or mgmt).strip()
-        if pm_idx is not None and mgmt in pm_idx.index
-        else str(summary or mgmt).strip()
-    )
+    name_for_doc = _pm_get(pm_idx, mgmt, "物件名") or str(summary or mgmt).strip()
 
     replacements = build_replacements_from_event(ev, name_for_doc, tags)
     safe_title = f"{when_str}_{mgmt}_{name_for_doc}"
