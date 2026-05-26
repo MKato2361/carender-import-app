@@ -387,7 +387,9 @@ def _render_bulk_datetime_settings(all_day_override: bool) -> None:
 def _render_event_name_settings(user_id):
     """イベント名設定ウィジェットを描画する（値はセッション状態に保存済みのものを使う）"""
     pool = st.session_state.get("description_columns_pool") or []
-    options = ["選択しない"] + pool
+    saved_cols = st.session_state.get("reg_desc_cols", [])
+
+    options = list(dict.fromkeys(pool + saved_cols))
     # reg_fallback_col の値がプールに存在しない場合はリセット
     if st.session_state.get("reg_fallback_col") not in options:
         st.session_state["reg_fallback_col"] = "選択しない"
@@ -671,9 +673,7 @@ def render_tab2_register(user_id: str, manager):
 
     # プールが変わったら reg_desc_cols の存在しない列をフィルタして修正
     if "reg_desc_cols" in st.session_state:
-        valid_cols = [c for c in st.session_state["reg_desc_cols"] if c in pool]
-        if valid_cols != st.session_state["reg_desc_cols"]:
-            st.session_state["reg_desc_cols"] = valid_cols
+
 
     if "reg_all_day" not in st.session_state:
         st.session_state["reg_all_day"] = get_user_setting(user_id, "default_allday_event") or False
@@ -682,7 +682,7 @@ def render_tab2_register(user_id: str, manager):
         st.session_state["reg_private"] = v if v is not None else True
     if "reg_desc_cols" not in st.session_state:
         saved = get_user_setting(user_id, "description_columns_selected") or ["内容", "詳細"]
-        st.session_state["reg_desc_cols"] = [col for col in saved if col in pool]
+        st.session_state["reg_desc_cols"] = saved
     if "reg_desc_cols_order" not in st.session_state:
         st.session_state["reg_desc_cols_order"] = list(st.session_state["reg_desc_cols"])
     if "reg_desc_include_header" not in st.session_state:
