@@ -299,25 +299,34 @@ def _build_calendar_df_from_outside(df_raw: pd.DataFrame, private_event: bool, a
 def _render_event_settings(user_id, outside_mode):
     """設定ウィジェットを描画する（値はセッション状態に保存済みのものを使う）"""
     st.markdown('<div class="section-heading"><span class="mi">tune</span>イベント基本設定</div>', unsafe_allow_html=True)
+    
+    # ──【追加】コールバック関数 ──
+    def save_all_day():
+        set_user_setting(user_id, "default_allday_event", st.session_state["reg_all_day"])
+
+    def save_private():
+        set_user_setting(user_id, "default_private_event", st.session_state["reg_private"])
+
     col1, col2 = st.columns(2)
     with col1:
-        st.checkbox("すべて終日として扱う", key="reg_all_day")
+        # on_change を追加して、変更された瞬間に保存
+        st.checkbox("すべて終日として扱う", key="reg_all_day", on_change=save_all_day)
     with col2:
-        st.checkbox("すべて非公開で登録する", key="reg_private")
+        # on_change を追加して、変更された瞬間に保存
+        st.checkbox("すべて非公開で登録する", key="reg_private", on_change=save_private)
         
     if not outside_mode:
         pool = st.session_state.get("description_columns_pool") or []
         
-        # 【修正】保存されている選択情報を取得
+        # 保存されている選択情報を取得
         saved_desc_cols = get_user_setting(user_id, "description_columns_selected") or ["内容", "詳細"]
         # プール（現在のファイル）に存在する設定だけをデフォルト値として抽出
         default_selected = [c for c in saved_desc_cols if c in pool]
         
-        # 【修正】default引数を設定
         new_cols = st.multiselect(
             "説明文に含める列", 
             pool, 
-            default=default_selected,  # これにより次回ファイル取込時も保持されます
+            default=default_selected,
             key="reg_desc_cols"
         )
         
@@ -350,11 +359,9 @@ def _render_event_settings(user_id, outside_mode):
             st.session_state["reg_desc_cols_order"] = []
             sorted_cols = []
             
-        # 【修正】並び替え確定後、または選択変更後に即時保存
         current_order = st.session_state.get("reg_desc_cols_order", [])
         if current_order != saved_desc_cols:
             set_user_setting(user_id, "description_columns_selected", current_order)
-
 
 def _render_bulk_datetime_settings(all_day_override: bool) -> None:
     """
