@@ -671,10 +671,6 @@ def render_tab2_register(user_id: str, manager):
     # ── セッション状態の初期化（ウィジェット描画前に1度だけ） ──
     pool = st.session_state.get("description_columns_pool") or []
 
-    # プールが変わったら reg_desc_cols の存在しない列をフィルタして修正
-    if "reg_desc_cols" in st.session_state:
-
-
     if "reg_all_day" not in st.session_state:
         st.session_state["reg_all_day"] = get_user_setting(user_id, "default_allday_event") or False
     if "reg_private" not in st.session_state:
