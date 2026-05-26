@@ -669,28 +669,60 @@ def render_tab2_register(user_id: str, manager):
         base_calendar = calendar_options[0]
 
     # ── セッション状態の初期化（ウィジェット描画前に1度だけ） ──
+    # ── セッション状態の初期化（ウィジェット描画前に1度だけ） ──
     pool = st.session_state.get("description_columns_pool") or []
 
+# 保存済みの説明文列を取得
+    saved_desc_cols = get_user_setting(user_id, "description_columns_selected") or ["内容", "詳細"]
+
+# 元ファイルに存在しない列でもUIから消えないよう統合
+    merged_pool = list(dict.fromkeys(pool + saved_desc_cols))
+    st.session_state["description_columns_pool"] = merged_pool
+
     if "reg_all_day" not in st.session_state:
-        st.session_state["reg_all_day"] = get_user_setting(user_id, "default_allday_event") or False
+        st.session_state["reg_all_day"] = (
+            get_user_setting(user_id, "default_allday_event") or False
+        )
+
     if "reg_private" not in st.session_state:
         v = get_user_setting(user_id, "default_private_event")
         st.session_state["reg_private"] = v if v is not None else True
-    if "reg_desc_cols" not in st.session_state:
-        saved = get_user_setting(user_id, "description_columns_selected") or ["内容", "詳細"]
-        st.session_state["reg_desc_cols"] = saved
-    if "reg_desc_cols_order" not in st.session_state:
-        st.session_state["reg_desc_cols_order"] = list(st.session_state["reg_desc_cols"])
+
+# 保存済み設定を優先して同期
+    current_reg_cols = st.session_state.get("reg_desc_cols")
+    
+    if (
+        current_reg_cols is None
+        or set(current_reg_cols) != set(saved_desc_cols)
+    ):
+        st.session_state["reg_desc_cols"] = saved_desc_cols.copy()
+
+    current_order = st.session_state.get("reg_desc_cols_order")
+
+    if (
+        current_order is None
+        or set(current_order) != set(saved_desc_cols)
+    ):
+        st.session_state["reg_desc_cols_order"] = saved_desc_cols.copy()
+
     if "reg_desc_include_header" not in st.session_state:
-        st.session_state["reg_desc_include_header"] = get_user_setting(user_id, "description_include_col_header") or False
+        st.session_state["reg_desc_include_header"] = (
+            get_user_setting(user_id, "description_include_col_header") or False
+        )
+
     if "reg_add_task_type" not in st.session_state:
-        st.session_state["reg_add_task_type"] = get_user_setting(user_id, "add_task_type_to_event_name") or False
+        st.session_state["reg_add_task_type"] = (
+            get_user_setting(user_id, "add_task_type_to_event_name") or False
+        )
+
     if "reg_fallback_col" not in st.session_state:
-        st.session_state["reg_fallback_col"] = get_user_setting(user_id, "event_name_col_selected") or "選択しない"
+        st.session_state["reg_fallback_col"] = (
+            get_user_setting(user_id, "event_name_col_selected") or "選択しない"
+        )
+
     st.session_state.setdefault("bulk_datetime_enabled", False)
     st.session_state.setdefault("bulk_start_date", date.today())
     st.session_state.setdefault("bulk_start_time", time(9, 0))
-
     # ── セッション状態から設定値を読み取る ──
     all_day_override    = st.session_state["reg_all_day"]
     private_event       = st.session_state["reg_private"]
