@@ -720,10 +720,14 @@ def render_tab2_register(user_id: str, manager):
         
     if "reg_desc_include_header" not in st.session_state:
         st.session_state["reg_desc_include_header"] = (get_user_setting(user_id, "description_include_col_header") or False)
+    # 296行目付近の初期化ロジック
     if "reg_add_task_type" not in st.session_state:
         st.session_state["reg_add_task_type"] = (get_user_setting(user_id, "add_task_type_to_event_name") or False)
+        
+    # 【修正】初期値に「選択しない」を厳格に割り当てる
     if "reg_fallback_col" not in st.session_state:
-        st.session_state["reg_fallback_col"] = (get_user_setting(user_id, "event_name_col_selected") or "選択しない")
+        saved_val = get_user_setting(user_id, "event_name_col_selected")
+        st.session_state["reg_fallback_col"] = saved_val if saved_val else "選択しない"
     st.session_state.setdefault("bulk_datetime_enabled", False)
     st.session_state.setdefault("bulk_start_date", date.today())
     st.session_state.setdefault("bulk_start_time", time(9, 0))
