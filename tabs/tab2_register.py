@@ -431,14 +431,21 @@ def _render_event_name_settings(user_id):
             add_type = st.checkbox("先頭に作業種別を付与する", key="reg_add_task_type")
             set_user_setting(user_id, "add_task_type_to_event_name", add_type)
         with col2:
-            # options と index を指定
+            # 【対策】現在の選択肢の「数」や「中身」をキーに含めることで、
+            # 選択肢が変わった（新しいファイルが入った）瞬間にUIを強制的に新品に交換します。
+            options_hash = len(options)
+            
             fallback = st.selectbox(
                 "特定の列をイベント名にする（任意）", 
                 options, 
                 index=default_index,
-                key="reg_fallback_col"
+                key=f"reg_fallback_col_widget_{options_hash}" # ← キーを動的にして状態をクリア
             )
-            # ユーザーが明示的にUIを「選択しない」以外に変えた場合のみ、DBへの保存を連動させる
+            
+            # 選択された値を本来のセッション状態に同期
+            st.session_state["reg_fallback_col"] = fallback
+            
+            # ユーザーが明示的にUIを変えた場合のみ、DBへの保存を連動させる
             if fallback != get_user_setting(user_id, "event_name_col_selected"):
                 set_user_setting(user_id, "event_name_col_selected", fallback)
 
