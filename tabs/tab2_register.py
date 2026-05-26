@@ -304,33 +304,43 @@ def _render_event_settings(user_id, outside_mode):
         st.checkbox("すべて終日として扱う", key="reg_all_day")
     with col2:
         st.checkbox("すべて非公開で登録する", key="reg_private")
-
+        
     if not outside_mode:
         pool = st.session_state.get("description_columns_pool") or []
-        new_cols = st.multiselect("説明文に含める列", pool, key="reg_desc_cols")
-
+        
+        # 【修正】保存されている選択情報を取得
+        saved_desc_cols = get_user_setting(user_id, "description_columns_selected") or ["内容", "詳細"]
+        # プール（現在のファイル）に存在する設定だけをデフォルト値として抽出
+        default_selected = [c for c in saved_desc_cols if c in pool]
+        
+        # 【修正】default引数を設定
+        new_cols = st.multiselect(
+            "説明文に含める列", 
+            pool, 
+            default=default_selected,  # これにより次回ファイル取込時も保持されます
+            key="reg_desc_cols"
+        )
+        
         # 選択済みの列をドラッグで並び替え
         prev_order = st.session_state.get("reg_desc_cols_order", [])
-        # 既存の順序を維持しつつ、削除された列を除き、新規列を末尾に追加
         synced = [c for c in prev_order if c in new_cols]
         synced += [c for c in new_cols if c not in synced]
-
-        # 選択セットが変わったらソータブルを強制リマウント
+        
         if set(prev_order) != set(new_cols):
             ver = st.session_state.get("_desc_sort_ver", 0) + 1
             st.session_state["_desc_sort_ver"] = ver
             st.session_state["reg_desc_cols_order"] = synced
-
+            
         st.checkbox("説明文に列名を含める（例: 内容：〇〇）", key="reg_desc_include_header")
         saved_header = get_user_setting(user_id, "description_include_col_header") or False
         if st.session_state.get("reg_desc_include_header") != saved_header:
             set_user_setting(user_id, "description_include_col_header", st.session_state["reg_desc_include_header"])
-
+            
         if new_cols:
             st.caption("順序（ドラッグで並び替え）")
             sorted_cols = _sort_items(
-                synced,
-                direction="horizontal",
+                synced, 
+                direction="horizontal", 
                 key=f"desc_sort_{st.session_state.get('_desc_sort_ver', 0)}",
                 custom_style=".sortable-item { font-size: 13px; padding: 4px 12px; border-radius: 6px; cursor: grab; }",
             )
@@ -339,10 +349,10 @@ def _render_event_settings(user_id, outside_mode):
         else:
             st.session_state["reg_desc_cols_order"] = []
             sorted_cols = []
-
-        saved = get_user_setting(user_id, "description_columns_selected") or []
+            
+        # 【修正】並び替え確定後、または選択変更後に即時保存
         current_order = st.session_state.get("reg_desc_cols_order", [])
-        if current_order != saved:
+        if current_order != saved_desc_cols:
             set_user_setting(user_id, "description_columns_selected", current_order)
 
 
@@ -668,58 +678,31 @@ def render_tab2_register(user_id: str, manager):
     if base_calendar not in calendar_options:
         base_calendar = calendar_options[0]
 
-    # ── セッション状態の初期化（ウィジェット描画前に1度だけ） ──
-    # ── セッション状態の初期化（ウィジェット描画前に1度だけ） ──
+
+# ── セッション状態の初期化 ──
     pool = st.session_state.get("description_columns_pool") or []
-
-# 保存済みの説明文列を取得
     saved_desc_cols = get_user_setting(user_id, "description_columns_selected") or ["内容", "詳細"]
-
-# 元ファイルに存在しない列でもUIから消えないよう統合
+    
+    # 元ファイルに存在しない列でもUIから消えないよう統合
     merged_pool = list(dict.fromkeys(pool + saved_desc_cols))
     st.session_state["description_columns_pool"] = merged_pool
-
+    
     if "reg_all_day" not in st.session_state:
-        st.session_state["reg_all_day"] = (
-            get_user_setting(user_id, "default_allday_event") or False
-        )
-
+        st.session_state["reg_all_day"] = (get_user_setting(user_id, "default_allday_event") or False)
     if "reg_private" not in st.session_state:
         v = get_user_setting(user_id, "default_private_event")
         st.session_state["reg_private"] = v if v is not None else True
-
-# 保存済み設定を優先して同期
-    current_reg_cols = st.session_state.get("reg_desc_cols")
-    
-    if (
-        current_reg_cols is None
-        or set(current_reg_cols) != set(saved_desc_cols)
-    ):
-        st.session_state["reg_desc_cols"] = saved_desc_cols.copy()
-
-    current_order = st.session_state.get("reg_desc_cols_order")
-
-    if (
-        current_order is None
-        or set(current_order) != set(saved_desc_cols)
-    ):
+        
+    # 【修正】毎回上書きする処理を削除し、初回のみ設定
+    if "reg_desc_cols_order" not in st.session_state:
         st.session_state["reg_desc_cols_order"] = saved_desc_cols.copy()
-
+        
     if "reg_desc_include_header" not in st.session_state:
-        st.session_state["reg_desc_include_header"] = (
-            get_user_setting(user_id, "description_include_col_header") or False
-        )
-
+        st.session_state["reg_desc_include_header"] = (get_user_setting(user_id, "description_include_col_header") or False)
     if "reg_add_task_type" not in st.session_state:
-        st.session_state["reg_add_task_type"] = (
-            get_user_setting(user_id, "add_task_type_to_event_name") or False
-        )
-
+        st.session_state["reg_add_task_type"] = (get_user_setting(user_id, "add_task_type_to_event_name") or False)
     if "reg_fallback_col" not in st.session_state:
-        st.session_state["reg_fallback_col"] = (
-            get_user_setting(user_id, "event_name_col_selected") or "選択しない"
-        )
-
+        st.session_state["reg_fallback_col"] = (get_user_setting(user_id, "event_name_col_selected") or "選択しない")
     st.session_state.setdefault("bulk_datetime_enabled", False)
     st.session_state.setdefault("bulk_start_date", date.today())
     st.session_state.setdefault("bulk_start_time", time(9, 0))
