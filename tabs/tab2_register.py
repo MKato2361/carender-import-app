@@ -406,18 +406,22 @@ def _render_event_name_settings(user_id):
     pool = st.session_state.get("description_columns_pool") or []
     saved_cols = st.session_state.get("reg_desc_cols") or []
     
-    # 【修正】選択肢のリストを作成（重複排除）し、先頭に「選択しない」を固定で追加
+    # 選択肢のリストを作成（重複排除）し、先頭に「選択しない」を固定で追加
     dynamic_options = list(dict.fromkeys(pool + saved_cols))
     options = ["選択しない"] + [opt for opt in dynamic_options if opt != "選択しない"]
 
-    # データベースやセッションから現在の設定値を取得。
-    # 存在しない、または「選択しない」の場合はインデックスを 0 にする
-    current_setting = st.session_state.get("reg_fallback_col") or get_user_setting(user_id, "event_name_col_selected") or "選択しない"
+    # 【修正】セッション状態を最優先。なければDBから取得するが、
+    # 完全に新規ファイルを取り込んだ直後など、明示的な選択がない場合は「選択しない」をデフォルトにする
+    if "reg_fallback_col" in st.session_state:
+        current_setting = st.session_state["reg_fallback_col"]
+    else:
+        current_setting = get_user_setting(user_id, "event_name_col_selected") or "選択しない"
     
+    # 選択肢の中に設定値が存在するかチェック
     if current_setting in options:
         default_index = options.index(current_setting)
     else:
-        default_index = 0
+        default_index = 0  # 存在しなければ確実に「選択しない」
 
     is_customized = (st.session_state.get("reg_add_task_type", False) or current_setting != "選択しない")
 
@@ -427,14 +431,14 @@ def _render_event_name_settings(user_id):
             add_type = st.checkbox("先頭に作業種別を付与する", key="reg_add_task_type")
             set_user_setting(user_id, "add_task_type_to_event_name", add_type)
         with col2:
-            # 【修正】options と index を明示的に指定してフックする
+            # options と index を指定
             fallback = st.selectbox(
                 "特定の列をイベント名にする（任意）", 
                 options, 
                 index=default_index,
                 key="reg_fallback_col"
             )
-            # 変更があったらデータベースに即座に保存
+            # ユーザーが明示的にUIを「選択しない」以外に変えた場合のみ、DBへの保存を連動させる
             if fallback != get_user_setting(user_id, "event_name_col_selected"):
                 set_user_setting(user_id, "event_name_col_selected", fallback)
 
