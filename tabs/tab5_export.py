@@ -227,13 +227,15 @@ def render_tab5_export(manager) -> None:
         st.date_input(
             "開始日",
             key="export_start_date",
-
+            on_change=_on_start_date_change,
+            help="開始日を変更すると、終了日が自動的に1ヶ月後にセットされます。"
         )
     with col2:
         st.date_input(
             "終了日",
             key="export_end_date",
-
+            min_value=st.session_state["export_start_date"],
+        )
 
     export_start_date: date = st.session_state["export_start_date"]
     export_end_date: date = st.session_state["export_end_date"]
