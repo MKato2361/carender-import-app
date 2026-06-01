@@ -161,7 +161,6 @@ def _build_download_section(df: pd.DataFrame, file_base_name: str, export_format
 # ==============================
 def render_tab5_export(manager) -> None:
     """タブ5: カレンダーイベントをExcel/CSVへ出力"""
-    # manager から必要なサービスとオプションを取得
     service = st.session_state.get("calendar_service")
     editable_calendar_options = st.session_state.get("editable_calendar_options", {})
 
@@ -202,39 +201,21 @@ def render_tab5_export(manager) -> None:
     _default_end = date(_end_year, _end_month, 1) - timedelta(days=1)
 
     # セッション状態の初期化
-    # 未設定 or 過去の月のまま残っている場合はデフォルト（翌月1日）にリセット
-    if ("export_start_date" not in st.session_state
-            or st.session_state["export_start_date"] < _default_start):
+    if "export_start_date" not in st.session_state:
         st.session_state["export_start_date"] = _default_start
-    if ("export_end_date" not in st.session_state
-            or st.session_state["export_end_date"] < _default_start):
+    if "export_end_date" not in st.session_state:
         st.session_state["export_end_date"] = _default_end
-
-    # コールバック関数: 開始日が変更されたら終了日を1ヶ月後にセット
-    def _on_start_date_change():
-        new_start = st.session_state["export_start_date"]
-        # 翌月を計算
-        month = new_start.month + 1
-        year = new_start.year + (1 if month > 12 else 0)
-        month = month if month <= 12 else 1
-        # 翌月の末日を取得して、日が範囲外にならないように調整
-        last_day = cal_mod.monthrange(year, month)[1]
-        auto_end = new_start.replace(year=year, month=month, day=min(new_start.day, last_day))
-        st.session_state["export_end_date"] = auto_end
 
     col1, col2 = st.columns(2)
     with col1:
         st.date_input(
             "開始日",
             key="export_start_date",
-            on_change=_on_start_date_change,
-            help="開始日を変更すると、終了日が自動的に1ヶ月後にセットされます。"
         )
     with col2:
         st.date_input(
             "終了日",
             key="export_end_date",
-            min_value=st.session_state["export_start_date"],
         )
 
     export_start_date: date = st.session_state["export_start_date"]
@@ -263,7 +244,7 @@ def render_tab5_export(manager) -> None:
                 return
 
             progress.progress(80, text="ダウンロード準備中...")
-            
+
             start_str = export_start_date.strftime("%Y%m%d")
             end_str = export_end_date.strftime("%m%d")
             file_base_name = f"{safe_filename(selected_calendar_name_export)}_{start_str}_{end_str}"
@@ -271,12 +252,12 @@ def render_tab5_export(manager) -> None:
             st.success(f"✅ {len(df_filtered)} 件のデータを抽出しました。")
             if excluded_count > 0:
                 st.caption(f"※ 作業指示書番号がないイベント {excluded_count} 件を除外しました。")
-            
+
             _build_download_section(df_filtered, file_base_name, export_format)
-            
+
             with st.expander("抽出データプレビュー", expanded=True):
                 st.dataframe(df_filtered, use_container_width=True)
-            
+
             progress.progress(100, text="✅ 完了")
 
         except Exception as e:
