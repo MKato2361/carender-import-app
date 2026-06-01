@@ -234,8 +234,7 @@ def render_tab5_export(manager) -> None:
         st.date_input(
             "終了日",
             key="export_end_date",
-            min_value=st.session_state["export_start_date"],
-        )
+
 
     export_start_date: date = st.session_state["export_start_date"]
     export_end_date: date = st.session_state["export_end_date"]
